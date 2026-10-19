@@ -68,6 +68,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     func closePopover() { popover.performClose(nil) }
 
+    func showPopover() {
+        guard !popover.isShown else { return }
+        toggle()
+    }
+
     // MARK: - 右键菜单
 
     private func showMenu() {
