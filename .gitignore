@@ -1,0 +1,13 @@
+# macOS
+.DS_Store
+
+# Xcode / Swift
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.build/
+.swiftpm/
+
+# 品牌素材的中间产物（由 brand/tools/export_icons.swift 生成，icns 已提交）
+brand/icon/VoxPalm.iconset/
