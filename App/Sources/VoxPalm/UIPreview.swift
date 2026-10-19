@@ -7,6 +7,9 @@ import VoxPalmEngine
 /// - `VoxPalm --render-ui <目录>`：菜单栏图标、面板、说话浮窗、设置各页、引导各步，浅色深色各一张
 @MainActor
 enum UIPreview {
+    /// 正在画预览图：不开麦量音量、不进认设备模式
+    static var isRendering = false
+
     static func renderIfRequested() {
         let args = CommandLine.arguments
         if let index = args.firstIndex(of: "--render-live"), index + 1 < args.count {
@@ -99,17 +102,19 @@ extension UIPreview {
     static func renderLive(to directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         registerIconIfNeeded()
+        isRendering = true
         let model = AppModel.shared
+        prepareDemo(model)
         for dark in [false, true] {
             let suffix = dark ? "dark" : "light"
-            for step in 0..<4 {
+            for step in OnboardingView.Step.allCases {
                 liveShot(OnboardingView(step: step) {}.environment(model), titled: true, dark: dark,
-                         to: directory.appendingPathComponent("live-onboarding-\(step)-\(suffix).png"))
+                         to: directory.appendingPathComponent("live-onboarding-\(step.rawValue)-\(suffix).png"))
             }
             model.cancelLearning()
             liveShot(MenuContentView().environment(model), titled: true, dark: dark,
                      to: directory.appendingPathComponent("live-panel-\(suffix).png"))
-            for pane in [SettingsPane.devices, .keys] {
+            for pane in SettingsPane.allCases where pane != .permissions {
                 let navigation = SettingsNavigation()
                 navigation.pane = pane
                 liveShot(SettingsView().environment(model).environment(navigation).frame(width: 900, height: 680), titled: true, dark: dark,
@@ -169,10 +174,21 @@ extension UIPreview {
         }
     }
 
+    /// 用调试配置文件跑时，先选上媒体键、设好说话键，引导后几步和面板才有东西可画（不碰真正的设置）。
+    private static func prepareDemo(_ model: AppModel) {
+        guard ProcessInfo.processInfo.environment["VOXPALM_CONFIG"] != nil else { return }
+        model.selectControlDevice(SystemKeysControlSource.mediaDeviceID)
+        model.setBinding(KeyBinding(button: .media(16), buttonLabel: "播放 / 暂停（F8）", gesture: .long, action: .pushToTalk))
+        model.simulate(transcript: "好的，收到，我下午看。", app: "微信", ago: 360)
+        model.simulate(transcript: "下午三点的会改到四点，地点不变。", app: "备忘录", ago: 30)
+    }
+
     static func renderUI(to directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         registerIconIfNeeded()
+        isRendering = true
         let model = AppModel.shared
+        prepareDemo(model)
         model.simulate(transcript: "下午三点的会改到四点，地点不变。")
         for dark in [false, true] {
             let suffix = dark ? "dark" : "light"
@@ -194,11 +210,12 @@ extension UIPreview {
             model.simulate(voiceState: .idle)
             // 说话浮窗的每个状态
             let hudStates: [(String, HUDState)] = [
-                ("armed", .armed(since: Date())), ("listening", .listening(since: Date().addingTimeInterval(-4), subtitle: "蓝牙遥控器 · USB 接收器")),
-                ("ime", .inputMethod(since: Date().addingTimeInterval(-2), subtitle: "已替你按住 Fn · 麦克风临时切到 USB 接收器")),
-                ("transcribing", .transcribing), ("done", .done(characters: 15, app: "备忘录")),
-                ("short", .short(threshold: 0.45)), ("error", .error(title: "没听到声音", subtitle: "看看无线麦开了没有，或者换个收音设备")),
-                ("copied", .error(title: "字没贴进去", subtitle: "缺「辅助功能」权限，15 个字已经拷贝，按 ⌘V 粘贴")),
+                ("armed", .armed(since: Date().addingTimeInterval(-0.3), threshold: 0.5)), ("listening", .listening(since: Date().addingTimeInterval(-4), subtitle: "小米遥控器 2")),
+                ("ime", .inputMethod(since: Date().addingTimeInterval(-2), subtitle: "小米遥控器 2")),
+                ("transcribing", .transcribing), ("done", .done(characters: 15, app: "备忘录", snippet: "「下午三点的会改到四点，地…」")),
+                ("short", .message(title: "按住超过 0.5 秒才算", subtitle: nil, tone: .muted)),
+                ("error", .message(title: "没听到声音", subtitle: "看看麦克风开了没有，或者在面板里换一个", tone: .muted)),
+                ("copied", .message(title: "字在剪贴板里，按 ⌘V", subtitle: "缺「辅助功能」权限，贴不到光标处", tone: .warn)),
             ]
             let board = VStack(alignment: .leading, spacing: 0) {
                 ForEach(hudStates, id: \.0) { item in
@@ -216,9 +233,9 @@ extension UIPreview {
                          to: directory.appendingPathComponent("settings-\(pane.rawValue)-\(suffix).png"))
             }
             // 引导各步
-            for step in 0..<4 {
+            for step in OnboardingView.Step.allCases {
                 snapshot(OnboardingView(step: step) {}.environment(model), dark: dark,
-                         to: directory.appendingPathComponent("onboarding-\(step)-\(suffix).png"))
+                         to: directory.appendingPathComponent("onboarding-\(step.rawValue)-\(suffix).png"))
             }
             model.cancelLearning()
             // 授权小窗：拖图标、麦克风开开关、打开以后

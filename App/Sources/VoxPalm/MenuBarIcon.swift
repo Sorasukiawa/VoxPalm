@@ -25,9 +25,11 @@ enum MenuBarIcon {
     /// - Parameters:
     ///   - time: 动画用的秒数
     ///   - level: 录音音量 0…1
-    static func image(_ state: MenuBarIconState, time: Double = 0, level: Float = 0) -> NSImage {
+    ///   - progress: 准备中时外圈走了多少（0…1，满了就开始算长按）
+    ///   - flash: 刚出完字时两行字从左往右刷一下（0…1，1 是刷完）
+    static func image(_ state: MenuBarIconState, time: Double = 0, level: Float = 0, progress: Double = 0, flash: Double = 1) -> NSImage {
         // 待命和暂停只有黑白，用模板图让系统自己配深浅色；有颜色的状态用 labelColor，画的时候跟着菜单栏外观走。
-        let template = state == .idle || state == .paused
+        let template = (state == .idle || state == .paused) && flash >= 1
         let image = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { rect in
             let k = rect.width / 36
             let ink: NSColor = template ? .black : .labelColor
@@ -48,6 +50,19 @@ enum MenuBarIcon {
                 let scale = 0.72 + 0.28 * (0.5 + 0.5 * cos(2 * .pi * time / 0.9))
                 let d = 9.2 * scale
                 fill(NSBezierPath(ovalIn: r(8 - d / 2, 18 - d / 2, d, d)), coral)
+                // 外圈一圈按长按时间走满，和说话浮窗同步
+                let track = NSBezierPath(ovalIn: r(1.8, 11.8, 12.4, 12.4))
+                track.lineWidth = 1.8 * k
+                ink.withAlphaComponent(0.18).setStroke()
+                track.stroke()
+                if progress > 0 {
+                    let arc = NSBezierPath()
+                    arc.appendArc(withCenter: NSPoint(x: 8 * k, y: 18 * k), radius: 6.2 * k, startAngle: -90, endAngle: -90 + 360 * min(1, progress), clockwise: false)
+                    arc.lineWidth = 1.8 * k
+                    arc.lineCapStyle = .round
+                    coral.setStroke()
+                    arc.stroke()
+                }
             case .listening:
                 fill(NSBezierPath(ovalIn: r(3.4, 13.4, 9.2, 9.2)), coral)
             case .paused:
@@ -76,6 +91,11 @@ enum MenuBarIcon {
                 let p2 = ease(((time + 1.1 - 0.18).truncatingRemainder(dividingBy: 1.1)) / 1.1)
                 fill(capsule(r(23, 12, max(4, 10 * p1), 4)), ink)
                 fill(capsule(r(23, 20, max(4, 7 * p2), 4)), ink)
+            } else if flash < 1 {
+                // 出完字：两行字从左往右刷一下，第二行晚一点
+                let p1 = ease(min(1, flash / 0.7)), p2 = ease(max(0, min(1, (flash - 0.3) / 0.7)))
+                fill(capsule(r(23, 12, max(4, 10 * p1), 4)), coral)
+                fill(capsule(r(23, 20, max(4, 7 * p2), 4)), coral)
             } else {
                 fill(capsule(r(23, 12, 10, 4)), ink, lineAlpha)
                 fill(capsule(r(23, 20, 7, 4)), ink, lineAlpha)

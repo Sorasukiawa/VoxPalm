@@ -17,7 +17,7 @@ enum VoxPalmMain {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var status: StatusItemController?
     private var hud: SpeechHUDController?
     private var settingsWindow: NSWindow?
@@ -112,20 +112,83 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showOnboarding() {
         status?.closePopover()
-        if onboardingWindow == nil {
-            let host = NSHostingController(rootView: OnboardingView { [weak self] in self?.onboardingWindow?.close() }
+        // 每次打开都从第一步开始
+        if onboardingWindow?.isVisible != true {
+            let host = NSHostingController(rootView: OnboardingView { [weak self] in self?.tuckOnboardingIntoMenuBar() }
                 .environment(AppModel.shared))
-            let window = NSWindow(contentViewController: host)
+            let window = onboardingWindow ?? NSWindow(contentViewController: host)
+            window.contentViewController = host
             window.styleMask = [.titled, .closable, .fullSizeContentView]
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.title = "欢迎使用掌声"
             window.isReleasedWhenClosed = false
             window.isRestorable = false
+            window.delegate = self
             window.center()
             onboardingWindow = window
         }
         onboardingWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate()
+    }
+
+    /// 关掉引导窗口也一样收进菜单栏。
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard sender == onboardingWindow else { return true }
+        AppModel.shared.cancelLearning()
+        AppModel.shared.finishOnboarding()
+        tuckOnboardingIntoMenuBar()
+        return false
+    }
+
+    /// 引导结束：窗口缩小飞进菜单栏的掌声图标，图标弹一下，冒出「掌声在这儿」。
+    /// 用窗口的截图来飞：直接缩真窗口会被 SwiftUI 的最小尺寸卡住。
+    func tuckOnboardingIntoMenuBar() {
+        guard let window = onboardingWindow else { return }
+        let model = AppModel.shared
+        let tip: String = {
+            guard let key = model.talkKey else { return "点它看状态、换设备、改设置。" }
+            let verb = key.gesture == .long ? "按住" : "按一下"
+            return "点它看状态、换设备、改设置。现在\(verb)\(model.activeShortName ?? "设备")的「\(key.keyName)」，在任何 App 里说话就行。"
+        }()
+        let arrive = { [weak self] in
+            self?.status?.celebrateArrival()
+            self?.status?.showTip(tip, title: "掌声在这儿", seconds: 7)
+        }
+        guard let target = status?.iconFrameOnScreen, let content = window.contentView,
+              let snapshot = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
+            window.orderOut(nil)
+            arrive()
+            return
+        }
+        content.cacheDisplay(in: content.bounds, to: snapshot)
+        let image = NSImage(size: content.bounds.size)
+        image.addRepresentation(snapshot)
+        let start = window.frame
+        let flyer = NSWindow(contentRect: start, styleMask: [.borderless], backing: .buffered, defer: false)
+        flyer.isOpaque = false
+        flyer.backgroundColor = .clear
+        flyer.hasShadow = true
+        flyer.level = .statusBar
+        let imageView = NSImageView(image: image)
+        imageView.imageScaling = .scaleAxesIndependently
+        imageView.wantsLayer = true
+        imageView.layer?.cornerRadius = 16
+        imageView.layer?.masksToBounds = true
+        flyer.contentView = imageView
+        flyer.orderFront(nil)
+        window.orderOut(nil)
+        let end = NSRect(x: target.midX - 18, y: target.midY - 13, width: 36, height: 26)
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = Motion.reduceMotion ? 0.15 : 0.62
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.55, 0, 0.25, 1)
+            flyer.animator().setFrame(end, display: true)
+            flyer.animator().alphaValue = 0.15
+        }) {
+            MainActor.assumeIsolated {
+                flyer.orderOut(nil)
+                arrive()
+            }
+        }
     }
 }

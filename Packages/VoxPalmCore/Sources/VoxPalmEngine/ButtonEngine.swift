@@ -62,6 +62,14 @@ public final class ButtonEngine {
     public var talkAfterDelay: Double = 0.4
     /// 设置了就进入「学键」模式：下一次按下被交给它，不执行动作
     public var learnHandler: ((ButtonEvent) -> Void)?
+    /// 设置了就进入「认设备」模式（引导里选设备那步）：除了选中的设备，所有 HID 设备和系统媒体键也在听，
+    /// 任意一台按下都交给它，不执行动作、不拦键。不碰键盘按键（免得打字时乱认）和「正在播放」（会抢走别的播放器的命令）。
+    public var identifyHandler: ((ButtonEvent) -> Void)? {
+        didSet {
+            guard (oldValue == nil) != (identifyHandler == nil) else { return }
+            applyActivation()
+        }
+    }
 
     public private(set) var activeDeviceIDs: Set<String> = []
 
@@ -82,7 +90,7 @@ public final class ButtonEngine {
         for source in sources {
             source.onEvent = { [weak self] in self?.handle($0) }
             source.isMapped = { [weak self] button in
-                guard let self, self.learnHandler == nil else { return false }
+                guard let self, self.learnHandler == nil, self.identifyHandler == nil else { return false }
                 return self.keyMap.isMapped(button)
             }
         }
@@ -96,8 +104,19 @@ public final class ButtonEngine {
         let allowed = Set(deviceIDs.prefix(gate.maxActiveControlDevices))
         activeDeviceIDs = allowed
         recognizer.reset()
-        for source in sources { source.activate(allowed) }
+        applyActivation()
         return allowed
+    }
+
+    /// 认设备时额外听的设备
+    public static func identifiableDeviceIDs(_ devices: [ControlDevice]) -> Set<String> {
+        Set(devices.filter { $0.sourceID == "hid" }.map(\.id)).union([SystemKeysControlSource.mediaDeviceID])
+    }
+
+    private func applyActivation() {
+        var ids = activeDeviceIDs
+        if identifyHandler != nil { ids.formUnion(Self.identifiableDeviceIDs(allDevices())) }
+        for source in sources { source.activate(ids) }
     }
 
     /// App 退出前调用：等每个来源收尾（最多 `timeout` 秒），再调 completion。
@@ -127,6 +146,10 @@ public final class ButtonEngine {
 
     /// 测试和调试入口：直接喂一个按键事件。
     public func handle(_ event: ButtonEvent) {
+        if let identify = identifyHandler {
+            if event.phase != .up { identify(event) }
+            return
+        }
         guard activeDeviceIDs.contains(event.deviceID) else { return }
         onButtonEvent?(event)
         if let learn = learnHandler {

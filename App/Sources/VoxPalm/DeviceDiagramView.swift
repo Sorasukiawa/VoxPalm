@@ -69,6 +69,9 @@ struct DeviceDiagramView: View {
     let buttons: [String: ButtonID]
     let selected: String?
     var onSelect: (String) -> Void = { _ in }
+    /// 点了已经对上的键：在它的标注旁边弹出编辑小窗
+    var editing: Binding<String?>?
+    var editor: ((String) -> AnyView)?
 
     var body: some View {
         GeometryReader { geometry in
@@ -101,6 +104,11 @@ struct DeviceDiagramView: View {
                     if let frame = layout.labels[callout.id] {
                         CalloutLabel(callout: callout, selected: callout.id == selected)
                             .frame(width: frame.width, height: frame.height, alignment: .topLeading)
+                            .popover(isPresented: Binding(get: { editing?.wrappedValue == callout.id },
+                                                          set: { if !$0 { editing?.wrappedValue = nil } }),
+                                     arrowEdge: frame.midX < layout.device.midX ? .leading : .trailing) {
+                                editor?(callout.id)
+                            }
                             .offset(x: frame.minX, y: frame.minY)
                             .onTapGesture { onSelect(callout.id) }
                     }
@@ -173,6 +181,16 @@ struct DiagramLayout {
         for spot in diagram.spots { anchors[spot.id] = anchorPoint(spot) }
     }
 
+    /// 只画设备本体：整台设备按比例放进这块地方，居中。
+    static func fitting(_ diagram: DeviceDiagram, in size: CGSize) -> DiagramLayout {
+        var layout = DiagramLayout(diagram: diagram, callouts: [], size: size)
+        let scale = max(0.01, min(size.width / diagram.width, size.height / diagram.height))
+        layout.scale = scale
+        layout.device = CGRect(x: (size.width - diagram.width * scale) / 2, y: (size.height - diagram.height * scale) / 2,
+                               width: diagram.width * scale, height: diagram.height * scale)
+        return layout
+    }
+
     func frame(_ box: DeviceDiagram.Box) -> CGRect {
         CGRect(x: device.minX + box.x * scale, y: device.minY + box.y * scale, width: box.w * scale, height: box.h * scale)
     }
@@ -194,7 +212,9 @@ struct DiagramLayout {
         // 分左右：左半边的键标在左边，右半边的标在右边，正中间的两边轮流放。
         var left: [DeviceDiagram.Spot] = []
         var right: [DeviceDiagram.Spot] = []
-        for spot in diagram.spots.sorted(by: { $0.box.midY < $1.box.midY }) {
+        // 只给有标注的键排位置（引导里只标设了动作的键）
+        let shown = Set(callouts.map(\.id))
+        for spot in diagram.spots.sorted(by: { $0.box.midY < $1.box.midY }) where shown.isEmpty || shown.contains(spot.id) {
             let x = spot.box.midX / diagram.width
             if x < 0.42 { left.append(spot) } else if x > 0.58 { right.append(spot) }
             else if left.count <= right.count { left.append(spot) } else { right.append(spot) }
@@ -212,7 +232,8 @@ struct DiagramLayout {
 
     private mutating func layoutRows(diagram: DeviceDiagram, aspect: Double, callouts: [DiagramCallout], size: CGSize) {
         let pad: CGFloat = 8
-        let sorted = diagram.spots.sorted { $0.box.midX < $1.box.midX }
+        let shown = Set(callouts.map(\.id))
+        let sorted = diagram.spots.filter { shown.isEmpty || shown.contains($0.id) }.sorted { $0.box.midX < $1.box.midX }
         let twoRows = sorted.count > 3
         let perRowCount = twoRows ? Int((Double(sorted.count) / 2).rounded(.up)) : sorted.count
         let rowLabelWidth = min(240, (size.width - pad * 2) / CGFloat(max(perRowCount, 1)) - 8)
@@ -307,6 +328,8 @@ struct DeviceArt: View {
     let diagram: DeviceDiagram
     let layout: DiagramLayout
     let highlighted: [String: Highlight]
+    /// 缩略图太小时不画键上的小图标和印的字
+    var showsSymbols = true
 
     private static let aluminum = Gradient(colors: [Color(red: 0.93, green: 0.935, blue: 0.945), Color(red: 0.77, green: 0.78, blue: 0.80)])
     private static let graphite = Gradient(colors: [Color(red: 0.235, green: 0.235, blue: 0.255), Color(red: 0.115, green: 0.115, blue: 0.13)])
@@ -424,6 +447,7 @@ struct DeviceArt: View {
                 context.fill(path, with: .color(Color(white: 0.45)))
             }
         case .printLight, .printDark:
+            guard showsSymbols else { break }
             let color = style == .printLight ? Color.white.opacity(0.88) : Color(white: 0.32)
             if let text, let mark = DiagramMarks.shape(text) {
                 // 官方版登记了真的品牌标志图形就画标志，开源版照旧印字。
@@ -445,6 +469,7 @@ struct DeviceArt: View {
 
     /// 按键上的图标：和实物一样细、占键面三分之一左右。
     private func drawSymbol(_ name: String, in rect: CGRect, color: Color, context: inout GraphicsContext) {
+        guard showsSymbols else { return }
         let side = min(rect.width, rect.height)
         let text = Text(Image(systemName: name)).font(.system(size: max(6, side * 0.32), weight: .regular)).foregroundStyle(color)
         context.draw(text, at: CGPoint(x: rect.midX, y: rect.midY))
