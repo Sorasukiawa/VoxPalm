@@ -250,7 +250,9 @@ public final class ButtonEngine {
         case let .shortcut(combo):
             KeyPoster.post(combo)
         case let .text(text):
-            TextInserter.insert(text, method: textMethod)
+            if case let .copied(block) = TextDelivery.insert(text, method: textMethod, since: nil) {
+                onMessage?("字放进了剪贴板：\(block.pasteMessage)")
+            }
         case let .mediaKey(key):
             KeyPoster.postMediaKey(key)
         case let .openApp(path):
@@ -260,7 +262,7 @@ public final class ButtonEngine {
         case let .switchChat(direction):
             return report(await AppCommander.switchChat(direction))
         case .sendReturn:
-            onMessage?(FocusedField.sendReturn())
+            onMessage?(TextDelivery.sendReturn())
         }
         return true
     }

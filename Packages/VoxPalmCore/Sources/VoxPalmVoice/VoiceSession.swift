@@ -77,8 +77,8 @@ public final class VoiceSession: VoiceActionHandler {
     public enum Outcome: Equatable, Sendable {
         /// 字贴到了前台 App 的光标处
         case inserted(characters: Int, appName: String?)
-        /// 字没贴进去（缺辅助功能权限），已经放进剪贴板
-        case copied(characters: Int)
+        /// 字没贴进去（缺权限、密码框、不在输入框里、说话时换了目标），已经放进剪贴板
+        case copied(characters: Int, reason: DeliveryBlock)
         /// 外部输入法模式：已经松开输入法的语音键，由输入法出字
         case handedToInputMethod
         /// 按得太短，没算数（参数是要按住多久）
@@ -114,6 +114,8 @@ public final class VoiceSession: VoiceActionHandler {
     private var restoreWork: DispatchWorkItem?
     /// 这次说话的附加要求（说完要不要回车发送）
     private var request = VoiceRequest()
+    /// 按下说话键那一刻的出字目标：贴字、按回车前拿它比，换了 App 或输入框就不贴、不按
+    private var target: TextTarget?
 
     public init(settings: Settings = Settings()) {
         self.settings = settings
@@ -138,6 +140,11 @@ public final class VoiceSession: VoiceActionHandler {
     public func voiceArm(_ request: VoiceRequest) {
         guard state == .idle else { return }
         self.request = request
+        // 记下按键这一刻的出字目标。挪到下一轮主循环再读：按键可能来自系统按键拦截的回调，在那里等别的 App 回话会拖慢整个键盘。
+        target = nil
+        DispatchQueue.main.async { [weak self] in
+            MainActor.assumeIsolated { self?.target = TextTarget.current() }
+        }
         switch settings.mode {
         case .builtIn:
             lock.lock()
@@ -189,9 +196,10 @@ public final class VoiceSession: VoiceActionHandler {
             restoreDefaultInput(after: settings.restoreInputDelay)
             if state == .listening { onOutcome?(.handedToInputMethod) }
             if request.sendReturn, state == .listening {
-                // 输入法什么时候把字放进去不确定，等一会儿；输入框还是空的就不发。
+                // 输入法什么时候把字放进去不确定，等一会儿；换了目标或输入框还是空的就不发。
+                let target = target
                 DispatchQueue.main.asyncAfter(deadline: .now() + settings.inputMethodSendDelay) { [weak self] in
-                    self?.onMessage?(FocusedField.sendReturn())
+                    MainActor.assumeIsolated { self?.onMessage?(TextDelivery.sendReturn(since: target)) }
                 }
             }
             state = .idle
@@ -217,13 +225,13 @@ public final class VoiceSession: VoiceActionHandler {
                 return
             }
             state = .transcribing
-            transcribe(buffers, sendReturn: request.sendReturn)
+            transcribe(buffers, sendReturn: request.sendReturn, target: target)
         }
     }
 
     // MARK: - 内置转写
 
-    private func transcribe(_ buffers: [AVAudioPCMBuffer], sendReturn: Bool) {
+    private func transcribe(_ buffers: [AVAudioPCMBuffer], sendReturn: Bool, target: TextTarget?) {
         let settings = settings
         let started = Date()
         // 主线程上的任务；转写本身是非隔离的异步函数，在后台执行，不卡界面。
@@ -245,19 +253,23 @@ public final class VoiceSession: VoiceActionHandler {
                 } else {
                     if let file = self.debugTranscriptFile {
                         Self.append(sendReturn ? text + "⏎" : text, to: file)
+                        // 调试时不贴，只把出字目标检查的结果写进日志：不碰前台 App 也能看这条路。
+                        let (block, now) = TextDelivery.checkPaste(since: target)
+                        self.onMessage?("调试：出字目标检查 → " + (block.map { "不贴（\($0.pasteMessage)）" } ?? "会贴到「\(now?.appName ?? "前台 App")」"))
                         self.onOutcome?(.inserted(characters: text.count, appName: "调试文件"))
-                    } else if !KeyPoster.canPost {
-                        // 贴不进去：字不丢，先放进剪贴板，再告诉用户怎么补救。
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(text, forType: .string)
-                        self.onOutcome?(.copied(characters: text.count))
                     } else {
-                        self.onOutcome?(.inserted(characters: text.count, appName: NSWorkspace.shared.frontmostApplication?.localizedName))
-                        TextInserter.insert(text, method: settings.textMethod)
-                        if sendReturn {
-                            // 等粘贴落进输入框，再确认焦点、按回车。
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                                self?.onMessage?(FocusedField.sendReturn())
+                        switch TextDelivery.insert(text, method: settings.textMethod, since: target) {
+                        case let .copied(block):
+                            // 贴不进去：字不丢，留在剪贴板里，浮窗告诉用户为什么、怎么补救。
+                            self.onOutcome?(.copied(characters: text.count, reason: block))
+                        case let .inserted(appName):
+                            self.onOutcome?(.inserted(characters: text.count, appName: appName))
+                            if sendReturn {
+                                // 等粘贴落进输入框，再确认还是按键时那个输入框、里面有字，才按回车。
+                                Task { @MainActor [weak self] in
+                                    try? await Task.sleep(nanoseconds: 350_000_000)
+                                    self?.onMessage?(TextDelivery.sendReturn(since: target))
+                                }
                             }
                         }
                     }
