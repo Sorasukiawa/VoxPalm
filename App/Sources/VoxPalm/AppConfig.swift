@@ -51,8 +51,8 @@ struct AppConfig: Codable, Equatable {
 
 /// 一台控制设备在示意图上的样子。
 struct DeviceLayout: Codable, Equatable {
-    /// 用户选的外形；nil = 自动（适配模块给的或者按设备说明猜的）
-    var body: DeviceDiagram.Body?
+    /// 用户选的外形（示意图 id）；nil = 自动（适配模块给的或者按设备说明猜的）
+    var diagramID: String?
     /// 示意图上的键（spot id）→ 学到的键
     var spotButtons: [String: ButtonID] = [:]
     /// 外形是「通用按键」时，学到的键按顺序排

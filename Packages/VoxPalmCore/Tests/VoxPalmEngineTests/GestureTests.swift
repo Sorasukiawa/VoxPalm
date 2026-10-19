@@ -216,14 +216,19 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
 }
 
 @Test func 示意图的按键都在设备范围内且不重名() {
-    for body in DeviceDiagram.Body.allCases where body != .generic {
-        let diagram = DeviceDiagram.template(body)
-        #expect(Set(diagram.spots.map(\.id)).count == diagram.spots.count, "\(body) 有重名的按键")
-        for spot in diagram.spots {
-            #expect((0...1).contains(spot.x) && (0...1).contains(spot.y), "\(body).\(spot.id) 超出设备范围")
+    for diagram in DeviceDiagram.choices + [DeviceDiagram.mediaKeys] where diagram.id != "generic" {
+        #expect(Set(diagram.spots.map(\.id)).count == diagram.spots.count, "\(diagram.id) 有重名的按键")
+        for item in diagram.spots.map(\.box) + diagram.parts.map(\.box) {
+            #expect(item.x >= -0.01 && item.y >= -0.01 && item.x + item.w <= diagram.width + 0.01 && item.y + item.h <= diagram.height + 0.01,
+                    "\(diagram.id) 有部件超出画布")
         }
     }
     #expect(DeviceDiagram.mediaKeys.spots.allSatisfy { $0.button != nil })
     let generic = DeviceDiagram.generic(buttons: [(ButtonID("key:1"), "A"), (ButtonID("key:2"), "B")])
     #expect(generic.spots.map(\.button) == [ButtonID("key:1"), ButtonID("key:2")])
+}
+
+@Test func 按设备标识认出小米遥控器() {
+    let device = ControlDevice(id: "hid:x", sourceID: "hid", name: "小米蓝牙遥控器", detail: "Bluetooth Low Energy · 0x2717:0x32B8 · 媒体键（Consumer Control）、键盘", reportsRelease: true)
+    #expect(DeviceDiagram.guess(for: device).id == "xiaomi-remote-2")
 }

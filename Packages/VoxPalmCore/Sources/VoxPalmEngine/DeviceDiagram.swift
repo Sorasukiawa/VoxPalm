@@ -1,204 +1,289 @@
 import Foundation
 
-/// 设备示意图：画一个设备外形，按键位置用相对坐标（0…1，相对设备外框），界面在旁边拉线标注每个键做什么。
-/// 只画设备类别的示意形状，不用厂商产品图；按键位置以实物为准。
+/// 设备示意图：照真实产品的尺寸和按键位置画的矢量线稿，界面在旁边拉线标注每个键做什么。
+/// 坐标单位是毫米（取自产品规格和说明书线稿），渲染时整体缩放。按键在侧面的设备把侧面展开画在正面旁边。
+/// 只画外形，不画厂商标志。
 public struct DeviceDiagram: Hashable, Sendable, Identifiable {
-    public enum Body: String, Codable, CaseIterable, Sendable {
-        /// 电视遥控器：细长，有方向键
-        case remote
-        /// 带触摸板的遥控器（Siri Remote 一类）
-        case touchRemote
-        /// 无线麦发射器
-        case micTransmitter
-        /// 翻页笔
-        case presenter
-        /// 脚踏板
-        case footPedal
-        /// 键盘上的媒体键那一排
-        case mediaKeys
-        /// 不知道长什么样：按学到的键排成一列
-        case generic
+    /// 左上角 + 宽高，单位同 `width` / `height`
+    public struct Box: Hashable, Sendable {
+        public var x: Double
+        public var y: Double
+        public var w: Double
+        public var h: Double
 
-        public var title: String {
-            switch self {
-            case .remote: return "电视遥控器"
-            case .touchRemote: return "触摸板遥控器"
-            case .micTransmitter: return "无线麦发射器"
-            case .presenter: return "翻页笔"
-            case .footPedal: return "脚踏板"
-            case .mediaKeys: return "键盘媒体键"
-            case .generic: return "通用按键"
-            }
+        public init(_ x: Double, _ y: Double, _ w: Double, _ h: Double) {
+            self.x = x
+            self.y = y
+            self.w = w
+            self.h = h
         }
 
-        /// 设备摆在中间、标注在左右两边；宽的设备（脚踏板、媒体键）标注在上下。
-        public var isWide: Bool { self == .footPedal || self == .mediaKeys }
+        public static func center(_ cx: Double, _ cy: Double, _ w: Double, _ h: Double) -> Box { Box(cx - w / 2, cy - h / 2, w, h) }
+        public static func circle(_ cx: Double, _ cy: Double, _ d: Double) -> Box { center(cx, cy, d, d) }
 
-        /// 宽 / 高
-        public var aspect: Double {
-            switch self {
-            case .remote: return 0.27
-            case .touchRemote: return 0.25
-            case .micTransmitter: return 0.66
-            case .presenter: return 0.22
-            case .footPedal: return 2.6
-            case .mediaKeys: return 4.2
-            case .generic: return 0.42
-            }
+        public var midX: Double { x + w / 2 }
+        public var midY: Double { y + h / 2 }
+    }
+
+    public enum Shape: Hashable, Sendable {
+        /// 圆角矩形，参数是圆角半径（同单位）
+        case rounded(Double)
+        case circle
+        case capsule
+    }
+
+    public enum Style: String, Hashable, Sendable {
+        /// 机身：银色铝、深灰塑料
+        case aluminum, graphite
+        /// 背夹
+        case clip
+        /// 按键：黑色、浅色、录制键（红圈）、侧面按键
+        case blackKey, lightKey, recordKey, sideKey
+        /// 装饰：凹槽、接口、指示灯、网罩、小标记、面板下面的说明文字
+        case recess, port, led, grille, mark, caption
+        /// 不画底色，只在选中或按下时高亮（方向盘的上下左右、音量条的上下半段）
+        case zone
+    }
+
+    /// 画出来但不能映射的部分（机身、接口、指示灯……）
+    public struct Part: Hashable, Sendable {
+        public let box: Box
+        public let shape: Shape
+        public let style: Style
+        public let symbol: String?
+        public let text: String?
+
+        public init(_ box: Box, _ shape: Shape, _ style: Style, symbol: String? = nil, text: String? = nil) {
+            self.box = box
+            self.shape = shape
+            self.style = style
+            self.symbol = symbol
+            self.text = text
         }
     }
 
-    public enum Shape: String, Hashable, Sendable {
-        /// 圆形按钮
-        case round
-        /// 长条按钮（音量键、侧键）
-        case pill
-        /// 方向键的一个方向（画在圆环上）
-        case arrow
-        /// 触摸板
-        case pad
-        /// 踏板
-        case pedal
-        /// 键盘键帽
-        case key
-    }
-
+    /// 可以映射的键
     public struct Spot: Hashable, Sendable, Identifiable {
         public let id: String
         public let name: String
-        /// 按键中心，相对设备外框（0…1）；x 为 0 或 1 表示在侧面
-        public let x: Double
-        public let y: Double
-        /// 按键大小，相对设备宽度
-        public let size: Double
+        public let box: Box
         public let shape: Shape
-        /// 画在按键上的 SF Symbol
+        public let style: Style
+        /// 画在键上的 SF Symbol
         public let symbol: String?
         /// 已知对应的键（适配模块知道时直接给；不知道的由用户学键）
         public let button: ButtonID?
-        /// 被固件占用的手势，例如「长按 3 秒：切模式」
+        /// 被设备固件占用的手势，例如「长按 3 秒：切模式」
         public let reserved: [String]
 
-        public init(id: String, name: String, x: Double, y: Double, size: Double = 0.24, shape: Shape = .round,
+        public init(_ id: String, _ name: String, _ box: Box, _ shape: Shape = .circle, _ style: Style = .blackKey,
                     symbol: String? = nil, button: ButtonID? = nil, reserved: [String] = []) {
             self.id = id
             self.name = name
-            self.x = x
-            self.y = y
-            self.size = size
+            self.box = box
             self.shape = shape
+            self.style = style
             self.symbol = symbol
             self.button = button
             self.reserved = reserved
         }
-
-        public var isOnSide: Bool { x <= 0.001 || x >= 0.999 }
     }
 
     public let id: String
     public let title: String
-    public let body: Body
+    public let width: Double
+    public let height: Double
+    public let parts: [Part]
     public let spots: [Spot]
     /// 只有短按、没有松开的设备，长按那一列不能用
     public let reportsRelease: Bool
+    /// 画法说明，例如「左右两块是展开的侧面」
+    public let note: String?
 
-    public init(id: String, title: String, body: Body, spots: [Spot], reportsRelease: Bool = true) {
+    public init(id: String, title: String, width: Double, height: Double, parts: [Part], spots: [Spot],
+                reportsRelease: Bool = true, note: String? = nil) {
         self.id = id
         self.title = title
-        self.body = body
+        self.width = width
+        self.height = height
+        self.parts = parts
         self.spots = spots
         self.reportsRelease = reportsRelease
+        self.note = note
     }
+
+    /// 宽的设备（展开的侧面、脚踏板、媒体键）标注在上下，竖的标注在左右。
+    public var isWide: Bool { width / height > 1.2 }
 }
 
 // MARK: - 开源仓库自带的示意图
 
 public extension DeviceDiagram {
-    static func template(_ body: Body) -> DeviceDiagram {
-        switch body {
-        case .remote: return remote
-        case .touchRemote: return touchRemote
-        case .micTransmitter: return micTransmitter
-        case .presenter: return presenter
-        case .footPedal: return footPedal
-        case .mediaKeys: return mediaKeys
-        case .generic: return generic(buttons: [])
-        }
+    /// 设置里「外形」可以选的（适配模块自带的示意图不在这里）
+    static let choices: [DeviceDiagram] = [xiaomiRemote2, siriRemote, remote, presenter, footPedal, micTransmitter, generic(buttons: [])]
+
+    static func choice(id: String) -> DeviceDiagram? {
+        id == mediaKeys.id ? mediaKeys : choices.first { $0.id == id }
     }
 
-    static let remote = DeviceDiagram(id: "remote", title: "电视遥控器", body: .remote, spots: [
-        Spot(id: "power", name: "电源键", x: 0.5, y: 0.06, size: 0.2, symbol: "power"),
-        Spot(id: "voice", name: "语音键", x: 0.5, y: 0.15, size: 0.26, symbol: "mic.fill"),
-        Spot(id: "up", name: "方向上", x: 0.5, y: 0.255, size: 0.2, shape: .arrow, symbol: "chevron.up"),
-        Spot(id: "left", name: "方向左", x: 0.23, y: 0.335, size: 0.2, shape: .arrow, symbol: "chevron.left"),
-        Spot(id: "ok", name: "确认键", x: 0.5, y: 0.335, size: 0.3, symbol: nil),
-        Spot(id: "right", name: "方向右", x: 0.77, y: 0.335, size: 0.2, shape: .arrow, symbol: "chevron.right"),
-        Spot(id: "down", name: "方向下", x: 0.5, y: 0.415, size: 0.2, shape: .arrow, symbol: "chevron.down"),
-        Spot(id: "back", name: "返回键", x: 0.27, y: 0.52, size: 0.24, symbol: "arrow.uturn.backward"),
-        Spot(id: "home", name: "主页键", x: 0.73, y: 0.52, size: 0.24, symbol: "house"),
-        Spot(id: "menu", name: "菜单键", x: 0.5, y: 0.6, size: 0.24, symbol: "line.3.horizontal"),
-        Spot(id: "volumeUp", name: "音量 +", x: 0.5, y: 0.7, size: 0.3, shape: .pill, symbol: "plus"),
-        Spot(id: "volumeDown", name: "音量 −", x: 0.5, y: 0.79, size: 0.3, shape: .pill, symbol: "minus"),
-    ])
+    /// 小米蓝牙遥控器 2（macOS 里显示为 RC001，VID 0x2717 PID 0x32B8）。
+    /// 照小米有品的正面产品图量的比例：宽 36、长约 141，顶部电源键和语音键是浅色，其余是黑色。
+    static let xiaomiRemote2 = DeviceDiagram(
+        id: "xiaomi-remote-2", title: "小米蓝牙遥控器 2", width: 36, height: 141,
+        parts: [
+            Part(Box(0, 0, 36, 141), .rounded(3), .aluminum),
+            Part(.circle(18, 32, 30), .circle, .blackKey),
+            Part(.circle(18, 19.6, 1.1), .circle, .mark),
+            Part(.circle(18, 44.4, 1.1), .circle, .mark),
+            Part(.circle(5.6, 32, 1.1), .circle, .mark),
+            Part(.circle(30.4, 32, 1.1), .circle, .mark),
+            Part(.center(25.7, 61, 11.5, 25.4), .capsule, .blackKey),
+            Part(.center(18, 105.8, 3.4, 3.4), .rounded(0.6), .mark, symbol: "wave.3.right"),
+        ],
+        spots: [
+            Spot("power", "电源键", .circle(8.6, 9.9, 7.2), .circle, .lightKey, symbol: "power"),
+            Spot("voice", "语音键", .circle(27.4, 9.9, 7.2), .circle, .lightKey, symbol: "mic"),
+            Spot("up", "方向上", .circle(18, 22, 6.5), .circle, .zone),
+            Spot("left", "方向左", .circle(8, 32, 6.5), .circle, .zone),
+            Spot("ok", "确认键", .circle(18, 32, 16), .circle, .blackKey),
+            Spot("right", "方向右", .circle(28, 32, 6.5), .circle, .zone),
+            Spot("down", "方向下", .circle(18, 42, 6.5), .circle, .zone),
+            Spot("back", "返回键", .circle(10.3, 54.3, 11.5), .circle, .blackKey, symbol: "chevron.left"),
+            Spot("volumeUp", "音量 +", .circle(25.7, 54.3, 9), .circle, .zone, symbol: "plus"),
+            Spot("home", "主页键", .circle(10.3, 67.5, 11.5), .circle, .blackKey, symbol: "house"),
+            Spot("volumeDown", "音量 −", .circle(25.7, 67.7, 9), .circle, .zone, symbol: "minus"),
+            Spot("menu", "菜单键", .circle(10.3, 81.2, 11.5), .circle, .blackKey, symbol: "line.3.horizontal"),
+            Spot("tv", "TV 键", .circle(25.7, 81.2, 11.5), .circle, .blackKey, symbol: "tv"),
+        ]
+    )
 
-    static let touchRemote = DeviceDiagram(id: "touchRemote", title: "触摸板遥控器", body: .touchRemote, spots: [
-        Spot(id: "pad", name: "触摸板（按下）", x: 0.5, y: 0.19, size: 0.82, shape: .pad),
-        Spot(id: "side", name: "侧面语音键", x: 1, y: 0.3, size: 0.14, shape: .pill),
-        Spot(id: "back", name: "返回键", x: 0.28, y: 0.44, size: 0.3, symbol: "chevron.left"),
-        Spot(id: "home", name: "主页键", x: 0.72, y: 0.44, size: 0.3, symbol: "tv"),
-        Spot(id: "playPause", name: "播放 / 暂停", x: 0.28, y: 0.56, size: 0.3, symbol: "playpause.fill"),
-        Spot(id: "volumeUp", name: "音量 +", x: 0.72, y: 0.56, size: 0.3, symbol: "plus"),
-        Spot(id: "mute", name: "静音", x: 0.28, y: 0.68, size: 0.3, symbol: "speaker.slash.fill"),
-        Spot(id: "volumeDown", name: "音量 −", x: 0.72, y: 0.68, size: 0.3, symbol: "minus"),
-    ])
+    /// Apple Siri Remote（第 2、3 代，2021 年以后的铝机身款）。规格 35 × 136 × 9.25 毫米，
+    /// 按 Apple 的正面产品图量的位置；Siri 键在右侧面，画成伸出右边的一小段。
+    static let siriRemote = DeviceDiagram(
+        id: "siri-remote", title: "Siri Remote", width: 36.6, height: 136,
+        parts: [
+            Part(Box(0, 0, 35, 136), .rounded(8), .aluminum),
+            Part(.center(13, 4.6, 3, 0.9), .capsule, .led),
+            Part(.circle(17.5, 29, 32), .circle, .blackKey),
+            Part(.center(25.2, 75.2, 11.5, 31.5), .capsule, .blackKey),
+        ],
+        spots: [
+            Spot("power", "电源键", .circle(27.6, 5.6, 4.6), .circle, .blackKey, symbol: "power"),
+            Spot("siri", "Siri 键（右侧面）", .center(35.6, 33, 1.8, 9), .capsule, .sideKey),
+            Spot("up", "触控板上", .circle(17.5, 17.8, 6.5), .circle, .zone),
+            Spot("left", "触控板左", .circle(6.3, 29, 6.5), .circle, .zone),
+            Spot("ok", "触控板中间（按下）", .circle(17.5, 29, 15), .circle, .blackKey),
+            Spot("right", "触控板右", .circle(28.7, 29, 6.5), .circle, .zone),
+            Spot("down", "触控板下", .circle(17.5, 40.2, 6.5), .circle, .zone),
+            Spot("back", "返回键", .circle(10.5, 52.4, 11.5), .circle, .blackKey, symbol: "chevron.left"),
+            Spot("tv", "TV 键", .circle(25.2, 52.4, 11.5), .circle, .blackKey, symbol: "tv"),
+            Spot("playPause", "播放 / 暂停", .circle(10.5, 67.6, 11.5), .circle, .blackKey, symbol: "playpause.fill"),
+            Spot("volumeUp", "音量 +", .circle(25.2, 67.6, 9), .circle, .zone, symbol: "plus"),
+            Spot("mute", "静音", .circle(10.5, 82.8, 11.5), .circle, .blackKey, symbol: "speaker.slash.fill"),
+            Spot("volumeDown", "音量 −", .circle(25.2, 82.8, 9), .circle, .zone, symbol: "minus"),
+        ]
+    )
 
-    static let micTransmitter = DeviceDiagram(id: "micTransmitter", title: "无线麦发射器", body: .micTransmitter, spots: [
-        Spot(id: "power", name: "电源键", x: 0, y: 0.38, size: 0.12, shape: .pill),
-        Spot(id: "record", name: "录制键", x: 0.5, y: 0.72, size: 0.24, symbol: "circle.fill"),
-        Spot(id: "link", name: "连接键", x: 1, y: 0.38, size: 0.12, shape: .pill),
-    ])
+    /// 通用电视遥控器（不知道具体型号时用）
+    static let remote = DeviceDiagram(
+        id: "remote", title: "电视遥控器（通用）", width: 44, height: 165,
+        parts: [
+            Part(Box(0, 0, 44, 165), .rounded(20), .graphite),
+            Part(.circle(22, 55, 38), .circle, .recess),
+        ],
+        spots: [
+            Spot("power", "电源键", .circle(22, 10, 8), symbol: "power"),
+            Spot("voice", "语音键", .circle(22, 24, 10), symbol: "mic.fill"),
+            Spot("up", "方向上", .circle(22, 42, 8), .circle, .zone, symbol: "chevron.up"),
+            Spot("left", "方向左", .circle(9, 55, 8), .circle, .zone, symbol: "chevron.left"),
+            Spot("ok", "确认键", .circle(22, 55, 15)),
+            Spot("right", "方向右", .circle(35, 55, 8), .circle, .zone, symbol: "chevron.right"),
+            Spot("down", "方向下", .circle(22, 68, 8), .circle, .zone, symbol: "chevron.down"),
+            Spot("back", "返回键", .circle(12, 86, 10), symbol: "arrow.uturn.backward"),
+            Spot("home", "主页键", .circle(32, 86, 10), symbol: "house"),
+            Spot("menu", "菜单键", .circle(22, 99, 10), symbol: "line.3.horizontal"),
+            Spot("volumeUp", "音量 +", .center(22, 115, 16, 8), .capsule, symbol: "plus"),
+            Spot("volumeDown", "音量 −", .center(22, 129, 16, 8), .capsule, symbol: "minus"),
+        ]
+    )
 
-    static let presenter = DeviceDiagram(id: "presenter", title: "翻页笔", body: .presenter, spots: [
-        Spot(id: "laser", name: "激光 / 聚光", x: 0.5, y: 0.14, size: 0.42, symbol: "light.max"),
-        Spot(id: "previous", name: "上一页", x: 0.5, y: 0.36, size: 0.5, symbol: "chevron.up"),
-        Spot(id: "next", name: "下一页", x: 0.5, y: 0.56, size: 0.5, symbol: "chevron.down"),
-        Spot(id: "screen", name: "黑屏 / 放映", x: 0.5, y: 0.76, size: 0.42, symbol: "play.rectangle"),
-    ])
+    static let presenter = DeviceDiagram(
+        id: "presenter", title: "翻页笔", width: 28, height: 120,
+        parts: [
+            Part(Box(0, 0, 28, 120), .capsule, .graphite),
+            Part(.center(14, 5, 9, 1.8), .capsule, .led),
+        ],
+        spots: [
+            Spot("laser", "激光 / 聚光", .circle(14, 19, 11), symbol: "light.max"),
+            Spot("previous", "上一页", .circle(14, 43, 14), symbol: "chevron.up"),
+            Spot("next", "下一页", .circle(14, 66, 14), symbol: "chevron.down"),
+            Spot("screen", "黑屏 / 放映", .circle(14, 89, 11), symbol: "play.rectangle"),
+        ]
+    )
 
-    static let footPedal = DeviceDiagram(id: "footPedal", title: "脚踏板", body: .footPedal, spots: [
-        Spot(id: "left", name: "左踏板", x: 0.19, y: 0.52, size: 0.27, shape: .pedal),
-        Spot(id: "middle", name: "中踏板", x: 0.5, y: 0.52, size: 0.27, shape: .pedal),
-        Spot(id: "right", name: "右踏板", x: 0.81, y: 0.52, size: 0.27, shape: .pedal),
-    ])
+    static let footPedal = DeviceDiagram(
+        id: "foot-pedal", title: "脚踏板", width: 260, height: 100,
+        parts: [Part(Box(0, 0, 260, 100), .rounded(12), .graphite)],
+        spots: [
+            Spot("left", "左踏板", .center(45, 50, 70, 74), .rounded(9)),
+            Spot("middle", "中踏板", .center(130, 50, 70, 74), .rounded(9)),
+            Spot("right", "右踏板", .center(215, 50, 70, 74), .rounded(9)),
+        ]
+    )
+
+    /// 通用无线麦发射器（不知道具体型号时用）：正面一个键，两侧各一个键。
+    static let micTransmitter = DeviceDiagram(
+        id: "mic-transmitter", title: "无线麦发射器（通用）", width: 35, height: 46,
+        parts: [
+            Part(Box(2, 0, 31, 46), .rounded(7), .graphite),
+            Part(Box(7, 2, 21, 3), .rounded(1.5), .grille),
+        ],
+        spots: [
+            Spot("power", "左侧键", .center(1.2, 18, 2, 8), .capsule, .sideKey),
+            Spot("record", "正面键", .circle(17.5, 32, 8), .circle, .recordKey),
+            Spot("link", "右侧键", .center(33.8, 18, 2, 8), .capsule, .sideKey),
+        ]
+    )
 
     /// 系统媒体键：键码是公开头文件里的 NX_KEYTYPE_*，不用学键。
-    static let mediaKeys = DeviceDiagram(id: "mediaKeys", title: "键盘媒体键", body: .mediaKeys, spots: [
-        Spot(id: "previous", name: "上一首（F7）", x: 0.09, y: 0.5, size: 0.14, shape: .key, symbol: "backward.fill", button: .media(18)),
-        Spot(id: "playPause", name: "播放 / 暂停（F8）", x: 0.254, y: 0.5, size: 0.14, shape: .key, symbol: "playpause.fill", button: .media(16)),
-        Spot(id: "next", name: "下一首（F9）", x: 0.418, y: 0.5, size: 0.14, shape: .key, symbol: "forward.fill", button: .media(17)),
-        Spot(id: "mute", name: "静音（F10）", x: 0.582, y: 0.5, size: 0.14, shape: .key, symbol: "speaker.slash.fill", button: .media(7)),
-        Spot(id: "volumeDown", name: "音量 −（F11）", x: 0.746, y: 0.5, size: 0.14, shape: .key, symbol: "speaker.wave.1.fill", button: .media(1)),
-        Spot(id: "volumeUp", name: "音量 +（F12）", x: 0.91, y: 0.5, size: 0.14, shape: .key, symbol: "speaker.wave.3.fill", button: .media(0)),
-    ])
+    static let mediaKeys: DeviceDiagram = {
+        let keys: [(String, String, String, Int)] = [
+            ("previous", "上一首（F7）", "backward.fill", 18), ("playPause", "播放 / 暂停（F8）", "playpause.fill", 16),
+            ("next", "下一首（F9）", "forward.fill", 17), ("mute", "静音（F10）", "speaker.slash.fill", 7),
+            ("volumeDown", "音量 −（F11）", "speaker.wave.1.fill", 1), ("volumeUp", "音量 +（F12）", "speaker.wave.3.fill", 0),
+        ]
+        return DeviceDiagram(
+            id: "media-keys", title: "键盘媒体键", width: 300, height: 60,
+            parts: [Part(Box(0, 0, 300, 60), .rounded(8), .graphite)],
+            spots: keys.enumerated().map { index, key in
+                Spot(key.0, key.1, .center(27 + Double(index) * 49.2, 30, 42, 40), .rounded(6), symbol: key.2, button: .media(key.3))
+            }
+        )
+    }()
 
     /// 不知道长什么样的设备：把学到的键竖着排。
     static func generic(buttons: [(ButtonID, String)], reportsRelease: Bool = true) -> DeviceDiagram {
-        let count = max(buttons.count, 1)
-        let spots = buttons.enumerated().map { index, item in
-            Spot(id: item.0.rawValue, name: item.1, x: 0.5, y: 0.14 + 0.72 * (Double(index) + 0.5) / Double(count),
-                 size: min(0.5, 0.9 / Double(count) * 2.2), button: item.0)
-        }
-        return DeviceDiagram(id: "generic", title: "通用按键", body: .generic, spots: spots, reportsRelease: reportsRelease)
+        let count = Double(max(buttons.count, 1))
+        let height = 30 + 26 * count
+        return DeviceDiagram(
+            id: "generic", title: "通用按键", width: 46, height: height,
+            parts: [Part(Box(0, 0, 46, height), .rounded(14), .graphite)],
+            spots: buttons.enumerated().map { index, item in
+                Spot(item.0.rawValue, item.1, .circle(23, 28 + 26 * Double(index), 18), button: item.0)
+            },
+            reportsRelease: reportsRelease
+        )
     }
 
     /// 按设备的说明猜它长什么样，用户可以在界面里改。
-    static func guessBody(for device: ControlDevice) -> Body {
-        if device.id == SystemKeysControlSource.mediaDeviceID { return .mediaKeys }
+    static func guess(for device: ControlDevice) -> DeviceDiagram {
+        if device.id == SystemKeysControlSource.mediaDeviceID { return mediaKeys }
         if device.sourceID == "hid" {
-            if device.detail.contains("触控") || device.detail.contains("Digitizer") { return .touchRemote }
-            if device.detail.contains("媒体键") { return .remote }
-            if device.detail.contains("键盘") { return .presenter }
+            if device.detail.contains("0x2717:0x32B8") { return xiaomiRemote2 }
+            if device.detail.contains("0x004C:") && (device.detail.contains("触控") || device.detail.contains("媒体键")) { return siriRemote }
+            if device.detail.contains("媒体键") { return remote }
+            if device.detail.contains("键盘") { return presenter }
         }
-        return .generic
+        return generic(buttons: [])
     }
 }

@@ -24,10 +24,11 @@ struct KeysTab: View {
                 Section {
                     if !resolved.isFixed {
                         Picker("外形", selection: Binding(
-                            get: { model.config.deviceLayouts[device.id]?.body ?? resolved.diagram.body },
-                            set: { model.setBody($0, for: device.id) }
+                            get: { resolved.diagram.id },
+                            set: { model.setDiagram($0, for: device.id) }
                         )) {
-                            ForEach(DeviceDiagram.Body.allCases, id: \.self) { Text($0.title).tag($0) }
+                            ForEach(DeviceDiagram.choices) { Text($0.title).tag($0.id) }
+                            if resolved.diagram.id == DeviceDiagram.mediaKeys.id { Text(DeviceDiagram.mediaKeys.title).tag(DeviceDiagram.mediaKeys.id) }
                         }
                     }
                     DeviceDiagramView(
@@ -40,7 +41,7 @@ struct KeysTab: View {
                         onSelect: { selectedSpot = $0 }
                     )
                     HStack {
-                        if resolved.diagram.body == .generic {
+                        if resolved.diagram.id == "generic" {
                             Button(model.learningSpot == "+" ? "请按设备上的键……" : "加一个键") { model.startLearning(spot: "+") }
                                 .disabled(model.learningSpot != nil)
                         }
@@ -55,11 +56,11 @@ struct KeysTab: View {
                 } header: {
                     Text(device.name)
                 } footer: {
-                    Text(resolved.isFixed
-                         ? "示意图，不是实物照片。按设备上的键，图上对应的键会亮。"
-                         : resolved.diagram.body == .mediaKeys
+                    Text((resolved.diagram.note.map { $0 + "。" } ?? "") + (resolved.isFixed
+                         ? "照产品图画的示意图。按设备上的键，图上对应的键会亮。"
+                         : resolved.diagram.id == DeviceDiagram.mediaKeys.id
                          ? "键盘最上面一排的媒体键（也包括蓝牙耳机、遥控器发出的播放、音量键）。按键时图上会亮。"
-                         : "示意图，不是实物照片，按键位置以实物为准。先点图上的键、再按一下设备上的同一个键，把它们对上；按键时图上会亮。")
+                         : "照产品图画的示意图。先点图上的键、再按一下设备上的同一个键，把它们对上；按键时图上会亮。"))
                 }
                 .alert("套用「AI 编程」预设？", isPresented: $confirmPreset) {
                     Button("套用") { applyPreset(resolved) }
@@ -189,7 +190,7 @@ struct KeysTab: View {
     }
 }
 
-/// 「AI 编程」预设：上下切对话、切完直接说、说完回车发送；确认键按住说话。只设已经对上的键。
+/// 「AI 编程」预设：上下键直接切对话；确认键长按按住说话、单击回车发送。只设已经对上的键。
 enum AIPreset {
     struct Item {
         let spot: String
@@ -199,62 +200,38 @@ enum AIPreset {
         var send = false
     }
 
-    static func items(for body: DeviceDiagram.Body) -> [Item] {
-        switch body {
-        case .remote:
-            return [
-                Item(spot: "up", gesture: .single, action: .switchChat(.previous), talkAfter: true, send: true),
-                Item(spot: "down", gesture: .single, action: .switchChat(.next), talkAfter: true, send: true),
-                Item(spot: "ok", gesture: .long, action: .pushToTalk),
-                Item(spot: "ok", gesture: .single, action: .sendReturn),
-                Item(spot: "voice", gesture: .single, action: .toggleDictation),
-                Item(spot: "back", gesture: .single, action: .menuCommand(AIToolProfile.claude.open)),
-                Item(spot: "home", gesture: .single, action: .menuCommand(AIToolProfile.codex.open)),
-            ]
-        case .touchRemote:
-            return [
-                Item(spot: "pad", gesture: .long, action: .pushToTalk),
-                Item(spot: "pad", gesture: .single, action: .sendReturn),
-                Item(spot: "volumeUp", gesture: .single, action: .switchChat(.previous), talkAfter: true, send: true),
-                Item(spot: "volumeDown", gesture: .single, action: .switchChat(.next), talkAfter: true, send: true),
-                Item(spot: "playPause", gesture: .single, action: .toggleDictation),
-                Item(spot: "back", gesture: .single, action: .menuCommand(AIToolProfile.claude.open)),
-                Item(spot: "home", gesture: .single, action: .menuCommand(AIToolProfile.codex.open)),
-            ]
-        case .presenter:
-            return [
-                Item(spot: "previous", gesture: .single, action: .switchChat(.previous), talkAfter: true, send: true),
-                Item(spot: "next", gesture: .single, action: .switchChat(.next), talkAfter: true, send: true),
-                Item(spot: "screen", gesture: .single, action: .sendReturn),
-                Item(spot: "laser", gesture: .long, action: .pushToTalk),
-            ]
-        case .micTransmitter:
-            return [
-                Item(spot: "record", gesture: .single, action: .toggleDictation),
-                Item(spot: "link", gesture: .single, action: .sendReturn),
-                Item(spot: "link", gesture: .double, action: .switchChat(.next), talkAfter: true, send: true),
-            ]
-        case .mediaKeys:
-            return [
-                Item(spot: "previous", gesture: .single, action: .switchChat(.previous), talkAfter: true, send: true),
-                Item(spot: "next", gesture: .single, action: .switchChat(.next), talkAfter: true, send: true),
-                Item(spot: "playPause", gesture: .long, action: .pushToTalk),
-                Item(spot: "playPause", gesture: .single, action: .sendReturn),
-            ]
-        case .footPedal:
-            return [
-                Item(spot: "left", gesture: .single, action: .switchChat(.previous), talkAfter: true, send: true),
-                Item(spot: "middle", gesture: .long, action: .pushToTalk),
-                Item(spot: "middle", gesture: .single, action: .sendReturn),
-                Item(spot: "right", gesture: .single, action: .switchChat(.next), talkAfter: true, send: true),
-            ]
-        case .generic:
-            return []
-        }
-    }
+    /// 按键位名字设：哪台设备有这个键就设，没有就跳过。
+    static let items: [Item] = [
+        // 遥控器：上下切对话，确认键长按说话、单击发送，返回 / 主页 / TV 打开 AI 工具
+        Item(spot: "up", gesture: .single, action: .switchChat(.previous)),
+        Item(spot: "down", gesture: .single, action: .switchChat(.next)),
+        Item(spot: "ok", gesture: .long, action: .pushToTalk),
+        Item(spot: "ok", gesture: .single, action: .sendReturn),
+        Item(spot: "voice", gesture: .single, action: .toggleDictation),
+        Item(spot: "back", gesture: .single, action: .menuCommand(AIToolProfile.claude.open)),
+        Item(spot: "home", gesture: .single, action: .menuCommand(AIToolProfile.codex.open)),
+        Item(spot: "tv", gesture: .single, action: .menuCommand(AIToolProfile.codex.open)),
+        // 翻页笔、媒体键：上一个 / 下一个切对话
+        Item(spot: "previous", gesture: .single, action: .switchChat(.previous)),
+        Item(spot: "next", gesture: .single, action: .switchChat(.next)),
+        Item(spot: "screen", gesture: .single, action: .sendReturn),
+        Item(spot: "laser", gesture: .long, action: .pushToTalk),
+        Item(spot: "playPause", gesture: .long, action: .pushToTalk),
+        Item(spot: "playPause", gesture: .single, action: .sendReturn),
+        // 脚踏板
+        Item(spot: "left", gesture: .single, action: .switchChat(.previous)),
+        Item(spot: "middle", gesture: .long, action: .pushToTalk),
+        Item(spot: "middle", gesture: .single, action: .sendReturn),
+        Item(spot: "right", gesture: .single, action: .switchChat(.next)),
+        // 无线麦：录制键开始 / 结束说话，连接键发送
+        Item(spot: "record", gesture: .single, action: .toggleDictation),
+        Item(spot: "link", gesture: .single, action: .sendReturn),
+    ]
 
     static func bindings(for resolved: AppModel.ResolvedDiagram) -> [KeyBinding] {
-        items(for: resolved.diagram.body).compactMap { item in
+        // 遥控器的左右键留给用户自己设，不跟脚踏板的左右踏板混用。
+        let isPedal = resolved.diagram.id == DeviceDiagram.footPedal.id
+        return items.filter { isPedal || !["left", "right"].contains($0.spot) }.compactMap { item in
             guard let button = resolved.buttons[item.spot],
                   let spot = resolved.diagram.spots.first(where: { $0.id == item.spot }),
                   resolved.reportsRelease || item.gesture != .long else { return nil }

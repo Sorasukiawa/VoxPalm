@@ -28,7 +28,17 @@ struct DiagramCallout: Identifiable {
     let isLearning: Bool
 
     var id: String { spot.id }
-    var height: CGFloat { 24 + 14 * CGFloat(max(lines.count, 1) + reserved.count) }
+
+    /// 按标注宽度估算高度：每行字超出宽度就折成两行。
+    func height(width: CGFloat) -> CGFloat {
+        func rows(_ text: String, size: CGFloat) -> CGFloat {
+            let textWidth = text.reduce(CGFloat(0)) { $0 + ($1.isASCII ? size * 0.56 : size) }
+            return min(2, max(1, (textWidth / max(width - 16, 40)).rounded(.up)))
+        }
+        let body = lines.reduce(CGFloat(0)) { $0 + rows($1, size: 10.5) * 13.5 }
+        let notes = reserved.reduce(CGFloat(0)) { $0 + rows("设备占用 · " + $1, size: 10.5) * 13.5 }
+        return 26 + body + notes
+    }
 
     static func make(diagram: DeviceDiagram, buttons: [String: ButtonID], keyMap: KeyMap, reportsRelease: Bool, learning: String?) -> [DiagramCallout] {
         diagram.spots.map { spot in
@@ -62,16 +72,14 @@ struct DeviceDiagramView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let layout = DiagramLayout(body: diagram.body, spots: diagram.spots, callouts: callouts, size: geometry.size)
+            let layout = DiagramLayout(diagram: diagram, callouts: callouts, size: geometry.size)
             ZStack(alignment: .topLeading) {
-                DeviceBody(body: diagram.body)
-                    .frame(width: layout.device.width, height: layout.device.height)
-                    .offset(x: layout.device.minX, y: layout.device.minY)
+                DeviceArt(diagram: diagram, layout: layout, highlighted: highlighted)
                 Canvas { context, _ in
                     for callout in callouts {
                         guard let path = layout.leader(for: callout.id) else { continue }
                         let active = callout.id == selected
-                        context.stroke(path, with: .color(active ? Brand.coralTop : Color.gray.opacity(0.75)),
+                        context.stroke(path, with: .color(active ? Brand.coralTop : Color.gray.opacity(0.8)),
                                        style: StrokeStyle(lineWidth: active ? 1.5 : 1, lineCap: .round, lineJoin: .round))
                         if let end = layout.anchors[callout.id] {
                             context.fill(Path(ellipseIn: CGRect(x: end.x - 2.5, y: end.y - 2.5, width: 5, height: 5)),
@@ -79,10 +87,11 @@ struct DeviceDiagramView: View {
                         }
                     }
                 }
+                .allowsHitTesting(false)
                 ForEach(diagram.spots) { spot in
-                    let frame = layout.spotFrame(spot)
-                    SpotShapeView(spot: spot, device: layout.device,
-                                  state: spotState(spot))
+                    let frame = layout.frame(spot.box).insetBy(dx: -3, dy: -3)
+                    Color.clear
+                        .contentShape(Rectangle())
                         .frame(width: frame.width, height: frame.height)
                         .offset(x: frame.minX, y: frame.minY)
                         .onTapGesture { onSelect(spot.id) }
@@ -98,62 +107,101 @@ struct DeviceDiagramView: View {
                 }
             }
         }
-        .frame(height: DiagramLayout.preferredHeight(body: diagram.body, callouts: callouts))
+        .frame(height: DiagramLayout.preferredHeight(diagram: diagram, callouts: callouts))
     }
 
-    private func spotState(_ spot: DeviceDiagram.Spot) -> SpotShapeView.State {
-        if let button = buttons[spot.id], pressed.contains(button) { return .pressed }
-        if spot.id == selected { return .selected }
-        return buttons[spot.id] == nil ? .unbound : .normal
+    private var highlighted: [String: DeviceArt.Highlight] {
+        var result: [String: DeviceArt.Highlight] = [:]
+        for spot in diagram.spots {
+            if let button = buttons[spot.id], pressed.contains(button) {
+                result[spot.id] = .pressed
+            } else if spot.id == selected {
+                result[spot.id] = .selected
+            }
+        }
+        return result
     }
 }
 
-/// 算设备、标注、引线的位置。竖的设备标注在左右两边；宽的设备（脚踏板、媒体键）标注在上下。
+/// 算设备、标注、引线的位置。竖的设备标注在左右两边；宽的设备（展开的侧面、脚踏板、媒体键）标注在上下。
 struct DiagramLayout {
     var device: CGRect = .zero
+    /// 每毫米多少点
+    var scale: CGFloat = 1
     var labels: [String: CGRect] = [:]
     var anchors: [String: CGPoint] = [:]
     private var labelSide: [String: Edge] = [:]
 
-    static func preferredHeight(body: DeviceDiagram.Body, callouts: [DiagramCallout]) -> CGFloat {
-        if body.isWide {
-            let row = (callouts.map(\.height).max() ?? 40)
-            return (callouts.count > 3 ? row * 2 + 40 : row + 20) + 150
-        }
-        return body == .generic ? max(260, CGFloat(callouts.count) * 64 + 40) : 440
+    /// 标注放上下：只有宽的设备、而且键横着排开（相邻两个键左右隔得够远）时才这样放，其他都放左右两边。
+    static func usesRows(_ diagram: DeviceDiagram) -> Bool {
+        guard diagram.isWide else { return false }
+        let xs = diagram.spots.map(\.box.midX).sorted()
+        return zip(xs, xs.dropFirst()).allSatisfy { $1 - $0 > diagram.width * 0.1 }
     }
 
-    init(body: DeviceDiagram.Body, spots: [DeviceDiagram.Spot], callouts: [DiagramCallout], size: CGSize) {
-        let heights = Dictionary(uniqueKeysWithValues: callouts.map { ($0.id, $0.height) })
-        if body.isWide {
-            layoutWide(body: body, spots: spots, heights: heights, size: size)
+    /// 设备在左右排标注时最多占多宽（相对整块宽度）
+    static func maxDeviceFraction(_ diagram: DeviceDiagram) -> CGFloat { diagram.isWide ? 0.4 : 0.3 }
+
+    static func preferredHeight(diagram: DeviceDiagram, callouts: [DiagramCallout], width: CGFloat = 650) -> CGFloat {
+        if usesRows(diagram) {
+            let labelWidth = min(240, (width - 16) / CGFloat(max(1, callouts.count > 3 ? (callouts.count + 1) / 2 : callouts.count)) - 8)
+            let row = callouts.map { $0.height(width: labelWidth) }.max() ?? 40
+            return (callouts.count > 3 ? row * 2 + 40 : row + 20) + 170
+        }
+        if diagram.id == "generic" { return max(260, CGFloat(callouts.count) * 64 + 40) }
+        guard diagram.isWide else { return 460 }
+        // 宽的展开图标注在左右：高度取设备高度和较长一列标注里大的那个。
+        let deviceWidth = width * maxDeviceFraction(diagram)
+        let deviceHeight = deviceWidth * diagram.height / diagram.width
+        let labelWidth = min(230, (width - deviceWidth) / 2 - 44)
+        let left = callouts.filter { spotIsLeft($0.spot, diagram) }.reduce(CGFloat(0)) { $0 + $1.height(width: labelWidth) + 6 }
+        let right = callouts.filter { !spotIsLeft($0.spot, diagram) }.reduce(CGFloat(0)) { $0 + $1.height(width: labelWidth) + 6 }
+        return max(deviceHeight, left, right) + 30
+    }
+
+    private static func spotIsLeft(_ spot: DeviceDiagram.Spot, _ diagram: DeviceDiagram) -> Bool {
+        spot.box.midX / diagram.width < 0.5
+    }
+
+    init(diagram: DeviceDiagram, callouts: [DiagramCallout], size: CGSize) {
+        let aspect = diagram.width / diagram.height
+        if Self.usesRows(diagram) {
+            layoutRows(diagram: diagram, aspect: aspect, callouts: callouts, size: size)
         } else {
-            layoutTall(body: body, spots: spots, heights: heights, size: size)
+            layoutSides(diagram: diagram, aspect: aspect, callouts: callouts, size: size)
         }
-        for spot in spots { anchors[spot.id] = anchorPoint(spot) }
+        for spot in diagram.spots { anchors[spot.id] = anchorPoint(spot) }
     }
 
-    private mutating func layoutTall(body: DeviceDiagram.Body, spots: [DeviceDiagram.Spot], heights: [String: CGFloat], size: CGSize) {
+    func frame(_ box: DeviceDiagram.Box) -> CGRect {
+        CGRect(x: device.minX + box.x * scale, y: device.minY + box.y * scale, width: box.w * scale, height: box.h * scale)
+    }
+
+    private mutating func layoutSides(diagram: DeviceDiagram, aspect: Double, callouts: [DiagramCallout], size: CGSize) {
         let pad: CGFloat = 8
         var deviceHeight = size.height - pad * 2 - 8
-        var deviceWidth = deviceHeight * body.aspect
-        if deviceWidth > size.width * 0.3 {
-            deviceWidth = size.width * 0.3
-            deviceHeight = deviceWidth / body.aspect
+        var deviceWidth = deviceHeight * aspect
+        let maxWidth = size.width * Self.maxDeviceFraction(diagram)
+        if deviceWidth > maxWidth {
+            deviceWidth = maxWidth
+            deviceHeight = deviceWidth / aspect
         }
         device = CGRect(x: (size.width - deviceWidth) / 2, y: (size.height - deviceHeight) / 2, width: deviceWidth, height: deviceHeight)
+        scale = deviceWidth / diagram.width
         let labelWidth = min(230, (size.width - deviceWidth) / 2 - 44)
+        let heights = Dictionary(uniqueKeysWithValues: callouts.map { ($0.id, $0.height(width: labelWidth)) })
 
         // 分左右：左半边的键标在左边，右半边的标在右边，正中间的两边轮流放。
         var left: [DeviceDiagram.Spot] = []
         var right: [DeviceDiagram.Spot] = []
-        for spot in spots.sorted(by: { $0.y < $1.y }) {
-            if spot.x < 0.45 { left.append(spot) } else if spot.x > 0.55 { right.append(spot) }
+        for spot in diagram.spots.sorted(by: { $0.box.midY < $1.box.midY }) {
+            let x = spot.box.midX / diagram.width
+            if x < 0.42 { left.append(spot) } else if x > 0.58 { right.append(spot) }
             else if left.count <= right.count { left.append(spot) } else { right.append(spot) }
         }
         for (side, column) in [(Edge.leading, left), (Edge.trailing, right)] {
             let x = side == .leading ? pad : size.width - pad - labelWidth
-            let wanted = column.map { spot in (spot, device.minY + spot.y * device.height, heights[spot.id] ?? 40) }
+            let wanted = column.map { spot in (spot, frame(spot.box).midY, heights[spot.id] ?? 40) }
             let tops = Self.stack(wanted.map { ($0.1, $0.2) }, min: pad, max: size.height - pad, gap: 6)
             for (index, item) in wanted.enumerated() {
                 labels[item.0.id] = CGRect(x: x, y: tops[index], width: labelWidth, height: item.2)
@@ -162,21 +210,24 @@ struct DiagramLayout {
         }
     }
 
-    private mutating func layoutWide(body: DeviceDiagram.Body, spots: [DeviceDiagram.Spot], heights: [String: CGFloat], size: CGSize) {
+    private mutating func layoutRows(diagram: DeviceDiagram, aspect: Double, callouts: [DiagramCallout], size: CGSize) {
         let pad: CGFloat = 8
-        let sorted = spots.sorted { $0.x < $1.x }
+        let sorted = diagram.spots.sorted { $0.box.midX < $1.box.midX }
         let twoRows = sorted.count > 3
+        let perRowCount = twoRows ? Int((Double(sorted.count) / 2).rounded(.up)) : sorted.count
+        let rowLabelWidth = min(240, (size.width - pad * 2) / CGFloat(max(perRowCount, 1)) - 8)
+        let heights = Dictionary(uniqueKeysWithValues: callouts.map { ($0.id, $0.height(width: rowLabelWidth)) })
         let rowHeight = heights.values.max() ?? 40
-        let deviceWidth = min(size.width * 0.82, (size.height - (twoRows ? rowHeight * 2 + 80 : rowHeight + 60)) * body.aspect)
-        let deviceHeight = deviceWidth / body.aspect
+        let deviceWidth = min(size.width * 0.82, (size.height - (twoRows ? rowHeight * 2 + 80 : rowHeight + 60)) * aspect)
+        let deviceHeight = deviceWidth / aspect
         let top = twoRows ? pad + rowHeight + 34 : pad + 10
         device = CGRect(x: (size.width - deviceWidth) / 2, y: top, width: deviceWidth, height: deviceHeight)
-        let perRow = twoRows ? Int((Double(sorted.count) / 2).rounded(.up)) : sorted.count
-        let labelWidth = min(240, (size.width - pad * 2) / CGFloat(perRow) - 8)
+        scale = deviceWidth / diagram.width
+        let labelWidth = rowLabelWidth
         // 上下两排分别排：先对准各自的键，再左右推开不重叠，最后整排收进边界。
         for edge in twoRows ? [Edge.top, .bottom] : [.bottom] {
             let row = sorted.enumerated().filter { index, _ in !twoRows || (index % 2 == 0) == (edge == .top) }.map(\.element)
-            var xs = row.map { device.minX + $0.x * device.width - labelWidth / 2 }
+            var xs = row.map { frame($0.box).midX - labelWidth / 2 }
             for index in xs.indices {
                 xs[index] = max(xs[index], index == 0 ? pad : xs[index - 1] + labelWidth + 8)
             }
@@ -206,28 +257,15 @@ struct DiagramLayout {
         return tops.map { Swift.max($0, min) }
     }
 
-    func spotFrame(_ spot: DeviceDiagram.Spot) -> CGRect {
-        let center = CGPoint(x: device.minX + spot.x * device.width, y: device.minY + spot.y * device.height)
-        let d = spot.size * device.width
-        let size: CGSize
-        switch spot.shape {
-        case .round, .arrow, .pad: size = CGSize(width: d, height: d)
-        case .pill: size = spot.isOnSide ? CGSize(width: 7, height: d * 2.6) : CGSize(width: d * 1.5, height: d * 0.62)
-        case .pedal: size = CGSize(width: d, height: device.height * 0.72)
-        case .key: size = CGSize(width: d, height: device.height * 0.62)
-        }
-        return CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height)
-    }
-
-    /// 引线落在按键的哪个点上：侧键落在外侧，其他落在朝向标注的那一边。
+    /// 引线落在按键朝向标注的那一边。
     private func anchorPoint(_ spot: DeviceDiagram.Spot) -> CGPoint {
-        let frame = spotFrame(spot)
+        let rect = frame(spot.box)
         switch labelSide[spot.id] {
-        case .leading: return CGPoint(x: frame.minX, y: frame.midY)
-        case .trailing: return CGPoint(x: frame.maxX, y: frame.midY)
-        case .top: return CGPoint(x: frame.midX, y: frame.minY)
-        case .bottom: return CGPoint(x: frame.midX, y: frame.maxY)
-        case nil: return CGPoint(x: frame.midX, y: frame.midY)
+        case .leading: return CGPoint(x: rect.minX, y: rect.midY)
+        case .trailing: return CGPoint(x: rect.maxX, y: rect.midY)
+        case .top: return CGPoint(x: rect.midX, y: rect.minY)
+        case .bottom: return CGPoint(x: rect.midX, y: rect.maxY)
+        case nil: return CGPoint(x: rect.midX, y: rect.midY)
         }
     }
 
@@ -249,147 +287,145 @@ struct DiagramLayout {
             let start = CGPoint(x: label.midX, y: label.maxY + 3)
             path.move(to: start)
             path.addLine(to: CGPoint(x: start.x, y: start.y + 10))
-            path.addLine(to: CGPoint(x: end.x, y: end.y - 10))
+            path.addLine(to: CGPoint(x: end.x, y: min(end.y - 10, device.minY - 8)))
             path.addLine(to: end)
         case .bottom:
             let start = CGPoint(x: label.midX, y: label.minY - 3)
             path.move(to: start)
             path.addLine(to: CGPoint(x: start.x, y: start.y - 10))
-            path.addLine(to: CGPoint(x: end.x, y: end.y + 10))
+            path.addLine(to: CGPoint(x: end.x, y: max(end.y + 10, device.maxY + 8)))
             path.addLine(to: end)
         }
         return path
     }
 }
 
-/// 设备外壳：墨色渐变 + 每类设备的一点细节（方向键圆环、麦克风网罩）。
-struct DeviceBody: View {
-    let body_: DeviceDiagram.Body
+/// 按示意图的数据画设备：机身、接口、指示灯、按键，选中或按下的键叠珊瑚色。
+struct DeviceArt: View {
+    enum Highlight { case selected, pressed }
 
-    init(body: DeviceDiagram.Body) {
-        body_ = body
-    }
+    let diagram: DeviceDiagram
+    let layout: DiagramLayout
+    let highlighted: [String: Highlight]
 
-    var body: some View {
-        GeometryReader { geometry in
-            let w = geometry.size.width
-            let h = geometry.size.height
-            ZStack {
-                shell(w: w, h: h)
-                switch body_ {
-                case .remote:
-                    Circle()
-                        .fill(Color.white.opacity(0.05))
-                        .overlay(Circle().stroke(Brand.cream.opacity(0.16), lineWidth: 1))
-                        .frame(width: w * 0.86, height: w * 0.86)
-                        .position(x: w * 0.5, y: h * 0.335)
-                case .micTransmitter:
-                    grille(w: w, h: h)
-                    Circle().fill(Brand.cream.opacity(0.35)).frame(width: w * 0.05).position(x: w * 0.5, y: h * 0.47)
-                case .presenter:
-                    Capsule().fill(Brand.coralTop.opacity(0.35)).frame(width: w * 0.36, height: h * 0.025).position(x: w * 0.5, y: h * 0.035)
-                default:
-                    EmptyView()
-                }
-            }
-        }
-    }
-
-    private var cornerFraction: CGFloat {
-        switch body_ {
-        case .remote, .presenter: return 0.48
-        case .touchRemote: return 0.32
-        case .micTransmitter: return 0.2
-        case .footPedal: return 0.05
-        case .mediaKeys: return 0.025
-        case .generic: return 0.25
-        }
-    }
-
-    private func shell(w: CGFloat, h: CGFloat) -> some View {
-        let shape = RoundedRectangle(cornerRadius: w * cornerFraction, style: .continuous)
-        return shape
-            .fill(Brand.ink)
-            .overlay(shape.stroke(Color.white.opacity(0.14), lineWidth: 1))
-            .shadow(color: .black.opacity(0.28), radius: 10, y: 5)
-    }
-
-    private func grille(w: CGFloat, h: CGFloat) -> some View {
-        let dot = w * 0.045
-        return VStack(spacing: dot * 0.9) {
-            ForEach(0..<3, id: \.self) { _ in
-                HStack(spacing: dot * 0.9) {
-                    ForEach(0..<6, id: \.self) { _ in Circle().fill(Brand.cream.opacity(0.18)).frame(width: dot, height: dot) }
-                }
-            }
-        }
-        .position(x: w * 0.5, y: h * 0.22)
-    }
-}
-
-/// 一个按键的样子。
-struct SpotShapeView: View {
-    enum State { case normal, unbound, selected, pressed }
-
-    let spot: DeviceDiagram.Spot
-    let device: CGRect
-    let state: State
+    private static let aluminum = Gradient(colors: [Color(red: 0.93, green: 0.935, blue: 0.945), Color(red: 0.77, green: 0.78, blue: 0.80)])
+    private static let graphite = Gradient(colors: [Color(red: 0.235, green: 0.235, blue: 0.255), Color(red: 0.115, green: 0.115, blue: 0.13)])
+    private static let keyBlack = Color(red: 0.11, green: 0.11, blue: 0.12)
+    private static let keyLight = Gradient(colors: [Color(red: 0.90, green: 0.905, blue: 0.915), Color(red: 0.78, green: 0.785, blue: 0.80)])
+    private static let symbolOnDark = Color(red: 0.90, green: 0.90, blue: 0.92)
+    private static let symbolOnLight = Color(red: 0.30, green: 0.30, blue: 0.33)
 
     var body: some View {
-        GeometryReader { geometry in
-            let w = geometry.size.width
-            let h = geometry.size.height
-            ZStack {
-                shape
-                    .fill(fill)
-                    .overlay(shape.stroke(stroke, style: StrokeStyle(lineWidth: state == .selected ? 1.5 : 1, dash: state == .unbound ? [3, 2.5] : [])))
-                    .shadow(color: state == .pressed ? Brand.coralTop.opacity(0.9) : .clear, radius: 8)
-                if spot.shape == .pedal {
-                    VStack(spacing: h * 0.07) {
-                        ForEach(0..<4, id: \.self) { _ in Capsule().fill(Brand.cream.opacity(0.14)).frame(width: w * 0.6, height: 2) }
+        Canvas { context, _ in
+            context.drawLayer { layer in
+                layer.addFilter(.shadow(color: .black.opacity(0.25), radius: 8, y: 4))
+                for part in diagram.parts where part.style == .aluminum || part.style == .graphite {
+                    draw(part.box, part.shape, part.style, symbol: nil, text: nil, in: &layer)
+                }
+            }
+            for part in diagram.parts where part.style != .aluminum && part.style != .graphite {
+                draw(part.box, part.shape, part.style, symbol: part.symbol, text: part.text, in: &context)
+            }
+            for spot in diagram.spots {
+                draw(spot.box, spot.shape, spot.style, symbol: spot.symbol, text: nil, in: &context)
+                if let highlight = highlighted[spot.id] {
+                    let path = self.path(spot.box, spot.shape)
+                    if highlight == .pressed {
+                        context.drawLayer { glow in
+                            glow.addFilter(.shadow(color: Brand.coralTop, radius: 7))
+                            glow.fill(path, with: .color(Brand.coralTop.opacity(0.85)))
+                        }
+                    } else {
+                        context.fill(path, with: .color(Brand.coralTop.opacity(spot.style == .zone ? 0.6 : 0.45)))
                     }
-                }
-                if let symbol = spot.symbol {
-                    Image(systemName: symbol)
-                        .font(.system(size: max(7, min(w, h) * (spot.shape == .key ? 0.32 : 0.42)), weight: .semibold))
-                        .foregroundStyle(symbolColor)
+                    context.stroke(path, with: .color(Brand.coralTop), lineWidth: 1.8)
+                    if let symbol = spot.symbol { drawSymbol(symbol, in: layout.frame(spot.box), color: .white, context: &context) }
                 }
             }
         }
-        .contentShape(Rectangle())
     }
 
-    private var shape: AnyShape {
-        switch spot.shape {
-        case .round, .arrow, .pad: return AnyShape(Circle())
-        case .pill: return AnyShape(Capsule())
-        case .pedal: return AnyShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        case .key: return AnyShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+    private func path(_ box: DeviceDiagram.Box, _ shape: DeviceDiagram.Shape) -> Path {
+        let rect = layout.frame(box)
+        switch shape {
+        case let .rounded(radius): return Path(roundedRect: rect, cornerRadius: min(radius * layout.scale, min(rect.width, rect.height) / 2), style: .continuous)
+        case .circle: return Path(ellipseIn: rect)
+        case .capsule: return Path(roundedRect: rect, cornerRadius: min(rect.width, rect.height) / 2, style: .continuous)
         }
     }
 
-    private var fill: AnyShapeStyle {
-        switch state {
-        case .pressed, .selected:
-            // 大块的触摸板、踏板选中时只淡淡地染色，不然整块变成珊瑚色太重。
-            return spot.shape == .pad || spot.shape == .pedal ? AnyShapeStyle(Brand.coralTop.opacity(0.32)) : AnyShapeStyle(Brand.coral)
-        case .normal, .unbound:
-            return AnyShapeStyle(Color.white.opacity(spot.shape == .pad ? 0.07 : 0.11))
+    private func draw(_ box: DeviceDiagram.Box, _ shape: DeviceDiagram.Shape, _ style: DeviceDiagram.Style,
+                      symbol: String?, text: String?, in context: inout GraphicsContext) {
+        let rect = layout.frame(box)
+        let path = self.path(box, shape)
+        func vertical(_ gradient: Gradient) -> GraphicsContext.Shading {
+            .linearGradient(gradient, startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY))
+        }
+        switch style {
+        case .aluminum:
+            context.fill(path, with: vertical(Self.aluminum))
+            context.stroke(path, with: .color(Color(white: 0.6)), lineWidth: 0.8)
+        case .graphite:
+            context.fill(path, with: vertical(Self.graphite))
+            context.stroke(path, with: .color(.white.opacity(0.14)), lineWidth: 0.8)
+        case .clip:
+            context.fill(path, with: .color(Color(white: 0.17)))
+        case .blackKey:
+            context.fill(path, with: .color(Self.keyBlack))
+            context.stroke(path, with: .color(.white.opacity(0.1)), lineWidth: 0.8)
+            if let symbol { drawSymbol(symbol, in: rect, color: Self.symbolOnDark, context: &context) }
+        case .lightKey:
+            context.fill(path, with: vertical(Self.keyLight))
+            context.stroke(path, with: .color(Color(white: 0.55)), lineWidth: 0.8)
+            if let symbol { drawSymbol(symbol, in: rect, color: Self.symbolOnLight, context: &context) }
+        case .recordKey:
+            context.fill(path, with: .color(Self.keyBlack))
+            context.stroke(path, with: .color(Color(red: 0.93, green: 0.36, blue: 0.24)), lineWidth: max(1.5, rect.width * 0.14))
+            context.fill(Path(ellipseIn: rect.insetBy(dx: rect.width * 0.32, dy: rect.height * 0.32)), with: .color(Color(red: 0.93, green: 0.36, blue: 0.24)))
+        case .sideKey:
+            context.fill(path, with: .color(Color(white: 0.5)))
+            context.stroke(path, with: .color(Color(white: 0.3)), lineWidth: 0.6)
+        case .recess:
+            context.fill(path, with: .color(.black.opacity(0.28)))
+            context.stroke(path, with: .color(.white.opacity(0.08)), lineWidth: 0.8)
+        case .port:
+            context.fill(path, with: .color(Color(white: 0.04)))
+            context.stroke(path, with: .color(.white.opacity(0.18)), lineWidth: 0.6)
+        case .led:
+            context.fill(path, with: .color(Color(white: 0.52)))
+        case .grille:
+            let count = max(3, Int(rect.width / 5))
+            for index in 0..<count {
+                let x = rect.minX + rect.width * (Double(index) + 0.5) / Double(count)
+                var line = Path()
+                line.move(to: CGPoint(x: x, y: rect.minY))
+                line.addLine(to: CGPoint(x: x, y: rect.maxY))
+                context.stroke(line, with: .color(.white.opacity(0.22)), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
+            }
+        case .mark:
+            if let symbol {
+                drawSymbol(symbol, in: rect, color: Color(white: 0.45), context: &context)
+            } else {
+                context.fill(path, with: .color(Color(white: 0.55)))
+            }
+        case .caption:
+            if let text {
+                context.draw(Text(text).font(.system(size: 10.5)).foregroundStyle(.secondary), at: CGPoint(x: rect.midX, y: rect.midY))
+            }
+        case .zone:
+            if let symbol { drawSymbol(symbol, in: rect, color: Self.symbolOnDark, context: &context) }
         }
     }
 
-    private var stroke: Color {
-        switch state {
-        case .pressed, .selected: return Brand.coralTop
-        case .normal: return Brand.cream.opacity(0.5)
-        case .unbound: return Brand.cream.opacity(0.35)
-        }
-    }
-
-    private var symbolColor: Color {
-        if state == .selected || state == .pressed { return .white }
-        // 录制键用品牌的珊瑚色圆点。
-        return spot.symbol == "circle.fill" ? Brand.coralTop : Brand.cream.opacity(0.85)
+    private func drawSymbol(_ name: String, in rect: CGRect, color: Color, context: inout GraphicsContext) {
+        let side = min(rect.width, rect.height)
+        var image = context.resolve(Image(systemName: name))
+        image.shading = .color(color)
+        let size = image.size
+        let target = side * 0.46
+        let factor = target / max(size.width, size.height, 1)
+        let drawSize = CGSize(width: size.width * factor, height: size.height * factor)
+        context.draw(image, in: CGRect(x: rect.midX - drawSize.width / 2, y: rect.midY - drawSize.height / 2, width: drawSize.width, height: drawSize.height))
     }
 }
 
@@ -407,14 +443,16 @@ struct CalloutLabel: View {
                 Text(line)
                     .font(.system(size: 10.5))
                     .foregroundStyle(callout.isLearning ? AnyShapeStyle(Brand.coralText) : callout.isBound ? AnyShapeStyle(.secondary) : AnyShapeStyle(.tertiary))
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                     .truncationMode(.tail)
             }
             ForEach(callout.reserved, id: \.self) { note in
                 Text("设备占用 · \(note)")
                     .font(.system(size: 10.5))
                     .foregroundStyle(.orange)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.horizontal, 8)

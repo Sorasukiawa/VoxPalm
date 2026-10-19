@@ -183,17 +183,17 @@ final class AppModel {
             for spot in fixed.spots { if let button = layout.spotButtons[spot.id] ?? spot.button { buttons[spot.id] = button } }
             return ResolvedDiagram(diagram: fixed, buttons: buttons, isFixed: true, reportsRelease: device.reportsRelease && fixed.reportsRelease)
         }
-        let body = layout.body ?? DeviceDiagram.guessBody(for: device)
-        let diagram = body == .generic
+        let base = layout.diagramID.flatMap(DeviceDiagram.choice(id:)) ?? DeviceDiagram.guess(for: device)
+        let diagram = base.id == "generic"
             ? DeviceDiagram.generic(buttons: layout.learned.map { ($0.button, $0.label) }, reportsRelease: device.reportsRelease)
-            : DeviceDiagram.template(body)
+            : base
         var buttons: [String: ButtonID] = [:]
         for spot in diagram.spots { if let button = spot.button ?? layout.spotButtons[spot.id] { buttons[spot.id] = button } }
         return ResolvedDiagram(diagram: diagram, buttons: buttons, isFixed: false, reportsRelease: device.reportsRelease)
     }
 
-    func setBody(_ body: DeviceDiagram.Body?, for deviceID: String) {
-        update { $0.deviceLayouts[deviceID, default: DeviceLayout()].body = body }
+    func setDiagram(_ diagramID: String?, for deviceID: String) {
+        update { $0.deviceLayouts[deviceID, default: DeviceLayout()].diagramID = diagramID }
     }
 
     /// 学示意图上某个位置对应的键；spotID 传 "+" 表示给通用外形加一个新键。
