@@ -41,7 +41,8 @@ final class FakeVoice: VoiceActionHandler {
     var isVoiceActive = false
     var lastRequest: VoiceRequest?
     func voiceArm(_ request: VoiceRequest) { log.append("arm"); lastRequest = request }
-    func voiceDisarm() { log.append("disarm") }
+    var shortThreshold: Double?
+    func voiceDisarm(tooShortFor threshold: Double?) { log.append("disarm"); shortThreshold = threshold }
     func voiceBegin(_ request: VoiceRequest) { log.append("begin"); isVoiceActive = true; lastRequest = request }
     func voiceEnd() { log.append("end"); isVoiceActive = false }
 }
@@ -129,6 +130,21 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
     engine.activate(["fake:1"])
     engine.handle(event(.down, 0)); scheduler.advance(to: 0.1); engine.handle(event(.up, 0.1))
     #expect(voice.log == ["arm", "disarm"])
+    // 这个键没绑单击、双击：告诉界面是「按得太短」
+    #expect(voice.shortThreshold == engine.timing.longPressThreshold)
+}
+
+@Test func 绑了单击的键短按不算按得太短() {
+    let scheduler = ManualScheduler()
+    let engine = ButtonEngine(sources: [FakeSource()], scheduler: scheduler)
+    engine.keyMap.set(KeyBinding(button: button, buttonLabel: "OK", gesture: .long, action: .pushToTalk))
+    engine.keyMap.set(KeyBinding(button: button, buttonLabel: "OK", gesture: .single, action: .sendReturn))
+    let voice = FakeVoice()
+    engine.voice = voice
+    engine.activate(["fake:1"])
+    engine.handle(event(.down, 0)); scheduler.advance(to: 0.1); engine.handle(event(.up, 0.1))
+    #expect(voice.log == ["arm", "disarm"])
+    #expect(voice.shortThreshold == nil)
 }
 
 @Test func 免费版只能启用一台控制设备() {

@@ -27,6 +27,15 @@ enum Permission: String, CaseIterable, Identifiable {
         }
     }
 
+    /// 缺这个权限会怎样（面板提示条用）
+    var consequence: String {
+        switch self {
+        case .inputMonitoring: return "没有它，读不到遥控器的按键。"
+        case .accessibility: return "没有它，字贴不到光标处。"
+        case .microphone: return "没有它，内置转写录不到声音。"
+        }
+    }
+
     var isGranted: Bool {
         switch self {
         case .inputMonitoring: return HIDAccess.isGranted && SystemEventMonitor.hasListenAccess

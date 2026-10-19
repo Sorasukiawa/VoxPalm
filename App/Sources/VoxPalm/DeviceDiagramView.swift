@@ -146,7 +146,7 @@ struct DiagramLayout {
         if usesRows(diagram) {
             let labelWidth = min(240, (width - 16) / CGFloat(max(1, callouts.count > 3 ? (callouts.count + 1) / 2 : callouts.count)) - 8)
             let row = callouts.map { $0.height(width: labelWidth) }.max() ?? 40
-            return (callouts.count > 3 ? row * 2 + 40 : row + 20) + 170
+            return (callouts.count > 3 ? row * 2 + 40 : row + 20) + 140
         }
         if diagram.id == "generic" { return max(260, CGFloat(callouts.count) * 64 + 40) }
         guard diagram.isWide else { return 460 }
