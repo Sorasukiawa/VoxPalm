@@ -83,6 +83,23 @@ public final class ButtonEngine {
         return allowed
     }
 
+    /// App 退出前调用：等每个来源收尾（最多 `timeout` 秒），再调 completion。
+    public func shutdown(timeout: Double = 10, completion: @escaping () -> Void) {
+        let group = DispatchGroup()
+        for source in sources {
+            group.enter()
+            source.shutdown { DispatchQueue.main.async { group.leave() } }
+        }
+        var finished = false
+        let finish = {
+            guard !finished else { return }
+            finished = true
+            completion()
+        }
+        group.notify(queue: .main, execute: finish)
+        DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: finish)
+    }
+
     public func status(of deviceID: String) -> String? {
         sources.first { source in source.devices().contains { $0.id == deviceID } }?.status
     }

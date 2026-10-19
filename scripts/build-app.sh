@@ -6,13 +6,16 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG="${CONFIG:-release}"
+# 官方版和开源版用不同的编译目录，免得互相残留模块。
+SCRATCH="$ROOT/App/.build"
 if [[ -n "${VOXPALM_PRIVATE_DIR:-}" ]]; then
   export VOXPALM_PRIVATE_DIR="$(cd "$VOXPALM_PRIVATE_DIR" && pwd)"
+  SCRATCH="$ROOT/App/.build-private"
 fi
 
 cd "$ROOT/App"
-swift build -c "$CONFIG"
-BIN_DIR="$(swift build -c "$CONFIG" --show-bin-path)"
+swift build -c "$CONFIG" --scratch-path "$SCRATCH"
+BIN_DIR="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH" --show-bin-path)"
 
 APP="$ROOT/build/VoxPalm.app"
 rm -rf "$APP"

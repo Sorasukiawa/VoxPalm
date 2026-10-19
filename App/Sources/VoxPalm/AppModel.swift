@@ -11,6 +11,8 @@ let log = Logger(subsystem: "com.sorasukiawa.VoxPalm", category: "app")
 @MainActor
 @Observable
 final class AppModel {
+    static let shared = AppModel()
+
     private(set) var config: AppConfig
     private(set) var devices: [ControlDevice] = []
     private(set) var micDevices: [AudioDeviceInfo] = []
@@ -54,7 +56,7 @@ final class AppModel {
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refreshPermissions() }
         }
-        log.info("掌声启动：\(PrivateModules.buildFlavor, privacy: .public)，控制设备 \(config.controlDeviceIDs.joined(separator: ","), privacy: .public)")
+        log.info("掌声启动：\(PrivateModules.buildFlavor, privacy: .public)，控制设备 \(config.controlDeviceIDs.count) 台")
     }
 
     private func wireCallbacks() {

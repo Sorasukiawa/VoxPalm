@@ -36,7 +36,7 @@ cd Packages/VoxPalmCore && swift test
 
 ## 闭源模块
 
-开源版不带任何闭源代码，完整可用。官方版本编译时设 `VOXPALM_PRIVATE_DIR` 指向私有仓库，会额外链接 DJI 适配（以后还有 Pro 包），代码里用 `canImport` 判断，接入点在 `App/Sources/VoxPalm/PrivateModules.swift`。
+开源版不带任何闭源代码，完整可用。官方版本编译时设 `VOXPALM_PRIVATE_DIR` 指向私有仓库，会额外链接 DJI 适配（以后还有 Pro 包），并定义编译条件 `VOXPALM_PRIVATE`；接入点在 `App/Sources/VoxPalm/PrivateModules.swift`。官方版编译在 `App/.build-private`，和开源版的 `App/.build` 分开。
 
 ## 调试开关
 
