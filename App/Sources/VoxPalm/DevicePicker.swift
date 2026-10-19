@@ -278,6 +278,8 @@ struct Carousel<Item: Identifiable, Content: View>: View where Item.ID: Hashable
     var itemSize = CGSize(width: 190, height: 200)
     /// 被「认出来了」的那一项：外圈亮两下
     var pinged: Item.ID?
+    /// 每一项画出来有多宽：宽的设备（媒体键、键盘、脚踏板）和旁边那台多隔开一些，不叠在一起
+    var widthOf: ((Item) -> CGFloat)?
     @ViewBuilder let content: (Item, Bool) -> Content
 
     @State private var position: Double = 0
@@ -292,7 +294,7 @@ struct Carousel<Item: Identifiable, Content: View>: View where Item.ID: Hashable
                 content(item, offset == index)
                     .frame(width: itemSize.width, height: itemSize.height)
                     .overlay { if pinged == item.id { PingRing() } }
-                    .modifier(CarouselEffect(offset: Double(offset) - position, spacing: spacing))
+                    .modifier(CarouselEffect(position: position, index: offset, centers: centers))
                     .onTapGesture { go(offset) }
             }
             if items.count > 1 {
@@ -310,12 +312,12 @@ struct Carousel<Item: Identifiable, Content: View>: View where Item.ID: Hashable
         .gesture(DragGesture(minimumDistance: 6)
             .onChanged { value in
                 if dragStart == nil { dragStart = position }
-                let raw = (dragStart ?? 0) - value.translation.width / spacing
+                let raw = (dragStart ?? 0) - value.translation.width / gap(around: dragStart ?? 0)
                 let last = Double(max(items.count - 1, 0))
                 position = raw < 0 ? -0.5 * -raw / (1 - raw) : raw > last ? last + 0.5 * (raw - last) / (1 + raw - last) : raw
             }
             .onEnded { value in
-                let predicted = (dragStart ?? position) - value.predictedEndTranslation.width / spacing
+                let predicted = (dragStart ?? position) - value.predictedEndTranslation.width / gap(around: dragStart ?? position)
                 dragStart = nil
                 go(Int(predicted.rounded()))
             })
@@ -340,6 +342,32 @@ struct Carousel<Item: Identifiable, Content: View>: View where Item.ID: Hashable
 
     private func indexOf(_ id: Item.ID?) -> Int? { id.flatMap { id in items.firstIndex { $0.id == id } } }
 
+    /// 每一项在一条横线上的中心位置。相邻两项至少隔 spacing；宽的要隔到中间那台和旁边缩小的那台不重叠。
+    private var centers: [CGFloat] {
+        var result: [CGFloat] = []
+        var x: CGFloat = 0
+        for (offset, item) in items.enumerated() {
+            if offset > 0, let widthOf {
+                let a = widthOf(items[offset - 1]), b = widthOf(item)
+                let side = CarouselEffect.sideScale
+                x += max(spacing, max(a + side * b, b + side * a) / 2 + 16)
+            } else if offset > 0 {
+                x += spacing
+            }
+            result.append(x)
+        }
+        return result
+    }
+
+    private func gap(around position: Double) -> CGFloat {
+        let c = centers
+        guard c.count > 1 else { return spacing }
+        let i = min(max(Int(position.rounded()), 0), c.count - 1)
+        let left = i > 0 ? c[i] - c[i - 1] : c[1] - c[0]
+        let right = i < c.count - 1 ? c[i + 1] - c[i] : left
+        return (left + right) / 2
+    }
+
     private func go(_ target: Int) {
         guard !items.isEmpty else { return }
         let clamped = min(max(target, 0), items.count - 1)
@@ -361,18 +389,32 @@ struct Carousel<Item: Identifiable, Content: View>: View where Item.ID: Hashable
 
 /// 转盘每一项的位置：中间的最大，离得越远越小越淡；拖动、换选中时逐帧算（不是首尾两帧插值）。
 struct CarouselEffect: ViewModifier, Animatable {
-    var offset: Double
-    let spacing: CGFloat
+    /// 两边那台缩到多大
+    static let sideScale: CGFloat = 0.6
+
+    var position: Double
+    let index: Int
+    let centers: [CGFloat]
 
     var animatableData: Double {
-        get { offset }
-        set { offset = newValue }
+        get { position }
+        set { position = newValue }
+    }
+
+    /// 转到 position（可以是小数）时，中间那一点在横线上的位置
+    private func center(at position: Double) -> CGFloat {
+        guard let last = centers.indices.last else { return 0 }
+        if position <= 0 { return centers[0] + CGFloat(position) * (centers.count > 1 ? centers[1] - centers[0] : 0) }
+        if position >= Double(last) { return centers[last] + CGFloat(position - Double(last)) * (last > 0 ? centers[last] - centers[last - 1] : 0) }
+        let low = Int(position.rounded(.down))
+        let t = CGFloat(position - Double(low))
+        return centers[low] + (centers[low + 1] - centers[low]) * t
     }
 
     func body(content: Content) -> some View {
-        let a = abs(offset)
-        let x = (offset < 0 ? -1 : 1) * (min(a, 1) * spacing + max(a - 1, 0) * spacing * 0.42)
-        let scale = Motion.reduceMotion ? (a < 0.5 ? 1 : 0.6) : 1 - min(a, 1.6) * 0.4
+        let a = abs(Double(index) - position)
+        let x = (centers.indices.contains(index) ? centers[index] : 0) - center(at: position)
+        let scale = Motion.reduceMotion ? (a < 0.5 ? 1 : Self.sideScale) : 1 - min(a, 1.6) * (1 - Self.sideScale)
         content
             .scaleEffect(scale)
             .offset(x: x)
@@ -549,7 +591,8 @@ struct ControlDevicePicker: View {
         HStack(alignment: .top, spacing: 22) {
             VStack(spacing: 0) {
                 ZStack(alignment: .top) {
-                    Carousel(items: items, selection: $focusID, spacing: stageWidth * 0.43, itemSize: CGSize(width: stageWidth * 0.56, height: 200), pinged: pinged) { item, _ in
+                    Carousel(items: items, selection: $focusID, spacing: stageWidth * 0.43, itemSize: CGSize(width: stageWidth * 0.56, height: 200), pinged: pinged,
+                             widthOf: { min(stageWidth * 0.56, 200 * CGFloat($0.art.width / $0.art.height)) }) { item, _ in
                         DeviceFigure(diagram: item.art)
                             .shadow(color: .black.opacity(0.25), radius: 10, y: 8)
                             .saturation(item.connected ? 1 : 0)
@@ -687,7 +730,8 @@ struct MicPicker: View {
         let items = model.pickerMics
         HStack(alignment: .top, spacing: 22) {
             VStack(spacing: 0) {
-                Carousel(items: items, selection: $focusID, spacing: stageWidth * 0.46, itemSize: CGSize(width: stageWidth * 0.56, height: 180)) { item, center in
+                Carousel(items: items, selection: $focusID, spacing: stageWidth * 0.46, itemSize: CGSize(width: stageWidth * 0.56, height: 180),
+                         widthOf: { min(stageWidth * 0.56, ($0.art.id == PickerArt.laptop.id ? 110 : 140) * CGFloat($0.art.width / $0.art.height)) }) { item, center in
                     ZStack {
                         if center { SoundRings(level: meter.level) }
                         DeviceFigure(diagram: item.art, showsSymbols: false)
@@ -716,8 +760,8 @@ struct MicPicker: View {
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5))
 
             GroupedPickerList(items: items, group: \.group, selection: $focusID) { item, selected in
-                PickerRow(art: item.art, title: item.name, detail: item.detail + (item.warning == nil ? "" : " · 通话音质"), selected: selected,
-                          trailing: selected ? AnyView(LevelBars(level: meter.level, live: true)) : nil)
+                // 音量看左边转盘上的光圈，列表里不再放像信号格的小竖条
+                PickerRow(art: item.art, title: item.name, detail: item.detail + (item.warning == nil ? "" : " · 通话音质"), selected: selected)
             }
         }
         .onAppear {
