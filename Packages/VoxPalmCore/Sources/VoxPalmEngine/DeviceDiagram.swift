@@ -2,7 +2,7 @@ import Foundation
 
 /// 设备示意图：照真实产品的尺寸和按键位置画的矢量线稿，界面在旁边拉线标注每个键做什么。
 /// 坐标单位是毫米（取自产品规格和说明书线稿），渲染时整体缩放。按键在侧面的设备把侧面展开画在正面旁边。
-/// 不复制厂商标志图形；品牌名用普通字体写在实物印标志的位置。
+/// 品牌标志画在实物印标志的位置：官方版画真的标志图形（私有包登记），开源版用普通字体印品牌名。
 public struct DeviceDiagram: Hashable, Sendable, Identifiable {
     /// 左上角 + 宽高，单位同 `width` / `height`
     public struct Box: Hashable, Sendable {
@@ -41,7 +41,8 @@ public struct DeviceDiagram: Hashable, Sendable, Identifiable {
         case blackKey, lightKey, recordKey, sideKey
         /// 装饰：凹槽、接口、指示灯、网罩、小标记、白色小点、面板下面的说明文字
         case recess, port, led, grille, mark, dot, caption
-        /// 机身上印的字（品牌名用普通字体写在原来印标志的位置，不复制厂商的标志图形）：深色机身上的浅色字、浅色机身上的深色字
+        /// 机身上印的品牌标志：文字是品牌名；登记了标志图形（`DiagramMarks`）就画图形，没登记就用普通字体印品牌名。
+        /// 深色机身上用浅色、浅色机身上用深色
         case printLight, printDark
         /// 不画底色，只在选中或按下时高亮（方向盘的上下左右、音量条的上下半段）
         case zone
@@ -141,7 +142,7 @@ public extension DeviceDiagram {
             Part(.circle(30.4, 32, 0.8), .circle, .mark),
             Part(.center(25.7, 61, 11.5, 25.4), .capsule, .blackKey),
             Part(.center(18, 105.8, 3.2, 3.2), .rounded(0.7), .mark, text: "N"),
-            Part(.center(18, 129.4, 16, 2.6), .rounded(0), .printDark, text: "xiaomi"),
+            Part(.center(18, 129.4, 12.4, 2.2), .rounded(0), .printDark, text: "xiaomi"),
         ],
         spots: [
             Spot("power", "电源键", .circle(8.6, 9.9, 7.2), .circle, .lightKey, symbol: "power"),

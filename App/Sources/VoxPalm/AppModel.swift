@@ -35,6 +35,7 @@ final class AppModel {
     @ObservationIgnored private var permissionTimer: Timer?
 
     init() {
+        PrivateModules.setUp()
         let config = AppConfig.load()
         self.config = config
         let sources: [ControlSource] = [HIDControlSource(), SystemKeysControlSource(), NowPlayingControlSource()] + PrivateModules.controlSources()

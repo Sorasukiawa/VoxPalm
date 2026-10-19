@@ -424,8 +424,11 @@ struct DeviceArt: View {
                 context.fill(path, with: .color(Color(white: 0.45)))
             }
         case .printLight, .printDark:
-            if let text {
-                let color = style == .printLight ? Color.white.opacity(0.88) : Color(white: 0.32)
+            let color = style == .printLight ? Color.white.opacity(0.88) : Color(white: 0.32)
+            if let text, let mark = DiagramMarks.shape(text) {
+                // 官方版登记了真的品牌标志图形就画标志，开源版照旧印字。
+                context.fill(Path(mark.path(in: rect)), with: .color(color))
+            } else if let text {
                 context.draw(Text(text).font(.system(size: max(5, rect.height * 0.95), weight: .semibold)).foregroundStyle(color),
                              at: CGPoint(x: rect.midX, y: rect.midY))
             }
