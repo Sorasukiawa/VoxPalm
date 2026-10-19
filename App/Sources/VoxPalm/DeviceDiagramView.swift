@@ -505,6 +505,13 @@ struct CalloutLabel: View {
         .padding(.horizontal, 8)
         .padding(.vertical, 5)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        // 动作一改，标注闪一下珊瑚色（设计稿 labflash）
+        .keyframeAnimator(initialValue: 0.0, trigger: callout.lines) { content, glow in
+            content.background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(Brand.coralTop.opacity(0.4 * glow)))
+        } keyframes: { _ in
+            LinearKeyframe(1.0, duration: 0.05)
+            CubicKeyframe(0.0, duration: 0.75)
+        }
         .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(selected ? Brand.coralTop.opacity(0.12) : Color.primary.opacity(0.045)))
         .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous).stroke(selected ? Brand.coralBottom : Color.primary.opacity(0.1), lineWidth: selected ? 1.5 : 1))
         .contentShape(Rectangle())

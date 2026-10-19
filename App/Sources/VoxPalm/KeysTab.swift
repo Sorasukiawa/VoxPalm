@@ -197,36 +197,6 @@ struct KeysPane: View {
     }
 }
 
-/// 点图上的键弹出的编辑小窗：上面选手势，下面选动作。
-struct SpotEditor: View {
-    let button: ButtonID
-    let name: String
-    let reportsRelease: Bool
-    @State private var gesture: GestureKind
-
-    init(button: ButtonID, name: String, reportsRelease: Bool, initial: GestureKind? = nil) {
-        self.button = button
-        self.name = name
-        self.reportsRelease = reportsRelease
-        let fallback: GestureKind = reportsRelease ? .long : .single
-        _gesture = State(initialValue: initial.map { reportsRelease || $0 != .long ? $0 : fallback } ?? fallback)
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Picker("手势", selection: $gesture.animation(Motion.pick(Motion.bounce))) {
-                ForEach(GestureKind.allCases.filter { reportsRelease || $0 != .long }, id: \.self) { Text($0.title).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding([.horizontal, .top], 20)
-            ActionEditor(button: button, buttonName: name, gesture: gesture)
-                .id(gesture)
-                .transition(.opacity)
-        }
-    }
-}
-
 /// 学键时的提示条。
 struct LearnBar: View {
     let deviceName: String
@@ -323,7 +293,8 @@ struct KeyTable: View {
             }
             .buttonStyle(.plain)
             .popover(isPresented: Binding(get: { editing == key }, set: { if !$0 { editing = nil } }), arrowEdge: .bottom) {
-                ActionEditor(button: row.button, buttonName: row.name, gesture: gesture)
+                // 和图上点键是同一个编辑小窗，先停在这一列的手势上
+                SpotEditor(button: row.button, name: row.name, reportsRelease: reportsRelease, initial: gesture)
                     .environment(model)
             }
         }

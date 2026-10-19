@@ -124,6 +124,23 @@ extension UIPreview {
             navigation.pane = .permissions
             liveShot(SettingsView().environment(model).environment(navigation).frame(width: 900, height: 680), titled: true, dark: dark,
                      to: directory.appendingPathComponent("live-settings-permissions-\(suffix).png"))
+            // 按键页点键弹出的编辑小窗：再开一次按键页、点开「播放 / 暂停」，弹出框是单独的窗口，另存一张
+            let keys = SettingsNavigation()
+            keys.pane = .keys
+            model.openSettings(.keys, focus: .init(editSpot: "playPause"))
+            liveShot(SettingsView().environment(model).environment(keys).frame(width: 900, height: 680), titled: true, dark: dark,
+                     to: directory.appendingPathComponent("live-settings-keys-editing-\(suffix).png"),
+                     popover: directory.appendingPathComponent("live-popover-\(suffix).png"))
+            // 三个手势各画一张（不靠弹出框，单独放进窗口）
+            for gesture in GestureKind.allCases {
+                liveShot(SpotEditor(button: .media(16), name: "播放 / 暂停（F8）", reportsRelease: true, initial: gesture)
+                    .environment(model)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(nsColor: .windowBackgroundColor))
+                        .shadow(color: .black.opacity(0.18), radius: 14, y: 6))
+                    .padding(18)
+                    .background(dark ? Color(white: 0.2) : Color(white: 0.85)),
+                         titled: true, dark: dark, to: directory.appendingPathComponent("live-editor-\(gesture.rawValue)-\(suffix).png"))
+            }
             for (name, permission, granted) in [("drag", Permission.inputMonitoring, false), ("granted", .accessibility, true)] {
                 let state = GuideState()
                 state.permission = permission
@@ -136,7 +153,7 @@ extension UIPreview {
         exit(0)
     }
 
-    private static func liveShot<V: View>(_ view: V, titled: Bool, dark: Bool, to url: URL) {
+    private static func liveShot<V: View>(_ view: V, titled: Bool, dark: Bool, to url: URL, popover: URL? = nil) {
         let host = NSHostingView(rootView: view)
         let size = host.fittingSize
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -156,13 +173,29 @@ extension UIPreview {
         window.contentView = host
         window.orderFrontRegardless()
         window.setFrameOrigin(NSPoint(x: -6000, y: -6000))
-        RunLoop.main.run(until: Date().addingTimeInterval(1.0))
+        RunLoop.main.run(until: Date().addingTimeInterval(popover == nil ? 1.0 : 1.6))
+        capture(window, to: url)
+        if let popover {
+            // 弹出框是单独的窗口
+            let others = { NSApp.windows.filter { $0 !== window && $0.isVisible && String(describing: type(of: $0)).contains("Popover") } }
+            for other in others() { capture(other, to: popover) }
+            // 调试用：VOXPALM_RENDER_HOLD=秒数 时弹出框多停一会儿，方便用辅助功能脚本点里面的按钮，停完再截一张
+            if let hold = Double(ProcessInfo.processInfo.environment["VOXPALM_RENDER_HOLD"] ?? "") {
+                RunLoop.main.run(until: Date().addingTimeInterval(hold))
+                let after = popover.deletingPathExtension().appendingPathExtension("after.png")
+                for other in others() { capture(other, to: after) }
+            }
+            others().forEach { $0.orderOut(nil) }
+        }
+        window.orderOut(nil)
+    }
+
+    private static func capture(_ window: NSWindow, to url: URL) {
         let capture = Process()
         capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
         capture.arguments = ["-x", "-o", "-l\(window.windowNumber)", url.path]
         try? capture.run()
         capture.waitUntilExit()
-        window.orderOut(nil)
     }
 
     private static func registerIconIfNeeded() {
@@ -179,6 +212,11 @@ extension UIPreview {
         guard ProcessInfo.processInfo.environment["VOXPALM_CONFIG"] != nil else { return }
         model.selectControlDevice(SystemKeysControlSource.mediaDeviceID)
         model.setBinding(KeyBinding(button: .media(16), buttonLabel: "播放 / 暂停（F8）", gesture: .long, action: .pushToTalk))
+        // 编辑小窗的截图用：同一个键的单击设成 AI 编程动作带两个勾选，双击设成快捷键
+        model.setBinding(KeyBinding(button: .media(16), buttonLabel: "播放 / 暂停（F8）", gesture: .single, action: .switchChat(.next),
+                                    talkAfter: true, sendAfterTalk: true))
+        model.setBinding(KeyBinding(button: .media(16), buttonLabel: "播放 / 暂停（F8）", gesture: .double,
+                                    action: .shortcut(KeyCombo(keyCode: 21, modifiers: UInt64(NSEvent.ModifierFlags([.command, .shift]).rawValue), display: "⇧⌘4"))))
         model.simulate(transcript: "好的，收到，我下午看。", app: "微信", ago: 360)
         model.simulate(transcript: "下午三点的会改到四点，地点不变。", app: "备忘录", ago: 30)
     }

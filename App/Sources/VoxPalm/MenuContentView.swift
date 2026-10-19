@@ -548,12 +548,16 @@ struct PressToTalkButton: View {
 /// 手势的小图形：单击一个点、双击两个点、长按一条横杠（设计稿键位表的列头）。
 struct GestureGlyph: View {
     let gesture: GestureKind
+    /// 不传就是珊瑚色
+    var tint: Color?
+
+    private var style: AnyShapeStyle { tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(Brand.coral) }
 
     var body: some View {
         switch gesture {
-        case .single: Circle().fill(Brand.coral).frame(width: 7, height: 7)
-        case .double: HStack(spacing: 2) { Circle().frame(width: 6, height: 6); Circle().frame(width: 6, height: 6) }.foregroundStyle(Brand.coral)
-        case .long: Capsule().fill(Brand.coral).frame(width: 18, height: 6)
+        case .single: Circle().fill(style).frame(width: 7, height: 7)
+        case .double: HStack(spacing: 2) { Circle().frame(width: 6, height: 6); Circle().frame(width: 6, height: 6) }.foregroundStyle(style)
+        case .long: Capsule().fill(style).frame(width: 18, height: 6)
         }
     }
 }

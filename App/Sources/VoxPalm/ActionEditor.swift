@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import VoxPalmEngine
 
-/// 动作选择器里的一项。AI 编程工具的几个常用动作单独列出来，不用自己找菜单。
+/// 编辑小窗里的一个动作按钮。AI 编程工具的几个常用动作单独列出来，不用自己找菜单；带「…」的要再填一样东西。
 enum ActionChoice: String, CaseIterable, Identifiable {
     case pushToTalk, toggleDictation
     case openClaude, openCodex, previousChat, nextChat, newClaudeSession, newCodexChat, sendReturn
@@ -10,10 +10,11 @@ enum ActionChoice: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    /// 按钮上的字（设计稿第 06 节）
     var title: String {
         switch self {
         case .pushToTalk: return "按住说话"
-        case .toggleDictation: return "按一下开始 / 结束说话"
+        case .toggleDictation: return "开始 / 结束说话"
         case .openClaude: return "打开 Claude Code"
         case .openCodex: return "打开 Codex"
         case .previousChat: return "上一个对话"
@@ -21,10 +22,10 @@ enum ActionChoice: String, CaseIterable, Identifiable {
         case .newClaudeSession: return "Claude：新会话"
         case .newCodexChat: return "Codex：新对话"
         case .sendReturn: return "发送（回车）"
-        case .shortcut: return "快捷键"
-        case .text: return "输入一段文字"
-        case .mediaKey: return "媒体键"
-        case .openApp: return "打开 App"
+        case .shortcut: return "快捷键…"
+        case .text: return "输入一段文字…"
+        case .mediaKey: return "媒体键…"
+        case .openApp: return "打开 App…"
         case .none: return "不做事"
         }
     }
@@ -36,18 +37,47 @@ enum ActionChoice: String, CaseIterable, Identifiable {
         case .openClaude: return "切到 Claude 并打开 Code 页。"
         case .openCodex: return "切到 Codex（ChatGPT App）。"
         case .previousChat, .nextChat: return "前台是 Claude 或 Codex 时，切到侧边栏里的上一个 / 下一个对话；别的 App 在前台时不做事。"
+        case .newClaudeSession: return "切到 Claude，开一个新会话。"
+        case .newCodexChat: return "切到 Codex，开一个新对话。"
         case .sendReturn: return "按回车发送。只在光标停在有字的输入框里时才按，免得误发。"
-        default: return nil
+        case .shortcut: return "模拟按一个快捷键，点了以后按一下要的组合。"
+        case .text: return "在光标处输入一段固定的文字。"
+        case .mediaKey: return "模拟播放 / 暂停、音量这些媒体键。"
+        case .openApp: return "打开或切到一个 App。"
+        case .none: return nil
         }
     }
 
     static let groups: [(String, [ActionChoice])] = [
         ("说话", [.pushToTalk, .toggleDictation]),
         ("AI 编程", [.openClaude, .openCodex, .previousChat, .nextChat, .newClaudeSession, .newCodexChat, .sendReturn]),
-        ("通用", [.shortcut, .text, .mediaKey, .openApp, .none]),
+        ("通用", [.shortcut, .text, .mediaKey, .openApp]),
     ]
 
     var isVoice: Bool { self == .pushToTalk || self == .toggleDictation }
+
+    /// 要再填一样东西（快捷键、文字、媒体键、App）才设得上
+    var needsInput: Bool { [.shortcut, .text, .mediaKey, .openApp].contains(self) }
+
+    /// 做完能接着说话：语音动作本身就是说话，「发送」完再说话没有意义
+    var canTalkAfter: Bool { !isVoice && self != .sendReturn && self != .none }
+
+    /// 不用再填东西的动作，点一下就能设上
+    var fixedAction: Action? {
+        switch self {
+        case .pushToTalk: return .pushToTalk
+        case .toggleDictation: return .toggleDictation
+        case .openClaude: return .menuCommand(AIToolProfile.claude.open)
+        case .openCodex: return .menuCommand(AIToolProfile.codex.open)
+        case .previousChat: return .switchChat(.previous)
+        case .nextChat: return .switchChat(.next)
+        case .newClaudeSession: return .menuCommand(AIToolProfile.claude.newChat)
+        case .newCodexChat: return .menuCommand(AIToolProfile.codex.newChat)
+        case .sendReturn: return .sendReturn
+        case .none: return Action.none
+        case .shortcut, .text, .mediaKey, .openApp: return nil
+        }
+    }
 
     init(_ action: Action) {
         switch action {
@@ -72,152 +102,390 @@ enum ActionChoice: String, CaseIterable, Identifiable {
     }
 }
 
-/// 给某个键的某个手势选动作。
-struct ActionEditor: View {
+/// 点图上的键（或表里的格子）弹出的编辑小窗（设计稿第 06 节）：上面选单击 / 双击 / 长按，下面是按「说话 / AI 编程 / 通用」
+/// 分组的动作按钮，点一下就设上，图上的标注跟着变。快捷键、文字这些要再填东西的，在按钮下面展开输入，填好才设上。
+struct SpotEditor: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
 
     let button: ButtonID
-    let buttonName: String
-    let gesture: GestureKind
-
-    @State private var choice: ActionChoice = .toggleDictation
-    @State private var combo: KeyCombo?
+    let name: String
+    let reportsRelease: Bool
+    @State private var gesture: GestureKind
+    /// 点了要再填东西的动作、还没填好：先亮着这个按钮，填好才真的设上
+    @State private var pending: ActionChoice?
     @State private var text = ""
-    @State private var media: MediaKey = .playPause
-    @State private var appPath: String?
-    @State private var talkAfter = false
-    @State private var sendAfterTalk = false
+    @FocusState private var textFocused: Bool
+
+    init(button: ButtonID, name: String, reportsRelease: Bool, initial: GestureKind? = nil) {
+        self.button = button
+        self.name = name
+        self.reportsRelease = reportsRelease
+        let fallback: GestureKind = reportsRelease ? .long : .single
+        _gesture = State(initialValue: initial.map { reportsRelease || $0 != .long ? $0 : fallback } ?? fallback)
+    }
+
+    private var binding: KeyBinding? { model.binding(for: button, gesture: gesture) }
+
+    /// 这一格现在设的动作（没设、或者是旧版的「不做事」都算空）
+    private var current: ActionChoice? {
+        guard let binding, binding.action != .none else { return nil }
+        return ActionChoice(binding.action)
+    }
+
+    private var selected: ActionChoice? { pending ?? current }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("\(buttonName) · \(gesture.title)").font(.headline)
-            Picker("动作", selection: $choice) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                KeyChip(name: name)
+                Spacer()
+                Button("完成") { dismiss() }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 12.5))
+            }
+            GestureTabs(selection: $gesture, reportsRelease: reportsRelease)
+            VStack(alignment: .leading, spacing: 9) {
                 ForEach(ActionChoice.groups, id: \.0) { group in
-                    Section(group.0) {
-                        ForEach(group.1.filter { $0 != .pushToTalk || gesture == .long }) { Text($0.title).tag($0) }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(group.0).font(.system(size: 10.5, weight: .semibold)).foregroundStyle(.tertiary)
+                        FlowLayout(spacing: 5) {
+                            ForEach(group.1) { choice in
+                                Button(choice.title) { pick(choice) }
+                                    .buttonStyle(ActionChipStyle(selected: selected == choice))
+                                    .disabled(choice == .pushToTalk && gesture != .long)
+                                    .help(help(for: choice))
+                            }
+                        }
                     }
                 }
             }
-            if let help = choice.help {
-                Text(help).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            if let selected, selected.needsInput {
+                input(for: selected)
+                    .transition(.opacity.combined(with: .offset(y: -4)))
             }
+            options
+            if current != nil {
+                Button("清除这一格") { clear() }
+                    .buttonStyle(.link)
+                    .font(.system(size: 12))
+            }
+        }
+        .padding(14)
+        .frame(width: 330, alignment: .leading)
+        .onAppear(perform: loadText)
+        .onChange(of: gesture) { _, _ in
+            pending = nil
+            loadText()
+        }
+    }
+
+    private func help(for choice: ActionChoice) -> String {
+        if choice == .pushToTalk && gesture != .long {
+            return reportsRelease ? "按住说话要设在长按上" : "这台设备读不到松开，用「开始 / 结束说话」"
+        }
+        return choice.help ?? ""
+    }
+
+    // MARK: - 选动作
+
+    private func pick(_ choice: ActionChoice) {
+        if let action = choice.fixedAction {
+            // 再点一下已经选中的就清掉这一格（设计稿）
+            if selected == choice { clear() } else { save(action) }
+            return
+        }
+        // 要再填东西：已经是它就不动，否则先亮着等填好
+        guard current != choice else {
+            pending = nil
+            return
+        }
+        text = ""
+        withAnimation(Motion.pick(Motion.smooth)) { pending = choice }
+    }
+
+    private func save(_ action: Action, animated: Bool = true) {
+        let new = Self.binding(action, button: button, name: name, gesture: gesture, replacing: binding)
+        let apply = {
+            pending = nil
+            model.setBinding(new)
+        }
+        if animated { withAnimation(Motion.pick(Motion.bounce), apply) } else { apply() }
+    }
+
+    /// 换动作时尽量留住两个勾选：新动作也能用的就接着用。
+    static func binding(_ action: Action, button: ButtonID, name: String, gesture: GestureKind, replacing old: KeyBinding?) -> KeyBinding {
+        let choice = ActionChoice(action)
+        let talkAfter = choice.canTalkAfter && old?.talkAfter == true
+        let send = (choice.isVoice || choice.canTalkAfter) && old?.sendAfterTalk == true
+        return KeyBinding(id: old?.id ?? UUID(), button: button, buttonLabel: name, gesture: gesture, action: action,
+                          talkAfter: talkAfter ? true : nil, sendAfterTalk: send ? true : nil)
+    }
+
+    private func clear() {
+        withAnimation(Motion.pick(Motion.bounce)) {
+            pending = nil
+            model.removeBinding(button: button, gesture: gesture)
+        }
+        text = ""
+    }
+
+    private func loadText() {
+        if case let .text(value) = binding?.action { text = value } else { text = "" }
+    }
+
+    // MARK: - 要再填的东西
+
+    @ViewBuilder
+    private func input(for choice: ActionChoice) -> some View {
+        Group {
             switch choice {
             case .shortcut:
-                ShortcutRecorder(combo: $combo)
+                HStack(spacing: 8) {
+                    Text("要模拟的快捷键").foregroundStyle(.secondary)
+                    Spacer()
+                    ShortcutRecorder(combo: Binding(get: {
+                        if case let .shortcut(combo) = binding?.action { return combo }
+                        return nil
+                    }, set: { combo in
+                        if let combo { save(.shortcut(combo)) }
+                    }), startsRecording: current != .shortcut)
+                }
             case .text:
-                TextField("要输入的文字", text: $text)
+                TextField("要输入的文字", text: Binding(get: { text }, set: { value in
+                    text = value
+                    // 边打边设上（设置文件晚半秒才写），标注跟着变
+                    if !value.isEmpty { save(.text(value), animated: false) }
+                }))
+                .textFieldStyle(.roundedBorder)
+                .focused($textFocused)
+                .onSubmit { dismiss() }
+                .onAppear { if current != .text { DispatchQueue.main.async { textFocused = true } } }
             case .mediaKey:
-                Picker("媒体键", selection: $media) {
-                    ForEach(MediaKey.allCases, id: \.self) { Text($0.title).tag($0) }
+                FlowLayout(spacing: 5) {
+                    ForEach(MediaKey.allCases, id: \.self) { key in
+                        Button(key.title) { save(.mediaKey(key)) }
+                            .buttonStyle(ActionChipStyle(selected: binding?.action == .mediaKey(key)))
+                    }
                 }
             case .openApp:
-                HStack {
-                    Text(appPath.map { ($0 as NSString).lastPathComponent } ?? "还没选")
-                    Button("选择 App…") { chooseApp() }
+                HStack(spacing: 8) {
+                    if case let .openApp(path) = binding?.action {
+                        Image(nsImage: NSWorkspace.shared.icon(forFile: path)).resizable().frame(width: 18, height: 18)
+                        Text(((path as NSString).lastPathComponent as NSString).deletingPathExtension).lineLimit(1)
+                    } else {
+                        Text("还没选 App").foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Button("选择 App…", action: chooseApp)
+                        .secondaryButton()
+                        .controlSize(.small)
                 }
             default:
                 EmptyView()
             }
-
-            if !choice.isVoice && choice != .none && choice != .sendReturn {
-                Toggle("做完直接开始说话（再按一次这个键结束）", isOn: $talkAfter)
-            }
-            if choice.isVoice || talkAfter {
-                Toggle("说完自动按回车发送", isOn: $sendAfterTalk)
-                if sendAfterTalk {
-                    Text("字贴进输入框后按回车；光标不在有字的输入框里时不按。").font(.caption).foregroundStyle(.secondary)
-                }
-            }
-
-            HStack {
-                if model.binding(for: button, gesture: gesture) != nil {
-                    Button("清除", role: .destructive) {
-                        model.removeBinding(button: button, gesture: gesture)
-                        dismiss()
-                    }
-                }
-                Spacer()
-                Button("取消") { dismiss() }
-                Button("保存") {
-                    guard let action else { return }
-                    let existing = model.binding(for: button, gesture: gesture)
-                    model.setBinding(KeyBinding(
-                        id: existing?.id ?? UUID(), button: button, buttonLabel: buttonName, gesture: gesture, action: action,
-                        talkAfter: !choice.isVoice && talkAfter ? true : nil,
-                        sendAfterTalk: (choice.isVoice || talkAfter) && sendAfterTalk ? true : nil
-                    ))
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(action == nil)
-            }
         }
-        .padding(20)
-        .frame(width: 420)
-        .onAppear(perform: load)
+        .font(.system(size: 12))
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.045)))
     }
 
-    private var action: Action? {
-        switch choice {
-        case .pushToTalk: return .pushToTalk
-        case .toggleDictation: return .toggleDictation
-        case .openClaude: return .menuCommand(AIToolProfile.claude.open)
-        case .openCodex: return .menuCommand(AIToolProfile.codex.open)
-        case .previousChat: return .switchChat(.previous)
-        case .nextChat: return .switchChat(.next)
-        case .newClaudeSession: return .menuCommand(AIToolProfile.claude.newChat)
-        case .newCodexChat: return .menuCommand(AIToolProfile.codex.newChat)
-        case .sendReturn: return .sendReturn
-        case .shortcut: return combo.map(Action.shortcut)
-        case .text: return text.isEmpty ? nil : .text(text)
-        case .mediaKey: return .mediaKey(media)
-        case .openApp: return appPath.map { .openApp(path: $0) }
-        case .none: return Action.none
+    /// 设好了的动作下面的两个勾选：AI 编程和通用动作做完能接着说话，说话的动作说完能自动发送。
+    @ViewBuilder
+    private var options: some View {
+        if pending == nil, let current, let binding, current.isVoice || current.canTalkAfter {
+            VStack(alignment: .leading, spacing: 6) {
+                Divider().padding(.bottom, 2)
+                if current.canTalkAfter {
+                    Toggle("做完直接开始说话（再按一次这个键结束）", isOn: Binding(get: { binding.talkAfter == true }, set: { on in
+                        update { $0.talkAfter = on ? true : nil }
+                    }))
+                }
+                Toggle("说完自动按回车发送", isOn: Binding(get: { binding.sendAfterTalk == true }, set: { on in
+                    update { $0.sendAfterTalk = on ? true : nil }
+                }))
+                .disabled(!binding.startsVoice)
+                .help(binding.startsVoice ? "字贴进输入框后按回车；光标不在有字的输入框里时不按。" : "先勾上「做完直接开始说话」")
+            }
+            .toggleStyle(.checkbox)
+            .font(.system(size: 12))
         }
     }
 
-    private func load() {
-        guard let binding = model.binding(for: button, gesture: gesture) else {
-            choice = gesture == .long ? .pushToTalk : .toggleDictation
-            return
-        }
-        choice = ActionChoice(binding.action)
-        talkAfter = binding.talkAfter == true
-        sendAfterTalk = binding.sendAfterTalk == true
-        switch binding.action {
-        case let .shortcut(value): combo = value
-        case let .text(value): text = value
-        case let .mediaKey(value): media = value
-        case let .openApp(path): appPath = path
-        default: break
-        }
+    private func update(_ change: (inout KeyBinding) -> Void) {
+        guard var updated = binding else { return }
+        change(&updated)
+        withAnimation(Motion.pick(Motion.bounce)) { model.setBinding(updated) }
     }
 
     private func chooseApp() {
+        // 选 App 的窗口是模态的，期间小窗可能被收起：先记下要改哪一格
+        let model = model, button = button, name = name, gesture = gesture, old = binding
         let panel = NSOpenPanel()
         panel.directoryURL = URL(fileURLWithPath: "/Applications")
         panel.allowedContentTypes = [.application]
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        appPath = url.path
+        withAnimation(Motion.pick(Motion.bounce)) {
+            pending = nil
+            model.setBinding(Self.binding(.openApp(path: url.path), button: button, name: name, gesture: gesture, replacing: old))
+        }
+    }
+}
+
+/// 单击 / 双击 / 长按分段：选中的底色用弹簧滑过去。读不到松开的设备，长按灰着。
+struct GestureTabs: View {
+    @Binding var selection: GestureKind
+    let reportsRelease: Bool
+    @Namespace private var thumb
+
+    /// 选中那一段的底：浅色白、深色灰（设计稿 .ed-tabs .thumb）
+    private static let thumbColor = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.333, green: 0.322, blue: 0.361, alpha: 1)
+            : NSColor.white
+    })
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(GestureKind.allCases, id: \.self) { gesture in
+                let on = gesture == selection
+                let unavailable = gesture == .long && !reportsRelease
+                Button {
+                    withAnimation(Motion.pick(Motion.bounce)) { selection = gesture }
+                } label: {
+                    HStack(spacing: 5) {
+                        GestureGlyph(gesture: gesture, tint: on ? nil : .secondary)
+                        Text(gesture.title)
+                    }
+                    .font(.system(size: 12, weight: on ? .semibold : .regular))
+                    .foregroundStyle(on ? .primary : .secondary)
+                    .frame(maxWidth: .infinity, minHeight: 22)
+                    .background {
+                        if on {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Self.thumbColor)
+                                .shadow(color: .black.opacity(0.15), radius: 1.5, y: 1)
+                                .matchedGeometryEffect(id: "thumb", in: thumb)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(unavailable)
+                .opacity(unavailable ? 0.4 : 1)
+                .help(unavailable ? "这台设备读不到松开，做不了长按" : "")
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.07)))
+    }
+}
+
+/// 动作按钮：选中的珊瑚色底加细边，按下时缩一点。
+struct ActionChipStyle: ButtonStyle {
+    let selected: Bool
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        ZStack {
+            // 先按粗体占好宽度，选中变粗时不会挤得换行
+            configuration.label.font(.system(size: 12, weight: .semibold)).hidden()
+            configuration.label.font(.system(size: 12, weight: selected ? .semibold : .regular))
+        }
+        .foregroundStyle(selected ? AnyShapeStyle(Brand.coralText) : AnyShapeStyle(.primary))
+        .lineLimit(1)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(selected ? Brand.coralTop.opacity(0.16) : Color.primary.opacity(configuration.isPressed ? 0.1 : 0.045))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(selected ? Brand.coralTop.opacity(0.55) : Color.primary.opacity(0.1), lineWidth: selected ? 1 : 0.5)
+        )
+        .scaleEffect(configuration.isPressed && !Motion.reduceMotion ? 0.96 : 1)
+        .animation(Motion.press, value: configuration.isPressed)
+        .opacity(isEnabled ? 1 : 0.4)
+        .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+}
+
+/// 从左往右排，一行放不下就换行（动作按钮网格用）。
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 5
+    var lineSpacing: CGFloat = 5
+
+    private struct Row {
+        var items: [(index: Int, x: CGFloat, size: CGSize)] = []
+        var y: CGFloat = 0
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let rows = arrange(subviews, width: proposal.width ?? .infinity)
+        let height = rows.last.map { $0.y + $0.height } ?? 0
+        return CGSize(width: proposal.width ?? rows.map(\.width).max() ?? 0, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        for row in arrange(subviews, width: bounds.width) {
+            for item in row.items {
+                subviews[item.index].place(at: CGPoint(x: bounds.minX + item.x, y: bounds.minY + row.y), proposal: ProposedViewSize(item.size))
+            }
+        }
+    }
+
+    private func arrange(_ subviews: Subviews, width: CGFloat) -> [Row] {
+        var rows: [Row] = []
+        var row = Row()
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.unspecified)
+            let x = row.items.isEmpty ? 0 : row.width + spacing
+            if !row.items.isEmpty, x + size.width > width {
+                rows.append(row)
+                row = Row(items: [(index, 0, size)], y: row.y + row.height + lineSpacing, width: size.width, height: size.height)
+            } else {
+                row.items.append((index, x, size))
+                row.width = x + size.width
+                row.height = max(row.height, size.height)
+            }
+        }
+        if !row.items.isEmpty { rows.append(row) }
+        return rows
     }
 }
 
 /// 点一下然后按快捷键，记下键码和修饰键。
 struct ShortcutRecorder: View {
     @Binding var combo: KeyCombo?
+    /// 一出现就开始录（刚点了「快捷键…」）
+    var startsRecording = false
     @State private var recording = false
     @State private var monitor: Any?
 
     var body: some View {
-        HStack {
-            Text(combo?.display ?? "还没设置").monospaced()
-            Button(recording ? "请按快捷键…" : "录制快捷键") { recording ? stop() : start() }
+        HStack(spacing: 8) {
+            Text(recording ? "请按快捷键…" : combo?.display ?? "还没设置")
+                .font(.system(size: 12.5, weight: .medium))
+                .monospaced(combo != nil && !recording)
+                .foregroundStyle(recording ? AnyShapeStyle(Brand.coralText) : combo == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.primary))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .fill(recording ? Brand.coralTop.opacity(0.14) : Color.primary.opacity(0.06)))
+            Button(recording ? "取消" : combo == nil ? "录制" : "重录") { recording ? stop() : start() }
+                .secondaryButton()
+                .controlSize(.small)
         }
+        .onAppear { if startsRecording { start() } }
         .onDisappear { stop() }
     }
 
     private func start() {
+        guard monitor == nil else { return }
         recording = true
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
