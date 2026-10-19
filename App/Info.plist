@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>zh-Hans</string>
+	<key>CFBundleExecutable</key>
+	<string>VoxPalm</string>
+	<key>CFBundleIconFile</key>
+	<string>VoxPalm</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.sorasukiawa.VoxPalm</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>VoxPalm</string>
+	<key>CFBundleDisplayName</key>
+	<string>掌声</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>14.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>按住说话时，掌声从你选的收音设备录音，在本机转成文字。</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>掌声用系统的本机转写把你说的话变成文字。</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>© 2026 Sora. 代码按 GPL-3.0-only 开源；名字和图标是专有品牌素材。</string>
+</dict>
+</plist>

@@ -29,6 +29,10 @@
 | 翻页笔、脚踏板等通用按键设备 | 计划中 | 开源 |
 | iPhone / iPad / Apple Watch（掌声手机版：触控板 + 按住说话） | 计划中 | 开源 |
 
+## 从源码编译
+
+开发中的内测版本可以自己编译：见 [App/README.md](App/README.md)。设备探针（实测一台设备的按键和收音能力）见 [tools/probe/README.md](tools/probe/README.md)。
+
 ## 免费版和 Pro
 
 免费版不限时间、不限次数，一套设备就能完整用上「按键 → 说话 → 出字」。Pro 是一次买断，主要给多设备、多场景和录音剪辑工作流。详见 [docs/免费版与Pro.md](docs/免费版与Pro.md)。

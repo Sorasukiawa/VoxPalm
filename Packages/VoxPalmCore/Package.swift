@@ -7,6 +7,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [
         .library(name: "VoxPalmDevices", targets: ["VoxPalmDevices"]),
+        .library(name: "VoxPalmEngine", targets: ["VoxPalmEngine"]),
+        .library(name: "VoxPalmVoice", targets: ["VoxPalmVoice"]),
     ],
     targets: [
         .target(
@@ -19,7 +21,15 @@ let package = Package(
                 .linkedFramework("Accelerate"),
             ]
         ),
+        .target(name: "VoxPalmEngine", dependencies: ["VoxPalmDevices"]),
+        .target(
+            name: "VoxPalmVoice",
+            dependencies: ["VoxPalmDevices", "VoxPalmEngine"],
+            linkerSettings: [.linkedFramework("Speech"), .linkedFramework("AVFoundation")]
+        ),
         .testTarget(name: "VoxPalmDevicesTests", dependencies: ["VoxPalmDevices"]),
+        .testTarget(name: "VoxPalmEngineTests", dependencies: ["VoxPalmEngine"]),
+        .testTarget(name: "VoxPalmVoiceTests", dependencies: ["VoxPalmVoice"]),
     ],
     swiftLanguageModes: [.v5]
 )
