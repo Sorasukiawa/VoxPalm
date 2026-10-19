@@ -61,6 +61,12 @@ public enum Action: Codable, Hashable, Sendable {
     case pushToTalk
     /// 按一下开始说话，再按一下结束
     case toggleDictation
+    /// 点某个 App 的菜单（先把它切到前台），例如「打开 Claude Code」「Codex：下一个对话」
+    case menuCommand(MenuCommand)
+    /// 前台是 Claude 或 Codex 时，切到上一个 / 下一个对话
+    case switchChat(ChatDirection)
+    /// 按回车发送：先确认光标在有字的输入框里
+    case sendReturn
 
     public var title: String {
         switch self {
@@ -71,6 +77,9 @@ public enum Action: Codable, Hashable, Sendable {
         case let .openApp(path): return "打开 \(((path as NSString).lastPathComponent as NSString).deletingPathExtension)"
         case .pushToTalk: return "按住说话"
         case .toggleDictation: return "按一下开始 / 结束说话"
+        case let .menuCommand(command): return command.title
+        case let .switchChat(direction): return direction.title
+        case .sendReturn: return "发送（回车）"
         }
     }
 
@@ -89,13 +98,31 @@ public struct KeyBinding: Codable, Hashable, Identifiable, Sendable {
     public var buttonLabel: String
     public var gesture: GestureKind
     public var action: Action
+    /// 动作做完直接开始说话（再按一次这个键结束）。比如切到下一个对话后马上说
+    public var talkAfter: Bool?
+    /// 说完、字贴进去后自动按回车发送
+    public var sendAfterTalk: Bool?
 
-    public init(id: UUID = UUID(), button: ButtonID, buttonLabel: String, gesture: GestureKind, action: Action) {
+    public init(id: UUID = UUID(), button: ButtonID, buttonLabel: String, gesture: GestureKind, action: Action,
+                talkAfter: Bool? = nil, sendAfterTalk: Bool? = nil) {
         self.id = id
         self.button = button
         self.buttonLabel = buttonLabel
         self.gesture = gesture
         self.action = action
+        self.talkAfter = talkAfter
+        self.sendAfterTalk = sendAfterTalk
+    }
+
+    /// 这条映射会不会开始说话（本身是语音动作，或者做完接着说）
+    public var startsVoice: Bool { action.isVoice || talkAfter == true }
+
+    /// 给人看的完整说明，例如「下一个对话 → 说话 → 发送」
+    public var summary: String {
+        var parts = [action.title]
+        if talkAfter == true, !action.isVoice { parts.append("说话") }
+        if startsVoice, sendAfterTalk == true { parts.append("发送") }
+        return parts.joined(separator: " → ")
     }
 }
 
@@ -109,8 +136,12 @@ public struct KeyMap: Codable, Hashable, Sendable {
         self.bindings = bindings
     }
 
+    public func binding(for button: ButtonID, gesture: GestureKind) -> KeyBinding? {
+        bindings.first { $0.button == button && $0.gesture == gesture }
+    }
+
     public func action(for button: ButtonID, gesture: GestureKind) -> Action? {
-        bindings.first { $0.button == button && $0.gesture == gesture }?.action
+        binding(for: button, gesture: gesture)?.action
     }
 
     public func hasBinding(_ button: ButtonID, _ gesture: GestureKind) -> Bool {

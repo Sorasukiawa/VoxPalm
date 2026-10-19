@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import VoxPalmEngine
 
@@ -38,9 +39,10 @@ final class FakeSource: ControlSource {
 final class FakeVoice: VoiceActionHandler {
     var log: [String] = []
     var isVoiceActive = false
-    func voiceArm() { log.append("arm") }
+    var lastRequest: VoiceRequest?
+    func voiceArm(_ request: VoiceRequest) { log.append("arm"); lastRequest = request }
     func voiceDisarm() { log.append("disarm") }
-    func voiceBegin() { log.append("begin"); isVoiceActive = true }
+    func voiceBegin(_ request: VoiceRequest) { log.append("begin"); isVoiceActive = true; lastRequest = request }
     func voiceEnd() { log.append("end"); isVoiceActive = false }
 }
 
@@ -150,4 +152,78 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
     map.set(KeyBinding(button: button, buttonLabel: "", gesture: .single, action: .shortcut(.returnKey)))
     #expect(map.bindings.count == 1)
     #expect(map.action(for: button, gesture: .single) == .shortcut(.returnKey))
+}
+
+@Test @MainActor func 切完对话直接说话再按同一个键结束() async throws {
+    let scheduler = ManualScheduler()
+    let engine = ButtonEngine(sources: [FakeSource()], scheduler: scheduler)
+    engine.talkAfterDelay = 0
+    engine.keyMap.set(KeyBinding(button: button, buttonLabel: "下", gesture: .single, action: .none, talkAfter: true, sendAfterTalk: true))
+    let voice = FakeVoice()
+    engine.voice = voice
+    engine.activate(["fake:1"])
+    engine.handle(event(.down, 0)); engine.handle(event(.up, 0.1))
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(voice.log == ["begin"])
+    #expect(voice.lastRequest?.sendReturn == true)
+    // 再按一次同一个键：结束说话，不会再执行一次动作、也不会再开始说话。
+    engine.handle(event(.down, 5)); engine.handle(event(.up, 5.1))
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(voice.log == ["begin", "end"])
+}
+
+@Test func 按住说话带回车发送的要求() {
+    let scheduler = ManualScheduler()
+    let engine = ButtonEngine(sources: [FakeSource()], scheduler: scheduler)
+    engine.keyMap.set(KeyBinding(button: button, buttonLabel: "OK", gesture: .long, action: .pushToTalk, sendAfterTalk: true))
+    let voice = FakeVoice()
+    engine.voice = voice
+    engine.activate(["fake:1"])
+    engine.handle(event(.down, 0))
+    #expect(voice.lastRequest?.sendReturn == true)
+    scheduler.advance(to: 1)
+    engine.handle(event(.up, 1))
+    #expect(voice.log == ["arm", "begin", "end"])
+}
+
+@Test func 映射说明() {
+    let binding = KeyBinding(button: button, buttonLabel: "", gesture: .single, action: .switchChat(.next), talkAfter: true, sendAfterTalk: true)
+    #expect(binding.summary == "下一个对话 → 说话 → 发送")
+    #expect(KeyBinding(button: button, buttonLabel: "", gesture: .long, action: .pushToTalk, sendAfterTalk: true).summary == "按住说话 → 发送")
+}
+
+@Test func 旧配置没有新字段也能读() throws {
+    let json = #"{"id":"11111111-1111-1111-1111-111111111111","button":"key:79","buttonLabel":"F18","gesture":"long","action":{"pushToTalk":{}}}"#
+    let binding = try JSONDecoder().decode(KeyBinding.self, from: Data(json.utf8))
+    #expect(binding.action == .pushToTalk)
+    #expect(binding.talkAfter == nil)
+}
+
+@Test func 新动作能存能读() throws {
+    let actions: [Action] = [.switchChat(.previous), .sendReturn, .menuCommand(AIToolProfile.claude.open), .menuCommand(AIToolProfile.codex.nextChat)]
+    for action in actions {
+        let data = try JSONEncoder().encode(action)
+        #expect(try JSONDecoder().decode(Action.self, from: data) == action)
+    }
+}
+
+@Test func 只往可编辑的非密码输入框发回车() {
+    #expect(FocusedField.isEditable(role: "AXTextArea", subrole: nil, valueSettable: true, protected: false))
+    #expect(!FocusedField.isEditable(role: "AXTextField", subrole: "AXSecureTextField", valueSettable: true, protected: false))
+    #expect(!FocusedField.isEditable(role: "AXTextArea", subrole: nil, valueSettable: false, protected: false))
+    #expect(!FocusedField.isEditable(role: "AXButton", subrole: nil, valueSettable: true, protected: false))
+    #expect(!FocusedField.isEditable(role: "AXTextArea", subrole: nil, valueSettable: true, protected: true))
+}
+
+@Test func 示意图的按键都在设备范围内且不重名() {
+    for body in DeviceDiagram.Body.allCases where body != .generic {
+        let diagram = DeviceDiagram.template(body)
+        #expect(Set(diagram.spots.map(\.id)).count == diagram.spots.count, "\(body) 有重名的按键")
+        for spot in diagram.spots {
+            #expect((0...1).contains(spot.x) && (0...1).contains(spot.y), "\(body).\(spot.id) 超出设备范围")
+        }
+    }
+    #expect(DeviceDiagram.mediaKeys.spots.allSatisfy { $0.button != nil })
+    let generic = DeviceDiagram.generic(buttons: [(ButtonID("key:1"), "A"), (ButtonID("key:2"), "B")])
+    #expect(generic.spots.map(\.button) == [ButtonID("key:1"), ButtonID("key:2")])
 }

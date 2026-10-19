@@ -15,9 +15,13 @@ public protocol ControlSource: AnyObject {
     func activate(_ deviceIDs: Set<String>)
     /// App 退出前调用。接管了设备按键的来源（比如要让设备恢复普通按键）在这里收尾，完成后调 completion。
     func shutdown(completion: @escaping () -> Void)
+    /// 这台设备的示意图（知道按键位置和键值时给出）；nil 表示让用户选一个外形再学键。
+    func diagram(for device: ControlDevice) -> DeviceDiagram?
 }
 
 public extension ControlSource {
+    func diagram(for device: ControlDevice) -> DeviceDiagram? { nil }
+
     func shutdown(completion: @escaping () -> Void) {
         activate([])
         completion()
@@ -113,6 +117,10 @@ public final class SystemKeysControlSource: ControlSource {
             ControlDevice(id: Self.keyboardDeviceID, sourceID: sourceID, name: "键盘按键（所有键盘）",
                           detail: "翻页笔、小键盘发出的普通按键；映射后这个键在所有键盘上都会被拦下", reportsRelease: true),
         ]
+    }
+
+    public func diagram(for device: ControlDevice) -> DeviceDiagram? {
+        device.id == Self.mediaDeviceID ? .mediaKeys : nil
     }
 
     public func activate(_ deviceIDs: Set<String>) {

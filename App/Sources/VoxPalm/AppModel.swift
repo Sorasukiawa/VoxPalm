@@ -23,8 +23,10 @@ final class AppModel {
     private(set) var message: String?
     private(set) var permissions: [Permission: Bool] = [:]
     private(set) var isLearning = false
-    /// 学键学到的键，等用户在设置里选手势和动作
-    var learned: ButtonEvent?
+    /// 正在被按住的键（示意图上高亮），一次性触发的键亮一下就灭
+    private(set) var pressedButtons: Set<ButtonID> = []
+    /// 正在学键的示意图位置（spot id；通用外形加新键时是 "+"）
+    private(set) var learningSpot: String?
 
     @ObservationIgnored let engine: ButtonEngine
     @ObservationIgnored let voice: VoiceSession
@@ -63,7 +65,12 @@ final class AppModel {
         for source in engine.sources {
             source.onDevicesChanged = { [weak self] in self?.refreshDevices() }
         }
+        engine.onMessage = { [weak self] text in
+            self?.message = text
+            log.info("动作 \(text, privacy: .public)")
+        }
         engine.onButtonEvent = { [weak self] event in
+            self?.highlight(event)
             self?.lastButton = "\(event.label) \(event.phase == .down ? "按下" : event.phase == .up ? "松开" : "触发")"
             log.debug("按键 \(event.button.rawValue, privacy: .public) \(event.phase.rawValue, privacy: .public)")
         }
@@ -158,32 +165,100 @@ final class AppModel {
         update { $0.controlDeviceIDs = id.map { [$0] } ?? [] }
     }
 
-    // MARK: - 学键
+    // MARK: - 示意图和学键
 
-    func startLearning() {
-        guard activeDevice != nil else {
+    /// 某台设备现在用的示意图，以及图上每个位置对应的键。
+    struct ResolvedDiagram {
+        var diagram: DeviceDiagram
+        var buttons: [String: ButtonID]
+        /// 外形是适配模块给的（比如 DJI），不能改
+        var isFixed: Bool
+        var reportsRelease: Bool
+    }
+
+    func diagram(for device: ControlDevice) -> ResolvedDiagram {
+        let layout = config.deviceLayouts[device.id] ?? DeviceLayout()
+        if let fixed = engine.diagram(for: device) {
+            var buttons: [String: ButtonID] = [:]
+            for spot in fixed.spots { if let button = layout.spotButtons[spot.id] ?? spot.button { buttons[spot.id] = button } }
+            return ResolvedDiagram(diagram: fixed, buttons: buttons, isFixed: true, reportsRelease: device.reportsRelease && fixed.reportsRelease)
+        }
+        let body = layout.body ?? DeviceDiagram.guessBody(for: device)
+        let diagram = body == .generic
+            ? DeviceDiagram.generic(buttons: layout.learned.map { ($0.button, $0.label) }, reportsRelease: device.reportsRelease)
+            : DeviceDiagram.template(body)
+        var buttons: [String: ButtonID] = [:]
+        for spot in diagram.spots { if let button = spot.button ?? layout.spotButtons[spot.id] { buttons[spot.id] = button } }
+        return ResolvedDiagram(diagram: diagram, buttons: buttons, isFixed: false, reportsRelease: device.reportsRelease)
+    }
+
+    func setBody(_ body: DeviceDiagram.Body?, for deviceID: String) {
+        update { $0.deviceLayouts[deviceID, default: DeviceLayout()].body = body }
+    }
+
+    /// 学示意图上某个位置对应的键；spotID 传 "+" 表示给通用外形加一个新键。
+    func startLearning(spot spotID: String) {
+        guard let device = activeDevice else {
             message = "先选一个控制设备"
             return
         }
-        isLearning = true
-        learned = nil
+        learningSpot = spotID
         engine.learnHandler = { [weak self] event in
-            self?.isLearning = false
-            self?.learned = event
+            guard let self else { return }
+            self.learningSpot = nil
+            self.update { config in
+                var layout = config.deviceLayouts[device.id] ?? DeviceLayout()
+                if spotID == "+" {
+                    if !layout.learned.contains(where: { $0.button == event.button }) {
+                        layout.learned.append(LearnedButton(button: event.button, label: event.label))
+                    }
+                } else {
+                    layout.spotButtons[spotID] = event.button
+                }
+                config.deviceLayouts[device.id] = layout
+            }
+            self.message = "学到了：\(event.label)"
         }
     }
 
     func cancelLearning() {
-        isLearning = false
+        learningSpot = nil
         engine.learnHandler = nil
     }
 
-    func addBinding(button: ButtonID, label: String, gesture: GestureKind, action: Action) {
-        update { $0.keyMap.set(KeyBinding(button: button, buttonLabel: label, gesture: gesture, action: action)) }
+    func forgetSpot(_ spotID: String, deviceID: String) {
+        update { config in
+            config.deviceLayouts[deviceID]?.spotButtons[spotID] = nil
+            config.deviceLayouts[deviceID]?.learned.removeAll { $0.button.rawValue == spotID }
+        }
+    }
+
+    func binding(for button: ButtonID, gesture: GestureKind) -> KeyBinding? {
+        config.keyMap.binding(for: button, gesture: gesture)
+    }
+
+    func setBinding(_ binding: KeyBinding) {
+        update { $0.keyMap.set(binding) }
+    }
+
+    func removeBinding(button: ButtonID, gesture: GestureKind) {
+        update { $0.keyMap.bindings.removeAll { $0.button == button && $0.gesture == gesture } }
     }
 
     func removeBinding(_ id: UUID) {
         update { $0.keyMap.bindings.removeAll { $0.id == id } }
+    }
+
+    private func highlight(_ event: ButtonEvent) {
+        switch event.phase {
+        case .down:
+            pressedButtons.insert(event.button)
+        case .up:
+            pressedButtons.remove(event.button)
+        case .trigger:
+            pressedButtons.insert(event.button)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.pressedButtons.remove(event.button) }
+        }
     }
 
     // MARK: - 权限
@@ -208,7 +283,7 @@ final class AppModel {
 
     /// 不按键直接试一次转写（菜单里的「试一下」）：开始 3 秒后结束。
     func tryVoice() {
-        voice.voiceBegin()
+        voice.voiceBegin(VoiceRequest())
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.voice.voiceEnd() }
     }
 }

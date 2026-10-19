@@ -26,6 +26,10 @@ struct VoxPalmApp: App {
 
 /// 退出前等控制设备收尾：接管了设备按键的来源要先让设备恢复普通按键。
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated { DiagramPreview.renderIfRequested() }
+    }
+
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         AppModel.shared.engine.shutdown {
             NSApp.reply(toApplicationShouldTerminate: true)
