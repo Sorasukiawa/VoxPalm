@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import SwiftUI
 import VoxPalmDevices
 import VoxPalmEngine
 
@@ -36,6 +37,25 @@ enum Permission: String, CaseIterable, Identifiable {
         }
     }
 
+    var symbol: String {
+        switch self {
+        case .inputMonitoring: return "keyboard"
+        case .accessibility: return "accessibility"
+        case .microphone: return "mic.fill"
+        }
+    }
+
+    var tileColor: Color {
+        switch self {
+        case .inputMonitoring: return .tileIndigo
+        case .accessibility: return .tileBlue
+        case .microphone: return .tileOrange
+        }
+    }
+
+    /// 系统设置里这一页的列表能不能把 App 拖进去（麦克风只能由系统弹框加进列表）。
+    var supportsDrag: Bool { self != .microphone }
+
     var isGranted: Bool {
         switch self {
         case .inputMonitoring: return HIDAccess.isGranted && SystemEventMonitor.hasListenAccess
@@ -44,7 +64,7 @@ enum Permission: String, CaseIterable, Identifiable {
         }
     }
 
-    private var settingsURL: URL {
+    var settingsURL: URL {
         let anchor: String
         switch self {
         case .inputMonitoring: anchor = "Privacy_ListenEvent"
@@ -54,20 +74,26 @@ enum Permission: String, CaseIterable, Identifiable {
         return URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)")!
     }
 
-    /// 先让系统弹授权框（第一次时会弹），再打开系统设置对应的页面。
+    /// 打开权限。打包好的 App：打开系统设置对应的页面，旁边浮出可以拖进列表的掌声图标（见 `PermissionGuide`）。
+    /// 麦克风没问过时直接弹系统授权框。直接跑可执行文件（不在 App 包里）时拖不了，退回系统授权框。
+    @MainActor
     func request() {
         switch self {
-        case .inputMonitoring:
+        case .microphone where MicrophoneAccess.status == .notDetermined:
+            AVCaptureDevice.requestAccess(for: .audio) { _ in
+                DispatchQueue.main.async { AppModel.shared.refreshPermissions() }
+            }
+            return
+        case .inputMonitoring where !Self.isAppBundle:
             HIDAccess.request()
             SystemEventMonitor.requestListenAccess()
-        case .accessibility:
+        case .accessibility where !Self.isAppBundle:
             KeyPoster.promptForAccessibility()
-        case .microphone:
-            if MicrophoneAccess.status == .notDetermined {
-                AVCaptureDevice.requestAccess(for: .audio) { _ in }
-                return
-            }
+        default:
+            break
         }
-        NSWorkspace.shared.open(settingsURL)
+        PermissionGuide.shared.start(self)
     }
+
+    private static var isAppBundle: Bool { Bundle.main.bundleURL.pathExtension == "app" }
 }

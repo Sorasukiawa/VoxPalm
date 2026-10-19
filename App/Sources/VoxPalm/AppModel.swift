@@ -42,6 +42,7 @@ final class AppModel {
     @ObservationIgnored var onVoiceOutcome: ((VoiceSession.Outcome) -> Void)?
     /// 打开设置、引导窗口（AppDelegate 接上；界面里调这两个）
     @ObservationIgnored var openSettingsHandler: ((SettingsPane?) -> Void)?
+    @ObservationIgnored var closePanelHandler: (() -> Void)?
     @ObservationIgnored var openOnboardingHandler: (() -> Void)?
 
     @ObservationIgnored let engine: ButtonEngine
@@ -309,6 +310,7 @@ final class AppModel {
     }
 
     func openSettings(_ pane: SettingsPane? = nil) { openSettingsHandler?(pane) }
+    func closePanel() { closePanelHandler?() }
     func openOnboarding() { openOnboardingHandler?() }
 
     func finishOnboarding() {
@@ -359,12 +361,14 @@ final class AppModel {
         let title: String
         let detail: String
         let fix: SettingsPane
+        /// 缺权限的提醒：点「开启」直接走授权小窗
+        var permission: Permission?
     }
 
     var attentions: [Attention] {
         var items: [Attention] = []
         for permission in missingPermissions {
-            items.append(Attention(id: permission.id, title: "还差「\(permission.title)」权限", detail: permission.consequence, fix: .permissions))
+            items.append(Attention(id: permission.id, title: "还差「\(permission.title)」权限", detail: permission.consequence, fix: .permissions, permission: permission))
         }
         if config.controlDeviceIDs.isEmpty {
             items.append(Attention(id: "no-device", title: "还没选控制设备", detail: "选一个遥控器、无线麦或者媒体键，才能按键说话。", fix: .devices))

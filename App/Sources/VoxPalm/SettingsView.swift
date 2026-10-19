@@ -25,12 +25,23 @@ enum SettingsPane: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .devices: return "av.remote"
-        case .keys: return "keyboard"
+        case .devices: return "av.remote.fill"
+        case .keys: return "keyboard.fill"
         case .voice: return "waveform"
-        case .permissions: return "checkmark.shield"
-        case .pro: return "star"
-        case .about: return "info.circle"
+        case .permissions: return "hand.raised.fill"
+        case .pro: return "star.fill"
+        case .about: return "info"
+        }
+    }
+
+    var tileColor: Color {
+        switch self {
+        case .devices: return .tileBlue
+        case .keys: return .tileIndigo
+        case .voice: return Brand.coralBottom
+        case .permissions: return .tileGreen
+        case .pro: return .tileOrange
+        case .about: return .tileGray
         }
     }
 }
@@ -49,7 +60,13 @@ struct SettingsView: View {
         @Bindable var navigation = navigation
         NavigationSplitView {
             List(SettingsPane.allCases, selection: Binding(get: { navigation.pane }, set: { if let pane = $0 { navigation.pane = pane } })) { pane in
-                Label(pane.title, systemImage: pane.symbol).tag(pane)
+                Label {
+                    Text(pane.title)
+                } icon: {
+                    IconTile(symbol: pane.symbol, color: pane.tileColor, size: 22)
+                }
+                .padding(.vertical, 2)
+                .tag(pane)
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 220)
         } detail: {
@@ -81,14 +98,14 @@ struct PaneScaffold<Tools: View, Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text(title).font(.headline)
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.system(size: 22, weight: .bold))
                 Spacer()
                 tools()
             }
-            .padding(.horizontal, 20)
-            .frame(height: 44)
-            Divider()
+            .padding(.horizontal, 24)
+            .padding(.top, 14)
+            .padding(.bottom, 2)
             content()
         }
     }
@@ -125,11 +142,12 @@ struct DevicesPane: View {
 
     var body: some View {
         PaneScaffold(title: "设备") {
-            Button("刷新") { model.refreshDevices() }
+            Button { model.refreshDevices() } label: { Label("刷新", systemImage: "arrow.clockwise") }
+                .secondaryButton()
         } content: {
             Form {
                 Section {
-                    RadioRow(selected: model.config.controlDeviceIDs.isEmpty, icon: "nosign", title: "不用", detail: nil, status: nil) {
+                    RadioRow(selected: model.config.controlDeviceIDs.isEmpty, icon: "nosign", color: .tileGray, title: "不用", detail: nil, status: nil) {
                         model.selectControlDevice(nil)
                     }
                     ForEach(model.devices) { device in
@@ -151,13 +169,13 @@ struct DevicesPane: View {
                 }
 
                 Section {
-                    RadioRow(selected: model.config.voice.micUID == nil, icon: "gearshape", title: "跟随系统默认输入",
+                    RadioRow(selected: model.config.voice.micUID == nil, icon: "gearshape.fill", color: .tileGray, title: "跟随系统默认输入",
                              detail: AudioDevices.inputs().first(where: \.isDefaultInput)?.name, status: nil) {
                         model.update { $0.voice.micUID = nil }
                     }
                     ForEach(model.micDevices) { mic in
                         let selected = model.config.voice.micUID == mic.uid
-                        RadioRow(selected: selected, icon: Self.icon(for: mic), title: mic.name, detail: Self.detail(for: mic),
+                        RadioRow(selected: selected, icon: Self.icon(for: mic), color: .tileOrange, title: mic.name, detail: Self.detail(for: mic),
                                  status: mic.isLowRateBluetoothInput ? ("通话音质", .orange) : nil) {
                             model.update { $0.voice.micUID = mic.uid }
                         }
@@ -187,7 +205,7 @@ struct DevicesPane: View {
         switch mic.transport {
         case "USB": return "cable.connector"
         case "Built-in": return "laptopcomputer"
-        default: return mic.transport.hasPrefix("Continuity") ? "iphone" : "mic"
+        default: return mic.transport.hasPrefix("Continuity") ? "iphone" : "mic.fill"
         }
     }
 
@@ -212,6 +230,7 @@ struct DevicesPane: View {
 struct RadioRow: View {
     let selected: Bool
     let icon: String
+    var color: Color = .tileBlue
     let title: String
     let detail: String?
     let status: (String, Color)?
@@ -224,7 +243,7 @@ struct RadioRow: View {
                     Circle().stroke(selected ? Brand.coralBottom : Color.secondary.opacity(0.5), lineWidth: 1.5).frame(width: 16, height: 16)
                     if selected { Circle().fill(Brand.coral).frame(width: 9, height: 9) }
                 }
-                Image(systemName: icon).frame(width: 22).foregroundStyle(.secondary)
+                IconTile(symbol: icon, color: color, size: 26)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                     if let detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
@@ -418,33 +437,18 @@ struct PermissionsPane: View {
 
     var body: some View {
         PaneScaffold(title: "权限") {
-            Form {
-                Section {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
                     ForEach(Permission.allCases) { permission in
-                        let granted = model.permissions[permission] == true
-                        HStack(spacing: 12) {
-                            ZStack {
-                                Circle().fill((granted ? Color.green : Color.orange).opacity(0.16)).frame(width: 30, height: 30)
-                                Image(systemName: granted ? "checkmark" : "exclamationmark.triangle.fill")
-                                    .foregroundStyle(granted ? Color.green : Color.orange)
-                            }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(permission.title)
-                                Text(permission.purpose).font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if granted {
-                                Text("已打开").font(.caption).foregroundStyle(.secondary)
-                            } else {
-                                Button("去打开") { permission.request() }
-                            }
-                        }
+                        PermissionCard(permission: permission, granted: model.permissions[permission] == true)
                     }
-                } footer: {
-                    FootNote("点「去打开」会弹出系统设置，在列表里打开「掌声」的开关。回到这里会自动打勾，输入监控打开后掌声会自动重新开始监听。macOS 27 里「辅助功能」可能叫「设备控制与数据访问」。")
+                    FootNote("点「开启」会打开系统设置，旁边浮出掌声的图标，把它拖进列表就行（麦克风是系统直接弹框问你）。打开后这里自动打勾，掌声会自动重新开始监听。")
+                        .padding(.top, 6)
+                        .padding(.horizontal, 4)
                 }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
             }
-            .formStyle(.grouped)
         }
     }
 }
@@ -454,13 +458,13 @@ struct PermissionsPane: View {
 struct ProPane: View {
     @Environment(AppModel.self) private var model
 
-    private let features: [(String, String)] = [
-        ("多台控制设备同时在线", "遥控器、脚踏板、无线麦一起用"),
-        ("多套键位方案，按 App 自动切换", "在剪辑软件里和在编程工具里，同一个键做不同的事"),
-        ("录音剪辑软件动作包", "Logic Pro、Final Cut Pro、Premiere Pro、DaVinci Resolve 等"),
-        ("组合动作", "一个键依次执行多步"),
-        ("转写增强", "热词和自定义词表、口语润色"),
-        ("手机上的自定义面板", "掌声手机版按 Mac 当前的 App 换按键面板"),
+    private let features: [(String, String, String, Color)] = [
+        ("多台控制设备同时在线", "遥控器、脚踏板、无线麦一起用", "square.stack.3d.up.fill", .tileBlue),
+        ("多套键位方案，按 App 自动切换", "在剪辑软件里和在编程工具里，同一个键做不同的事", "rectangle.3.group.fill", .tileIndigo),
+        ("录音剪辑软件动作包", "Logic Pro、Final Cut Pro、Premiere Pro、DaVinci Resolve 等", "film.stack.fill", .tilePurple),
+        ("组合动作", "一个键依次执行多步", "list.bullet.rectangle.fill", .tileGreen),
+        ("转写增强", "热词和自定义词表、口语润色", "text.badge.star", Brand.coralBottom),
+        ("手机上的自定义面板", "掌声手机版按 Mac 当前的 App 换按键面板", "iphone.gen3", .tileGray),
     ]
 
     var body: some View {
@@ -473,14 +477,17 @@ struct ProPane: View {
                             Text("1.0 正式版发布时开卖。现在是\(model.engine.gate.editionName)。").font(.caption).foregroundStyle(.secondary)
                         }
                         Spacer()
-                        Button("了解 Pro") {}.disabled(true)
+                        Button("了解 Pro") {}.prominentButton().disabled(true)
                     }
                 }
                 Section("Pro 里有什么") {
                     ForEach(features, id: \.0) { feature in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(feature.0)
-                            Text(feature.1).font(.caption).foregroundStyle(.secondary)
+                        HStack(spacing: 12) {
+                            IconTile(symbol: feature.2, color: feature.3, size: 28)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(feature.0)
+                                Text(feature.1).font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -498,16 +505,18 @@ struct AboutPane: View {
     var body: some View {
         PaneScaffold(title: "关于") {
             VStack(spacing: 12) {
-                if let icon = NSImage(named: "VoxPalm") {
-                    Image(nsImage: icon).resizable().frame(width: 96, height: 96)
-                }
-                Text("掌声 VoxPalm").font(.title2.bold())
+                AppIconImage(size: 112)
+                    .shadow(color: Brand.coralBottom.opacity(0.3), radius: 22, y: 10)
+                    .padding(.bottom, 6)
+                Text("掌声 VoxPalm").font(.system(size: 26, weight: .bold))
                 Text("按住说话，松手出字").foregroundStyle(.secondary)
                 Text("版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版") · \(PrivateModules.buildFlavor) · \(model.engine.gate.editionName)")
                     .font(.caption)
                 Text("代码按 GPL-3.0-only 开源；名字和图标是专有品牌素材。").font(.caption).foregroundStyle(.secondary)
                 Button("重新走一遍第一次的引导") { model.openOnboarding() }
-                    .padding(.top, 8)
+                    .secondaryButton()
+                    .controlSize(.large)
+                    .padding(.top, 10)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

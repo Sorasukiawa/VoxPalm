@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hud = SpeechHUDController(model: model)
         model.openSettingsHandler = { [weak self] pane in self?.showSettings(pane) }
         model.openOnboardingHandler = { [weak self] in self?.showOnboarding() }
+        model.closePanelHandler = { [weak self] in self?.status?.closePopover() }
         // 用调试配置文件跑的时候不弹引导。
         if !model.config.onboardingDone, ProcessInfo.processInfo.environment["VOXPALM_CONFIG"] == nil {
             showOnboarding()

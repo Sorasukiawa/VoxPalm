@@ -9,6 +9,9 @@ import VoxPalmEngine
 enum UIPreview {
     static func renderIfRequested() {
         let args = CommandLine.arguments
+        if let index = args.firstIndex(of: "--render-live"), index + 1 < args.count {
+            renderLive(to: URL(fileURLWithPath: args[index + 1]))
+        }
         if let index = args.firstIndex(of: "--render-ui"), index + 1 < args.count {
             renderUI(to: URL(fileURLWithPath: args[index + 1]))
         }
@@ -92,14 +95,83 @@ extension UIPreview {
         window.orderOut(nil)
     }
 
-    static func renderUI(to directory: URL) {
+    /// 用真窗口截图（玻璃效果、按钮样式要窗口服务器画才看得到）：窗口放在屏幕外面，不抢前台。
+    static func renderLive(to directory: URL) {
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        registerIconIfNeeded()
+        let model = AppModel.shared
+        for dark in [false, true] {
+            let suffix = dark ? "dark" : "light"
+            for step in 0..<4 {
+                liveShot(OnboardingView(step: step) {}.environment(model), titled: true, dark: dark,
+                         to: directory.appendingPathComponent("live-onboarding-\(step)-\(suffix).png"))
+            }
+            model.cancelLearning()
+            liveShot(MenuContentView().environment(model), titled: true, dark: dark,
+                     to: directory.appendingPathComponent("live-panel-\(suffix).png"))
+            for pane in [SettingsPane.devices, .keys] {
+                let navigation = SettingsNavigation()
+                navigation.pane = pane
+                liveShot(SettingsView().environment(model).environment(navigation).frame(width: 900, height: 680), titled: true, dark: dark,
+                         to: directory.appendingPathComponent("live-settings-\(pane.rawValue)-\(suffix).png"))
+            }
+            let navigation = SettingsNavigation()
+            navigation.pane = .permissions
+            liveShot(SettingsView().environment(model).environment(navigation).frame(width: 900, height: 680), titled: true, dark: dark,
+                     to: directory.appendingPathComponent("live-settings-permissions-\(suffix).png"))
+            for (name, permission, granted) in [("drag", Permission.inputMonitoring, false), ("granted", .accessibility, true)] {
+                let state = GuideState()
+                state.permission = permission
+                state.granted = granted
+                liveShot(PermissionGuideView(state: state) {}.padding(20).background(dark ? Color(white: 0.2) : Color(white: 0.85)),
+                         titled: true, dark: dark,
+                         to: directory.appendingPathComponent("live-guide-\(name)-\(suffix).png"))
+            }
+        }
+        exit(0)
+    }
+
+    private static func liveShot<V: View>(_ view: V, titled: Bool, dark: Bool, to url: URL) {
+        let host = NSHostingView(rootView: view)
+        let size = host.fittingSize
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
+                              styleMask: titled ? [.titled, .closable, .fullSizeContentView] : [.borderless],
+                              backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        if titled {
+            window.titlebarAppearsTransparent = true
+            window.titleVisibility = .hidden
+            for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
+                window.standardWindowButton(button)?.isHidden = true
+            }
+        } else {
+            window.isOpaque = false
+            window.backgroundColor = dark ? NSColor(white: 0.18, alpha: 1) : NSColor(white: 0.86, alpha: 1)
+        }
+        window.contentView = host
+        window.orderFrontRegardless()
+        window.setFrameOrigin(NSPoint(x: -6000, y: -6000))
+        RunLoop.main.run(until: Date().addingTimeInterval(1.0))
+        let capture = Process()
+        capture.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        capture.arguments = ["-x", "-o", "-l\(window.windowNumber)", url.path]
+        try? capture.run()
+        capture.waitUntilExit()
+        window.orderOut(nil)
+    }
+
+    private static func registerIconIfNeeded() {
         // 用 swift run 直接跑时没有 App 包，图标从仓库里拿，登记成同名图片
         if NSImage(named: "VoxPalm") == nil {
             let icon = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
                 .appendingPathComponent("../../../brand/icon/VoxPalm.icns").standardized
             NSImage(contentsOf: icon)?.setName("VoxPalm")
         }
+    }
+
+    static func renderUI(to directory: URL) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        registerIconIfNeeded()
         let model = AppModel.shared
         model.simulate(transcript: "下午三点的会改到四点，地点不变。")
         for dark in [false, true] {
@@ -149,6 +221,15 @@ extension UIPreview {
                          to: directory.appendingPathComponent("onboarding-\(step)-\(suffix).png"))
             }
             model.cancelLearning()
+            // 授权小窗：拖图标、麦克风开开关、打开以后
+            let guides: [(String, Permission, Bool)] = [("drag", .inputMonitoring, false), ("mic", .microphone, false), ("granted", .accessibility, true)]
+            for (name, permission, granted) in guides {
+                let state = GuideState()
+                state.permission = permission
+                state.granted = granted
+                snapshot(PermissionGuideView(state: state) {}, dark: dark,
+                         to: directory.appendingPathComponent("guide-\(name)-\(suffix).png"))
+            }
         }
         model.cancelLearning()
         exit(0)
