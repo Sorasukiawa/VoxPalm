@@ -510,13 +510,6 @@ enum KeyNames {
         if flags.contains(.option) { text += "⌥" }
         if flags.contains(.shift) { text += "⇧" }
         if flags.contains(.command) { text += "⌘" }
-        return text + (special[keyCode] ?? characters?.uppercased() ?? "#\(keyCode)")
+        return text + (KeyCodeNames.special[Int(keyCode)] ?? characters?.uppercased() ?? "#\(keyCode)")
     }
-
-    static let special: [UInt16: String] = [
-        36: "↩", 48: "⇥", 49: "空格", 51: "⌫", 53: "⎋", 117: "⌦", 123: "←", 124: "→", 125: "↓", 126: "↑",
-        115: "Home", 119: "End", 116: "PageUp", 121: "PageDown",
-        122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10",
-        103: "F11", 111: "F12", 105: "F13", 107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19", 90: "F20",
-    ]
 }

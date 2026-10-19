@@ -284,3 +284,11 @@ final class RecordingHIDSource: ControlSource {
     #expect(DeviceDiagram.presenter.recommendedTalkSpot?.id == "laser")
     #expect(DeviceDiagram.mediaKeys.recommendedTalkSpot?.id == "playPause")
 }
+
+@Test func 键盘按键的名字() {
+    // F18 按出来是私用区字符 U+F715，看不见，要用固定的名字
+    #expect(KeyCodeNames.label(keyCode: 79, characters: "\u{F715}") == "按键 F18（79）")
+    #expect(KeyCodeNames.label(keyCode: 0, characters: "a") == "按键 a（0）")
+    #expect(KeyCodeNames.label(keyCode: 76, characters: "\u{3}") == "按键 76")
+    #expect(KeyCodeNames.label(keyCode: 0, characters: nil) == "按键 0")
+}
