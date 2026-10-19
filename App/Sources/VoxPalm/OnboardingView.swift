@@ -464,7 +464,7 @@ private struct TalkKeyStep: View {
             .padding(.horizontal, 18)
             .frame(maxHeight: .infinity)
             Text(model.activePickerDevice?.name ?? device.name).font(.system(size: 17, weight: .bold)).lineLimit(1)
-            Text("点图上别的键可以换一个").font(.caption).foregroundStyle(.secondary)
+            Text(resolved.diagram.spots.isEmpty ? "按到的键会加到图上" : "点图上别的键可以换一个").font(.caption).foregroundStyle(.secondary)
                 .padding(.bottom, 14)
         }
         .frame(maxHeight: .infinity)
@@ -484,7 +484,9 @@ private struct TalkKeyStep: View {
             if !mapped {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "hand.point.up.left.fill").font(.title3).foregroundStyle(Brand.coralText)
-                    (Text("建议用图上亮着的「\(spotName(resolved))」。\n") + Text("按一下实物上的这个键").bold() + Text("，就对上了。\n想用别的键？直接点图上的那个键。"))
+                    (spot == nil
+                        ? Text("按一下实物上你想用来说话的键").bold() + Text("，就对上了。")
+                        : Text("建议用图上亮着的「\(spotName(resolved))」。\n") + Text("按一下实物上的这个键").bold() + Text("，就对上了。\n想用别的键？直接点图上的那个键。"))
                         .font(.callout)
                         .lineSpacing(3)
                         .fixedSize(horizontal: false, vertical: true)
@@ -545,8 +547,10 @@ private struct TalkKeyStep: View {
     }
 
     /// 等用户按一下实物：按到的键记成图上亮着的位置，设成说话键。
+    /// 通用外形的键位就是学过的键，按到哪个就把哪个加到图上（一个键都没学过时也能学）。
     private func learn(device: ControlDevice) {
-        guard let target = spot else { return }
+        let generic = model.diagram(for: device).diagram.id == "generic"
+        guard let target = generic ? "+" : spot else { return }
         model.startLearning(spot: target, purpose: "onboarding") { event in
             let resolved = model.diagram(for: device)
             // 按到的是图上已知的另一个键（媒体键这类键值已知的设备），就用那个位置

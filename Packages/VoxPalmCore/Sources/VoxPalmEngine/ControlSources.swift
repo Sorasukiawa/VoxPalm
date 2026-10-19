@@ -149,7 +149,7 @@ public final class SystemKeysControlSource: ControlSource {
         case let .key(key):
             guard active.contains(Self.keyboardDeviceID), key.phase != .modifiers, !key.isRepeat else { return nil }
             return ButtonEvent(deviceID: Self.keyboardDeviceID, button: .key(key.keyCode),
-                               label: key.characters.map { "按键 \($0)（\(key.keyCode)）" } ?? "按键 \(key.keyCode)",
+                               label: KeyCodeNames.label(keyCode: key.keyCode, characters: key.characters),
                                phase: key.phase == .down ? .down : .up, time: key.time)
         }
     }
@@ -168,6 +168,25 @@ public final class SystemKeysControlSource: ControlSource {
         default:
             return false
         }
+    }
+}
+
+/// 键盘按键的名字。功能键、方向键这类按出来不是字（是看不见的控制字符或私用区字符），用固定的名字。
+public enum KeyCodeNames {
+    public static let special: [Int: String] = [
+        36: "↩", 48: "⇥", 49: "空格", 51: "⌫", 53: "⎋", 117: "⌦", 123: "←", 124: "→", 125: "↓", 126: "↑",
+        115: "Home", 119: "End", 116: "PageUp", 121: "PageDown",
+        122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6", 98: "F7", 100: "F8", 101: "F9", 109: "F10",
+        103: "F11", 111: "F12", 105: "F13", 107: "F14", 113: "F15", 106: "F16", 64: "F17", 79: "F18", 80: "F19", 90: "F20",
+    ]
+
+    /// 学键时记下的名字，比如「按键 F18（79）」「按键 a（0）」
+    public static func label(keyCode: Int, characters: String?) -> String {
+        let typed = characters.flatMap { text in
+            !text.isEmpty && text.unicodeScalars.allSatisfy { ![.control, .privateUse].contains($0.properties.generalCategory) } ? text : nil
+        }
+        guard let name = special[keyCode] ?? typed else { return "按键 \(keyCode)" }
+        return "按键 \(name)（\(keyCode)）"
     }
 }
 
