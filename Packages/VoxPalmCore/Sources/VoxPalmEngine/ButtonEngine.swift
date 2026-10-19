@@ -16,8 +16,8 @@ public protocol VoiceActionHandler: AnyObject {
     var isVoiceActive: Bool { get }
     /// 按下了「长按 = 按住说话」的键：先开麦预录，防止吞掉第一个字
     func voiceArm(_ request: VoiceRequest)
-    /// 最后不是长按（是单击、双击）：丢掉预录
-    func voiceDisarm()
+    /// 最后不是长按：丢掉预录。这个键没绑单击、双击时传长按门槛，界面提示「按得太短」；绑了就传 nil，安静地丢掉
+    func voiceDisarm(tooShortFor threshold: Double?)
     /// 开始说话
     func voiceBegin(_ request: VoiceRequest)
     /// 说完了：停止并出字
@@ -166,7 +166,8 @@ public final class ButtonEngine {
         case .pressEnded:
             if armed.contains(id), !talking.contains(id) {
                 armed.remove(id)
-                voice?.voiceDisarm()
+                let hasTap = keyMap.hasBinding(event.button, .single) || keyMap.hasBinding(event.button, .double)
+                voice?.voiceDisarm(tooShortFor: hasTap ? nil : timing.longPressThreshold)
             }
         case .single:
             binding = keyMap.binding(for: event.button, gesture: .single)

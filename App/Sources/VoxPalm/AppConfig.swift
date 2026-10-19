@@ -11,6 +11,8 @@ struct AppConfig: Codable, Equatable {
     var voice = VoiceSession.Settings()
     /// 每台控制设备的示意图：选的外形、示意图上的键对应学到的哪个键
     var deviceLayouts: [String: DeviceLayout] = [:]
+    /// 第一次打开的引导走完了没有
+    var onboardingDone = false
 
     init() {}
 
@@ -23,6 +25,7 @@ struct AppConfig: Codable, Equatable {
         timing = try c.decodeIfPresent(GestureTiming.self, forKey: .timing) ?? GestureTiming()
         voice = try c.decodeIfPresent(VoiceSession.Settings.self, forKey: .voice) ?? VoiceSession.Settings()
         deviceLayouts = try c.decodeIfPresent([String: DeviceLayout].self, forKey: .deviceLayouts) ?? [:]
+        onboardingDone = try c.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? false
     }
 
     static var fileURL: URL {

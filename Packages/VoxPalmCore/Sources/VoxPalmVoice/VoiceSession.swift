@@ -1,3 +1,5 @@
+import Accelerate
+import AppKit
 import AVFoundation
 import CoreAudio
 import Foundation
@@ -71,7 +73,27 @@ public final class VoiceSession: VoiceActionHandler {
     public var settings: Settings {
         didSet { if settings != oldValue { settingsChanged(from: oldValue) } }
     }
+    /// 一次说话的结果，说话浮窗用它显示「已输入 N 字」「按得太短」等。
+    public enum Outcome: Equatable, Sendable {
+        /// 字贴到了前台 App 的光标处
+        case inserted(characters: Int, appName: String?)
+        /// 字没贴进去（缺辅助功能权限），已经放进剪贴板
+        case copied(characters: Int)
+        /// 外部输入法模式：已经松开输入法的语音键，由输入法出字
+        case handedToInputMethod
+        /// 按得太短，没算数（参数是要按住多久）
+        case tooShort(threshold: Double)
+        /// 一点声音都没录到
+        case noAudio
+        /// 录到了声音但没听出字
+        case noText
+        case failed(String)
+    }
+
     public var onStateChange: ((State) -> Void)?
+    public var onOutcome: ((Outcome) -> Void)?
+    /// 录音时的音量（0…1），大约每秒 20 次，主线程回调
+    public var onLevel: ((Float) -> Void)?
     public var onMessage: ((String) -> Void)?
     public var onTranscript: ((String) -> Void)?
     /// 调试：用这个音频文件代替麦克风（环境变量 VOXPALM_DEBUG_AUDIO_FILE）
@@ -129,8 +151,9 @@ public final class VoiceSession: VoiceActionHandler {
         state = .armed
     }
 
-    public func voiceDisarm() {
+    public func voiceDisarm(tooShortFor threshold: Double?) {
         guard state == .armed else { return }
+        if let threshold { onOutcome?(.tooShort(threshold: threshold)) }
         switch settings.mode {
         case .builtIn:
             lock.lock()
@@ -164,6 +187,7 @@ public final class VoiceSession: VoiceActionHandler {
         case .inputMethod:
             if state == .listening { InputMethodBridge.end(settings.inputMethodKey) }
             restoreDefaultInput(after: settings.restoreInputDelay)
+            if state == .listening { onOutcome?(.handedToInputMethod) }
             if request.sendReturn, state == .listening {
                 // 输入法什么时候把字放进去不确定，等一会儿；输入框还是空的就不发。
                 DispatchQueue.main.asyncAfter(deadline: .now() + settings.inputMethodSendDelay) { [weak self] in
@@ -188,6 +212,7 @@ public final class VoiceSession: VoiceActionHandler {
             let seconds = AudioConversion.duration(buffers)
             guard seconds >= settings.minimumSeconds else {
                 onMessage?(buffers.isEmpty ? "没录到声音：检查收音设备和麦克风权限" : String(format: "录音太短（%.1f 秒），当成误触", seconds))
+                onOutcome?(buffers.isEmpty ? .noAudio : .tooShort(threshold: settings.minimumSeconds))
                 state = .idle
                 return
             }
@@ -216,10 +241,18 @@ public final class VoiceSession: VoiceActionHandler {
                 let elapsed = Date().timeIntervalSince(started)
                 if text.isEmpty {
                     self.onMessage?("没听出文字")
+                    self.onOutcome?(.noText)
                 } else {
                     if let file = self.debugTranscriptFile {
                         Self.append(sendReturn ? text + "⏎" : text, to: file)
+                        self.onOutcome?(.inserted(characters: text.count, appName: "调试文件"))
+                    } else if !KeyPoster.canPost {
+                        // 贴不进去：字不丢，先放进剪贴板，再告诉用户怎么补救。
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                        self.onOutcome?(.copied(characters: text.count))
                     } else {
+                        self.onOutcome?(.inserted(characters: text.count, appName: NSWorkspace.shared.frontmostApplication?.localizedName))
                         TextInserter.insert(text, method: settings.textMethod)
                         if sendReturn {
                             // 等粘贴落进输入框，再确认焦点、按回车。
@@ -233,6 +266,7 @@ public final class VoiceSession: VoiceActionHandler {
                 }
             case let .failure(error):
                 self.onMessage?("转写失败：\(error)")
+                self.onOutcome?(.failed("\(error)"))
             }
             self.state = .idle
         }
@@ -249,7 +283,27 @@ public final class VoiceSession: VoiceActionHandler {
         }
     }
 
+    private var lastLevelTime: CFAbsoluteTime = 0
+
+    /// 算一段声音的音量，换成 0…1（-50 dBFS 以下算 0）。
+    static func level(of buffer: AVAudioPCMBuffer) -> Float {
+        guard buffer.format.commonFormat == .pcmFormatFloat32,
+              let data = buffer.audioBufferList.pointee.mBuffers.mData else { return 0 }
+        let count = Int(buffer.audioBufferList.pointee.mBuffers.mDataByteSize) / MemoryLayout<Float>.size
+        guard count > 0 else { return 0 }
+        var rms: Float = 0
+        vDSP_rmsqv(data.assumingMemoryBound(to: Float.self), 1, &rms, vDSP_Length(count))
+        let db = 20 * log10(max(rms, 1e-7))
+        return min(1, max(0, (db + 50) / 50))
+    }
+
     private func received(_ buffer: AVAudioPCMBuffer) {
+        let now = CFAbsoluteTimeGetCurrent()
+        if onLevel != nil, now - lastLevelTime > 0.05 {
+            lastLevelTime = now
+            let level = Self.level(of: buffer)
+            DispatchQueue.main.async { [weak self] in self?.onLevel?(level) }
+        }
         lock.lock()
         defer { lock.unlock() }
         if collecting {
