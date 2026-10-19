@@ -161,8 +161,8 @@ final class SpeechHUDController {
             show(.done(characters: count, app: app, snippet: snippet), hideAfter: 1.8)
         case .handedToInputMethod:
             show(.handedOff, hideAfter: 1.5)
-        case .copied:
-            show(.message(title: "字在剪贴板里，按 ⌘V", subtitle: "缺「辅助功能」权限，贴不到光标处", tone: .warn), hideAfter: 4)
+        case let .copied(_, reason):
+            show(.message(title: "字在剪贴板里，按 ⌘V", subtitle: reason.pasteMessage, tone: .warn), hideAfter: 4)
         case let .tooShort(threshold):
             show(.message(title: String(format: "按住超过 %.1f 秒才算", threshold), subtitle: nil, tone: .muted), hideAfter: 1.3)
         case .noAudio:

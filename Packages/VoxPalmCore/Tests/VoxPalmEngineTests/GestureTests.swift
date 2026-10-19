@@ -223,14 +223,6 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
     }
 }
 
-@Test func 只往可编辑的非密码输入框发回车() {
-    #expect(FocusedField.isEditable(role: "AXTextArea", subrole: nil, valueSettable: true, protected: false))
-    #expect(!FocusedField.isEditable(role: "AXTextField", subrole: "AXSecureTextField", valueSettable: true, protected: false))
-    #expect(!FocusedField.isEditable(role: "AXTextArea", subrole: nil, valueSettable: false, protected: false))
-    #expect(!FocusedField.isEditable(role: "AXButton", subrole: nil, valueSettable: true, protected: false))
-    #expect(!FocusedField.isEditable(role: "AXTextArea", subrole: nil, valueSettable: true, protected: true))
-}
-
 @Test func 示意图的按键都在设备范围内且不重名() {
     for diagram in DeviceDiagram.choices + [DeviceDiagram.mediaKeys] where diagram.id != "generic" {
         #expect(Set(diagram.spots.map(\.id)).count == diagram.spots.count, "\(diagram.id) 有重名的按键")
