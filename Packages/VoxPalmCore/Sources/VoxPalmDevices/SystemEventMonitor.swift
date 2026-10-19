@@ -55,6 +55,9 @@ public final class SystemEventMonitor {
         stop()
     }
 
+    /// 掌声自己模拟出来的事件带这个标记（写在 eventSourceUserData 里），监听时跳过，免得把自己发的键当成设备按键。
+    public static let syntheticMarker: Int64 = 0x566F_7850 // "VoxP"
+
     public static var hasListenAccess: Bool { CGPreflightListenEventAccess() }
 
     @discardableResult
@@ -103,6 +106,7 @@ public final class SystemEventMonitor {
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
+        if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticMarker { return Unmanaged.passUnretained(event) }
         guard let parsed = Self.parse(type: type, event: event) else { return Unmanaged.passUnretained(event) }
         onEvent?(parsed)
         if mode == .filter, shouldSuppress?(parsed) == true { return nil }
