@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>com.sorasukiawa.VoxPalm.Probe</string>
+	<key>CFBundleName</key>
+	<string>VoxPalm Probe</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>设备探针要录几秒声音，测收音设备的实际采样率。录音只在本机分析，不保存、不上传。</string>
+</dict>
+</plist>
