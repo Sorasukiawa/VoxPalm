@@ -27,6 +27,20 @@ enum DiagramPreview {
             let callouts = DiagramCallout.make(diagram: diagram, buttons: buttons, keyMap: keyMap,
                                                reportsRelease: resolved.reportsRelease, learning: nil)
             let selected = diagram.spots.first { ["down", "next", "record"].contains($0.id) }?.id
+            // 只画设备本体（不带标注），高 600 点，用来和产品图并排对比。
+            let artHeight: CGFloat = 600
+            let artWidth = artHeight * diagram.width / diagram.height
+            var artLayout = DiagramLayout(diagram: diagram, callouts: [], size: CGSize(width: artWidth, height: artHeight))
+            artLayout.device = CGRect(x: 0, y: 0, width: artWidth, height: artHeight)
+            artLayout.scale = artHeight / diagram.height
+            let art = DeviceArt(diagram: diagram, layout: artLayout, highlighted: [:])
+                .frame(width: artWidth, height: artHeight)
+                .background(Color(white: 0.07))
+            let artRenderer = ImageRenderer(content: art)
+            if let image = artRenderer.nsImage, let tiff = image.tiffRepresentation,
+               let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+                try? png.write(to: directory.appendingPathComponent("art-\(diagram.id).png"))
+            }
             for scheme in [ColorScheme.light, .dark] {
                 let view = DeviceDiagramView(diagram: diagram, callouts: callouts, pressed: [], buttons: buttons, selected: selected)
                     .padding(16)

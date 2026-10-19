@@ -394,20 +394,43 @@ struct DeviceArt: View {
         case .led:
             context.fill(path, with: .color(Color(white: 0.52)))
         case .grille:
-            let count = max(3, Int(rect.width / 5))
+            // 网罩的缝顺着短边走：横的一块画竖缝，竖的一块画横缝。
+            let vertical = rect.width >= rect.height
+            let length = vertical ? rect.width : rect.height
+            let count = max(3, Int(length / 5))
             for index in 0..<count {
-                let x = rect.minX + rect.width * (Double(index) + 0.5) / Double(count)
+                let t = (Double(index) + 0.5) / Double(count)
                 var line = Path()
-                line.move(to: CGPoint(x: x, y: rect.minY))
-                line.addLine(to: CGPoint(x: x, y: rect.maxY))
+                if vertical {
+                    let x = rect.minX + rect.width * t
+                    line.move(to: CGPoint(x: x, y: rect.minY))
+                    line.addLine(to: CGPoint(x: x, y: rect.maxY))
+                } else {
+                    let y = rect.minY + rect.height * t
+                    line.move(to: CGPoint(x: rect.minX, y: y))
+                    line.addLine(to: CGPoint(x: rect.maxX, y: y))
+                }
                 context.stroke(line, with: .color(.white.opacity(0.22)), style: StrokeStyle(lineWidth: 1.2, lineCap: .round))
             }
         case .mark:
             if let symbol {
                 drawSymbol(symbol, in: rect, color: Color(white: 0.45), context: &context)
+            } else if let text {
+                // 小标记（比如 NFC 的 N）：细边框 + 一个字
+                context.stroke(path, with: .color(Color(white: 0.4)), lineWidth: 0.8)
+                context.draw(Text(text).font(.system(size: max(5, rect.height * 0.62), weight: .semibold)).foregroundStyle(Color(white: 0.4)),
+                             at: CGPoint(x: rect.midX, y: rect.midY))
             } else {
-                context.fill(path, with: .color(Color(white: 0.55)))
+                context.fill(path, with: .color(Color(white: 0.45)))
             }
+        case .printLight, .printDark:
+            if let text {
+                let color = style == .printLight ? Color.white.opacity(0.88) : Color(white: 0.32)
+                context.draw(Text(text).font(.system(size: max(5, rect.height * 0.95), weight: .semibold)).foregroundStyle(color),
+                             at: CGPoint(x: rect.midX, y: rect.midY))
+            }
+        case .dot:
+            context.fill(path, with: .color(.white.opacity(0.92)))
         case .caption:
             if let text {
                 context.draw(Text(text).font(.system(size: 10.5)).foregroundStyle(.secondary), at: CGPoint(x: rect.midX, y: rect.midY))
@@ -417,15 +440,11 @@ struct DeviceArt: View {
         }
     }
 
+    /// 按键上的图标：和实物一样细、占键面三分之一左右。
     private func drawSymbol(_ name: String, in rect: CGRect, color: Color, context: inout GraphicsContext) {
         let side = min(rect.width, rect.height)
-        var image = context.resolve(Image(systemName: name))
-        image.shading = .color(color)
-        let size = image.size
-        let target = side * 0.46
-        let factor = target / max(size.width, size.height, 1)
-        let drawSize = CGSize(width: size.width * factor, height: size.height * factor)
-        context.draw(image, in: CGRect(x: rect.midX - drawSize.width / 2, y: rect.midY - drawSize.height / 2, width: drawSize.width, height: drawSize.height))
+        let text = Text(Image(systemName: name)).font(.system(size: max(6, side * 0.32), weight: .regular)).foregroundStyle(color)
+        context.draw(text, at: CGPoint(x: rect.midX, y: rect.midY))
     }
 }
 

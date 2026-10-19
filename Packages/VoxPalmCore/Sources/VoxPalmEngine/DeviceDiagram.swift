@@ -2,7 +2,7 @@ import Foundation
 
 /// 设备示意图：照真实产品的尺寸和按键位置画的矢量线稿，界面在旁边拉线标注每个键做什么。
 /// 坐标单位是毫米（取自产品规格和说明书线稿），渲染时整体缩放。按键在侧面的设备把侧面展开画在正面旁边。
-/// 只画外形，不画厂商标志。
+/// 不复制厂商标志图形；品牌名用普通字体写在实物印标志的位置。
 public struct DeviceDiagram: Hashable, Sendable, Identifiable {
     /// 左上角 + 宽高，单位同 `width` / `height`
     public struct Box: Hashable, Sendable {
@@ -39,8 +39,10 @@ public struct DeviceDiagram: Hashable, Sendable, Identifiable {
         case clip
         /// 按键：黑色、浅色、录制键（红圈）、侧面按键
         case blackKey, lightKey, recordKey, sideKey
-        /// 装饰：凹槽、接口、指示灯、网罩、小标记、面板下面的说明文字
-        case recess, port, led, grille, mark, caption
+        /// 装饰：凹槽、接口、指示灯、网罩、小标记、白色小点、面板下面的说明文字
+        case recess, port, led, grille, mark, dot, caption
+        /// 机身上印的字（品牌名用普通字体写在原来印标志的位置，不复制厂商的标志图形）：深色机身上的浅色字、浅色机身上的深色字
+        case printLight, printDark
         /// 不画底色，只在选中或按下时高亮（方向盘的上下左右、音量条的上下半段）
         case zone
     }
@@ -133,12 +135,13 @@ public extension DeviceDiagram {
         parts: [
             Part(Box(0, 0, 36, 141), .rounded(3), .aluminum),
             Part(.circle(18, 32, 30), .circle, .blackKey),
-            Part(.circle(18, 19.6, 1.1), .circle, .mark),
-            Part(.circle(18, 44.4, 1.1), .circle, .mark),
-            Part(.circle(5.6, 32, 1.1), .circle, .mark),
-            Part(.circle(30.4, 32, 1.1), .circle, .mark),
+            Part(.circle(18, 19.6, 0.8), .circle, .mark),
+            Part(.circle(18, 44.4, 0.8), .circle, .mark),
+            Part(.circle(5.6, 32, 0.8), .circle, .mark),
+            Part(.circle(30.4, 32, 0.8), .circle, .mark),
             Part(.center(25.7, 61, 11.5, 25.4), .capsule, .blackKey),
-            Part(.center(18, 105.8, 3.4, 3.4), .rounded(0.6), .mark, symbol: "wave.3.right"),
+            Part(.center(18, 105.8, 3.2, 3.2), .rounded(0.7), .mark, text: "N"),
+            Part(.center(18, 129.4, 16, 2.6), .rounded(0), .printDark, text: "xiaomi"),
         ],
         spots: [
             Spot("power", "电源键", .circle(8.6, 9.9, 7.2), .circle, .lightKey, symbol: "power"),
@@ -157,30 +160,35 @@ public extension DeviceDiagram {
         ]
     )
 
-    /// Apple Siri Remote（第 2、3 代，2021 年以后的铝机身款）。规格 35 × 136 × 9.25 毫米，
-    /// 按 Apple 的正面产品图量的位置；Siri 键在右侧面，画成伸出右边的一小段。
+    /// Apple Siri Remote（第 2、3 代，2021 年以后的铝机身款）。规格 35 × 136 × 9.25 毫米。
+    /// 位置是从 Apple 技术规格页的正面图（111844_siri-remote-3rd.png，251 × 960 像素）逐像素量的：
+    /// 顶部正中一条小横杠，右上角浅色电源键，触控板外圈四个白点，Siri 键在右侧面（画成伸出右边的一小段）。
     static let siriRemote = DeviceDiagram(
         id: "siri-remote", title: "Siri Remote", width: 36.6, height: 136,
         parts: [
-            Part(Box(0, 0, 35, 136), .rounded(8), .aluminum),
-            Part(.center(13, 4.6, 3, 0.9), .capsule, .led),
-            Part(.circle(17.5, 29, 32), .circle, .blackKey),
-            Part(.center(25.2, 75.2, 11.5, 31.5), .capsule, .blackKey),
+            Part(Box(0, 0, 35, 136), .rounded(5.7), .aluminum),
+            Part(.center(17.5, 6.9, 2.0, 0.85), .capsule, .port),
+            Part(.circle(17.5, 28.6, 31), .circle, .blackKey),
+            Part(.circle(17.5, 14.9, 0.7), .circle, .dot),
+            Part(.circle(17.5, 42.3, 0.7), .circle, .dot),
+            Part(.circle(3.8, 28.6, 0.7), .circle, .dot),
+            Part(.circle(31.2, 28.6, 0.7), .circle, .dot),
+            Part(.center(25, 73.7, 11.7, 27), .capsule, .blackKey),
         ],
         spots: [
-            Spot("power", "电源键", .circle(27.6, 5.6, 4.6), .circle, .blackKey, symbol: "power"),
-            Spot("siri", "Siri 键（右侧面）", .center(35.6, 33, 1.8, 9), .capsule, .sideKey),
-            Spot("up", "触控板上", .circle(17.5, 17.8, 6.5), .circle, .zone),
-            Spot("left", "触控板左", .circle(6.3, 29, 6.5), .circle, .zone),
-            Spot("ok", "触控板中间（按下）", .circle(17.5, 29, 15), .circle, .blackKey),
-            Spot("right", "触控板右", .circle(28.7, 29, 6.5), .circle, .zone),
-            Spot("down", "触控板下", .circle(17.5, 40.2, 6.5), .circle, .zone),
-            Spot("back", "返回键", .circle(10.5, 52.4, 11.5), .circle, .blackKey, symbol: "chevron.left"),
-            Spot("tv", "TV 键", .circle(25.2, 52.4, 11.5), .circle, .blackKey, symbol: "tv"),
-            Spot("playPause", "播放 / 暂停", .circle(10.5, 67.6, 11.5), .circle, .blackKey, symbol: "playpause.fill"),
-            Spot("volumeUp", "音量 +", .circle(25.2, 67.6, 9), .circle, .zone, symbol: "plus"),
-            Spot("mute", "静音", .circle(10.5, 82.8, 11.5), .circle, .blackKey, symbol: "speaker.slash.fill"),
-            Spot("volumeDown", "音量 −", .circle(25.2, 82.8, 9), .circle, .zone, symbol: "minus"),
+            Spot("power", "电源键", .circle(28, 6.8, 6), .circle, .lightKey, symbol: "power"),
+            Spot("siri", "Siri 键（右侧面）", .center(35.5, 28.7, 1.4, 14.7), .capsule, .sideKey),
+            Spot("up", "触控板上", .circle(17.5, 16.4, 5.5), .circle, .zone),
+            Spot("left", "触控板左", .circle(5.3, 28.6, 5.5), .circle, .zone),
+            Spot("ok", "触控板中间（按下）", .circle(17.5, 28.6, 17.8), .circle, .blackKey),
+            Spot("right", "触控板右", .circle(29.7, 28.6, 5.5), .circle, .zone),
+            Spot("down", "触控板下", .circle(17.5, 40.8, 5.5), .circle, .zone),
+            Spot("back", "返回键", .circle(10, 51.5, 12.2), .circle, .blackKey, symbol: "chevron.left"),
+            Spot("tv", "TV 键", .circle(25, 51.5, 12.2), .circle, .blackKey, symbol: "tv"),
+            Spot("playPause", "播放 / 暂停", .circle(10, 66.3, 12.2), .circle, .blackKey, symbol: "playpause"),
+            Spot("volumeUp", "音量 +", .circle(25, 66.3, 9), .circle, .zone, symbol: "plus"),
+            Spot("mute", "静音", .circle(10, 81.1, 12.2), .circle, .blackKey, symbol: "speaker.slash"),
+            Spot("volumeDown", "音量 −", .circle(25, 81.1, 9), .circle, .zone, symbol: "minus"),
         ]
     )
 
