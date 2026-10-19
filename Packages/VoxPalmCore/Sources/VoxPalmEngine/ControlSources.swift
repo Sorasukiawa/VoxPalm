@@ -13,6 +13,15 @@ public protocol ControlSource: AnyObject {
     func devices() -> [ControlDevice]
     /// 只监听这些设备；传空集合就停掉。
     func activate(_ deviceIDs: Set<String>)
+    /// App 退出前调用。接管了设备按键的来源（比如要让设备恢复普通按键）在这里收尾，完成后调 completion。
+    func shutdown(completion: @escaping () -> Void)
+}
+
+public extension ControlSource {
+    func shutdown(completion: @escaping () -> Void) {
+        activate([])
+        completion()
+    }
 }
 
 // MARK: - HID 设备

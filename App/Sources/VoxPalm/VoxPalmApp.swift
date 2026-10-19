@@ -4,7 +4,8 @@ import VoxPalmVoice
 
 @main
 struct VoxPalmApp: App {
-    @State private var model = AppModel()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var model = AppModel.shared
 
     var body: some Scene {
         MenuBarExtra {
@@ -20,6 +21,16 @@ struct VoxPalmApp: App {
                 .environment(model)
         }
         .windowResizability(.contentSize)
+    }
+}
+
+/// 退出前等控制设备收尾：接管了设备按键的来源要先让设备恢复普通按键。
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        AppModel.shared.engine.shutdown {
+            NSApp.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }
 
