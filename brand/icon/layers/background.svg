@@ -1,8 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <title>掌声 VoxPalm 背景层</title>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E66B3F"/><stop offset="1" stop-color="#C94F28"/></linearGradient>
-    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFBF8"/><stop offset="1" stop-color="#F6E5DA"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B2840"/><stop offset="1" stop-color="#17151F"/></linearGradient>
+    <linearGradient id="hot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF8A5C"/><stop offset="1" stop-color="#D85A30"/></linearGradient>
   </defs>
   <rect width="1024" height="1024" fill="url(#bg)"/>
 </svg>

@@ -1,4 +1,5 @@
 # 生成图标、分层和菜单栏图标的 SVG 源文件。
+# 图形：● 按钮 → 声波 → 一行行文字和光标，讲「按住说话，松手出字」。
 # 用法：python3 brand/tools/gen_icon_svg.py brand
 import math, os, sys
 OUT = sys.argv[1]
@@ -12,49 +13,57 @@ def squircle(cx=512, cy=512, a=412, n=5.0, steps=240):
         pts.append(f"{cx + a * math.copysign(abs(c) ** (2 / n), c):.1f} {cy + a * math.copysign(abs(s) ** (2 / n), s):.1f}")
     return "M" + " L".join(pts) + " Z"
 
-def arc(cx, cy, r, deg):
-    a = math.radians(deg)
-    x, y1, y2 = cx + r * math.cos(a), cy - r * math.sin(a), cy + r * math.sin(a)
-    return f"M{x:.1f} {y1:.1f} A{r} {r} 0 0 1 {x:.1f} {y2:.1f}"
-
 DEFS = """<defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E66B3F"/><stop offset="1" stop-color="#C94F28"/></linearGradient>
-    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFBF8"/><stop offset="1" stop-color="#F6E5DA"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B2840"/><stop offset="1" stop-color="#17151F"/></linearGradient>
+    <linearGradient id="hot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF8A5C"/><stop offset="1" stop-color="#D85A30"/></linearGradient>
   </defs>"""
+
+def pill(x, y, w, h, fill):
+    return f'<rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{min(w, h) / 2}" fill="{fill}"/>'
 
 def mark(small=False):
     if small:
-        # 16/32 像素用的简化版：一道声波、更粗的线、去掉指示灯
-        x, y, w, h, bx, by, br = 318, 325, 230, 440, 433, 455, 66
-        arcs = [(235, 42, 76)]
-        dot = ""
+        # 16/32 像素用的简化版：按钮 + 一根声波 + 两行字，线条加粗，去掉光标
+        dx = 24
+        button = (250 + dx, 512, 86)
+        bars = [(372 + dx, 420, 88)]
+        lines = [(440, 500 + dx, 812 + dx, 88), (584, 500 + dx, 712 + dx, 88)]
+        cursor = ""
     else:
-        x, y, w, h, bx, by, br = 313, 321, 200, 430, 413, 444, 56
-        arcs = [(185, 40, 44), (275, 40, 44)]
-        dot = f'<circle cx="{bx}" cy="{y + h - 115}" r="20" fill="#F0997B"/>'
-    waves = "\n    ".join(f'<path d="{arc(bx, by, r, d)}" fill="none" stroke="#FFF7F2" stroke-width="{sw}" stroke-linecap="round"/>' for r, d, sw in arcs)
-    return f"""<g>
-    <rect x="{x}" y="{y}" width="{w}" height="{h}" rx="{w / 2}" fill="url(#body)"/>
-    <circle cx="{bx}" cy="{by}" r="{br}" fill="#D85A30"/>
-    {dot}
-    {waves}
-  </g>"""
+        button = (262, 512, 70)
+        bars = [(356, 400, 56), (440, 260, 56)]
+        lines = [(420, 532, 820, 56), (512, 532, 770, 56), (604, 532, 668, 56)]
+        cursor = pill(692, 566, 24, 76, "#FF7A4D")
+    bx, by, br = button
+    parts = [
+        # 按钮带一点厚度，看起来是能按下去的
+        f'<circle cx="{bx}" cy="{by + br * 0.16:.1f}" r="{br}" fill="#A93F1C"/>',
+        f'<circle cx="{bx}" cy="{by}" r="{br}" fill="url(#hot)"/>',
+    ]
+    parts += [pill(x, 512 - h / 2, w, h, "url(#hot)") for x, h, w in bars]
+    parts += [pill(x0, cy - h / 2, x1 - x0, h, "#FFF3EA") for cy, x0, x1, h in lines]
+    if cursor:
+        parts.append(cursor)
+    return "<g>\n    " + "\n    ".join(parts) + "\n  </g>"
 
 def svg(body, size=1024, title="掌声 VoxPalm"):
     return f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" viewBox="0 0 {size} {size}">\n  <title>{title}</title>\n  {body}\n</svg>\n'
 
 sq = squircle()
-open(f"{OUT}/icon/VoxPalm-icon.svg", "w").write(svg(f'{DEFS}\n  <path d="{sq}" fill="url(#bg)"/>\n  {mark()}'))
-open(f"{OUT}/icon/VoxPalm-icon-small.svg", "w").write(svg(f'{DEFS}\n  <path d="{sq}" fill="url(#bg)"/>\n  {mark(small=True)}', title="掌声 VoxPalm（16/32 像素简化版）"))
+# 深色图标在深色 Dock 上容易和背景糊在一起，加一圈很淡的内描边
+rim = f'<path d="{squircle(a=409)}" fill="none" stroke="#6B6590" stroke-opacity="0.45" stroke-width="6"/>'
+open(f"{OUT}/icon/VoxPalm-icon.svg", "w").write(svg(f'{DEFS}\n  <path d="{sq}" fill="url(#bg)"/>\n  {rim}\n  {mark()}'))
+open(f"{OUT}/icon/VoxPalm-icon-small.svg", "w").write(svg(f'{DEFS}\n  <path d="{sq}" fill="url(#bg)"/>\n  {rim}\n  {mark(small=True)}', title="掌声 VoxPalm（16/32 像素简化版）"))
 open(f"{OUT}/icon/layers/background.svg", "w").write(svg(f'{DEFS}\n  <rect width="1024" height="1024" fill="url(#bg)"/>', title="掌声 VoxPalm 背景层"))
 open(f"{OUT}/icon/layers/foreground.svg", "w").write(svg(f'{DEFS}\n  {mark()}', title="掌声 VoxPalm 前景层"))
 
 # 菜单栏模板图标：36 网格（@2x），按 18pt 显示；黑色 + 透明，系统自动适配深浅色
-cap = "M11.5 6 A5.5 5.5 0 0 1 17 11.5 V26.5 A5.5 5.5 0 0 1 6 26.5 V11.5 A5.5 5.5 0 0 1 11.5 6 Z"
-hole = "M11.5 10.3 A3.2 3.2 0 1 0 11.5 16.7 A3.2 3.2 0 1 0 11.5 10.3 Z"
-mb = f"""<path d="{cap} {hole}" fill="#000" fill-rule="evenodd"/>
-  <path d="{arc(11.5, 13.5, 11, 40)}" fill="none" stroke="#000" stroke-width="2.8" stroke-linecap="round"/>
-  <path d="{arc(11.5, 13.5, 17, 40)}" fill="none" stroke="#000" stroke-width="2.8" stroke-linecap="round"/>"""
+mb = "\n  ".join([
+    '<circle cx="8" cy="18" r="4.6" fill="#000"/>',
+    pill(15.5, 9, 4, 18, "#000"),
+    pill(23, 12, 10, 4, "#000"),
+    pill(23, 20, 7, 4, "#000"),
+])
 open(f"{OUT}/menubar/MenuBarIconTemplate.svg", "w").write(
     f'<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 36 36">\n  <title>掌声 VoxPalm 菜单栏图标</title>\n  {mb}\n</svg>\n')
 print("done")

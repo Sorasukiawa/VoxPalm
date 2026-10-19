@@ -12,7 +12,7 @@ func hex(_ s: String) -> NSColor {
     return NSColor(srgbRed: CGFloat(v >> 16 & 0xFF) / 255, green: CGFloat(v >> 8 & 0xFF) / 255, blue: CGFloat(v & 0xFF) / 255, alpha: 1)
 }
 let cream = hex("#FFF7F2"), coral = hex("#D85A30"), coralDeep = hex("#B8461F"), coralSoft = hex("#FBE3D8")
-let ink = hex("#2A1B15"), inkSoft = hex("#6B5A52"), line = hex("#EBDDD4")
+let ink = hex("#1F1D2B"), inkSoft = hex("#5E5A6E"), line = hex("#EBDDD4")
 
 func font(_ weight: String, _ size: CGFloat) -> NSFont { NSFont(name: "SourceHanSansCN-\(weight)", size: size)! }
 func text(_ s: String, _ f: NSFont, _ c: NSColor) -> NSAttributedString { NSAttributedString(string: s, attributes: [.font: f, .foregroundColor: c]) }

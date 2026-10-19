@@ -1,14 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <title>掌声 VoxPalm 前景层</title>
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E66B3F"/><stop offset="1" stop-color="#C94F28"/></linearGradient>
-    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFBF8"/><stop offset="1" stop-color="#F6E5DA"/></linearGradient>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B2840"/><stop offset="1" stop-color="#17151F"/></linearGradient>
+    <linearGradient id="hot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF8A5C"/><stop offset="1" stop-color="#D85A30"/></linearGradient>
   </defs>
   <g>
-    <rect x="313" y="321" width="200" height="430" rx="100.0" fill="url(#body)"/>
-    <circle cx="413" cy="444" r="56" fill="#D85A30"/>
-    <circle cx="413" cy="636" r="20" fill="#F0997B"/>
-    <path d="M554.7 325.1 A185 185 0 0 1 554.7 562.9" fill="none" stroke="#FFF7F2" stroke-width="44" stroke-linecap="round"/>
-    <path d="M623.7 267.2 A275 275 0 0 1 623.7 620.8" fill="none" stroke="#FFF7F2" stroke-width="44" stroke-linecap="round"/>
+    <circle cx="262" cy="523.2" r="70" fill="#A93F1C"/>
+    <circle cx="262" cy="512" r="70" fill="url(#hot)"/>
+    <rect x="356" y="312.0" width="56" height="400" rx="28.0" fill="url(#hot)"/>
+    <rect x="440" y="382.0" width="56" height="260" rx="28.0" fill="url(#hot)"/>
+    <rect x="532" y="392.0" width="288" height="56" rx="28.0" fill="#FFF3EA"/>
+    <rect x="532" y="484.0" width="238" height="56" rx="28.0" fill="#FFF3EA"/>
+    <rect x="532" y="576.0" width="136" height="56" rx="28.0" fill="#FFF3EA"/>
+    <rect x="692" y="566" width="24" height="76" rx="12.0" fill="#FF7A4D"/>
   </g>
 </svg>
