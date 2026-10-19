@@ -8,9 +8,18 @@ struct KeysPane: View {
     @Environment(AppModel.self) private var model
     @State private var selectedSpot: String?
     @State private var confirmPreset = false
+    @State private var showsTable = false
+    @State private var editingSpot: String?
 
     var body: some View {
         PaneScaffold(title: "按键") {
+            Picker("看法", selection: $showsTable) {
+                Text("图").tag(false)
+                Text("表").tag(true)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 92)
             Button {
                 if model.learningSpot == nil { learnNew() } else { model.cancelLearning() }
             } label: {
@@ -36,18 +45,33 @@ struct KeysPane: View {
                                 model.cancelLearning()
                             }
                         }
-                        DeviceDiagramView(
-                            diagram: resolved.diagram,
-                            callouts: DiagramCallout.make(diagram: resolved.diagram, buttons: resolved.buttons, keyMap: model.config.keyMap,
-                                                          reportsRelease: resolved.reportsRelease, learning: model.learningSpot),
-                            pressed: model.pressedButtons,
-                            buttons: resolved.buttons,
-                            selected: selectedSpot,
-                            onSelect: { spot in
-                                selectedSpot = spot
-                                if resolved.buttons[spot] == nil { model.startLearning(spot: spot) }
-                            }
-                        )
+                        if showsTable {
+                            KeyTable(rows: rows(resolved: resolved, device: device), reportsRelease: resolved.reportsRelease,
+                                     selectedSpot: $selectedSpot)
+                                .transition(.opacity)
+                        } else {
+                            DeviceDiagramView(
+                                diagram: resolved.diagram,
+                                callouts: DiagramCallout.make(diagram: resolved.diagram, buttons: resolved.buttons, keyMap: model.config.keyMap,
+                                                              reportsRelease: resolved.reportsRelease, learning: model.learningSpot),
+                                pressed: model.pressedButtons,
+                                buttons: resolved.buttons,
+                                selected: selectedSpot,
+                                onSelect: { spot in
+                                    selectedSpot = spot
+                                    if resolved.buttons[spot] == nil { model.startLearning(spot: spot) } else { editingSpot = spot }
+                                },
+                                editing: $editingSpot,
+                                editor: { spot in
+                                    guard let button = resolved.buttons[spot], let name = resolved.diagram.spots.first(where: { $0.id == spot })?.name else {
+                                        return AnyView(EmptyView())
+                                    }
+                                    let initial = [GestureKind.long, .single, .double].first { model.binding(for: button, gesture: $0) != nil }
+                                    return AnyView(SpotEditor(button: button, name: name, reportsRelease: resolved.reportsRelease, initial: initial).environment(model))
+                                }
+                            )
+                            .transition(.opacity)
+                        }
                     } header: {
                         HStack {
                             Text("\(device.name) · 键位方案「\(model.config.keyMap.name)」")
@@ -63,8 +87,6 @@ struct KeysPane: View {
                     }
 
                     Section {
-                        KeyTable(rows: rows(resolved: resolved, device: device), reportsRelease: resolved.reportsRelease,
-                                 selectedSpot: $selectedSpot)
                         HStack {
                             Text(tableNote).font(.caption).foregroundStyle(.secondary)
                             Spacer()
@@ -88,7 +110,7 @@ struct KeysPane: View {
 
                 Section("手势时间") {
                     GestureRuler(doubleTap: model.config.timing.doubleTapWindow, longPress: model.config.timing.longPressThreshold)
-                        .frame(height: 150)
+                        .frame(height: 156)
                     LabeledContent("双击间隔") {
                         Slider(value: model.binding(\.timing.doubleTapWindow), in: 0.15...0.6, step: 0.05)
                         Text(String(format: "%.2f 秒", model.config.timing.doubleTapWindow)).monospacedDigit().frame(width: 60)
@@ -107,8 +129,20 @@ struct KeysPane: View {
                 }
             }
             .formStyle(.grouped)
+            .animation(Motion.pick(Motion.smooth), value: showsTable)
         }
         .onChange(of: model.activeDevice?.id) { _, _ in selectedSpot = nil }
+        .onAppear(perform: applyFocus)
+        .onChange(of: model.settingsFocus) { _, _ in applyFocus() }
+    }
+
+    /// 从面板点说话键过来：选中它，弹出编辑小窗。
+    private func applyFocus() {
+        guard let spot = model.settingsFocus?.editSpot else { return }
+        model.consumeSettingsFocus()
+        showsTable = false
+        selectedSpot = spot
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { editingSpot = spot }
     }
 
     /// 「学一个键」：选中了图上还没对上的键就学它，否则学一个图上没有的键（加到表里）。
@@ -163,6 +197,36 @@ struct KeysPane: View {
     }
 }
 
+/// 点图上的键弹出的编辑小窗：上面选手势，下面选动作。
+struct SpotEditor: View {
+    let button: ButtonID
+    let name: String
+    let reportsRelease: Bool
+    @State private var gesture: GestureKind
+
+    init(button: ButtonID, name: String, reportsRelease: Bool, initial: GestureKind? = nil) {
+        self.button = button
+        self.name = name
+        self.reportsRelease = reportsRelease
+        let fallback: GestureKind = reportsRelease ? .long : .single
+        _gesture = State(initialValue: initial.map { reportsRelease || $0 != .long ? $0 : fallback } ?? fallback)
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("手势", selection: $gesture.animation(Motion.pick(Motion.bounce))) {
+                ForEach(GestureKind.allCases.filter { reportsRelease || $0 != .long }, id: \.self) { Text($0.title).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .padding([.horizontal, .top], 20)
+            ActionEditor(button: button, buttonName: name, gesture: gesture)
+                .id(gesture)
+                .transition(.opacity)
+        }
+    }
+}
+
 /// 学键时的提示条。
 struct LearnBar: View {
     let deviceName: String
@@ -171,7 +235,7 @@ struct LearnBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            HUDDot(state: .armed(since: Date()))
+            HUDDot(state: .listening(since: Date(), subtitle: "")).frame(width: 24, height: 24)
             Text(spotName.map { "请按一下「\(deviceName)」上的「\($0)」……" } ?? "请按一下「\(deviceName)」上的键……")
             Spacer()
             Button("取消", action: cancel).controlSize(.small)
@@ -332,7 +396,7 @@ struct GestureRuler: View {
             let left: CGFloat = 46
             let width = geometry.size.width - left - 8
             let x = { (t: Double) in left + width * CGFloat(t / span) }
-            let rowY: [CGFloat] = [40, 70, 100]
+            let rowY: [CGFloat] = [48, 78, 108]
             ZStack(alignment: .topLeading) {
                 ForEach(0..<3, id: \.self) { index in
                     Text(["单击", "双击", "长按"][index]).font(.caption).foregroundStyle(.secondary)
@@ -356,11 +420,12 @@ struct GestureRuler: View {
                     .position(x: x(doubleTap) + 60, y: rowY[0])
                 Text("间隔内第二下 → 双击").font(.caption2).foregroundStyle(.secondary).fixedSize()
                     .position(x: x(doubleTap) + 66, y: rowY[1])
-                marker(x(doubleTap), color: Self.lavender, label: String(format: "双击间隔 %.2f 秒", doubleTap), labelY: 12, top: 26, bottom: 112)
-                marker(x(longPress), color: Brand.coralBottom, label: String(format: "长按 %.2f 秒", longPress), labelY: 12, top: 26, bottom: 112)
+                // 两条线挨得近时标签会叠在一起：双击的写在上一行
+                marker(x(doubleTap), color: Self.lavender, label: String(format: "双击间隔 %.2f 秒", doubleTap), labelY: 8, top: 30, bottom: 120)
+                marker(x(longPress), color: Brand.coralBottom, label: String(format: "长按 %.2f 秒", longPress), labelY: 24, top: 30, bottom: 120)
                 ForEach([0.0, 0.5, 1.0, 1.5], id: \.self) { t in
                     Text(t == 1.5 ? "1.5 秒" : String(format: "%g", t)).font(.caption2).foregroundStyle(.tertiary)
-                        .position(x: x(t) - (t == 1.5 ? 14 : 0), y: 130)
+                        .position(x: x(t) - (t == 1.5 ? 14 : 0), y: 138)
                 }
             }
         }

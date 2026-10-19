@@ -36,6 +36,19 @@ final class AppModel {
     private(set) var lastTranscriptAt: Date?
     /// 正在学的键属于哪个流程（引导里学说话键时是 "onboarding"）
     private(set) var learnPurpose: String?
+    /// 最近出的字（最多 3 条，只记在这次运行里，退出就清）
+    private(set) var recentTranscripts: [TranscriptRecord] = []
+    /// 最近一次字贴进去的时间：菜单栏图标两行字刷一下
+    private(set) var lastInsertedAt: Date?
+    @ObservationIgnored private var pendingApp: String?
+
+    struct TranscriptRecord: Identifiable, Equatable {
+        let id = UUID()
+        let text: String
+        /// 贴到了哪个 App；nil 表示放进了剪贴板
+        let app: String?
+        let at: Date
+    }
 
     /// 说话浮窗、菜单栏图标监听这些回调（AppDelegate 接上）
     @ObservationIgnored var onVoiceStateChange: ((VoiceSession.State) -> Void)?
@@ -74,7 +87,11 @@ final class AppModel {
         audioWatcher.start()
         // 用户在系统设置里打开权限后，自动重新启用监听。
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.refreshPermissions() }
+            MainActor.assumeIsolated {
+                self?.refreshPermissions()
+                // 选设备时新连上的蓝牙设备要及时出现在列表里
+                if self?.isIdentifying == true { self?.refreshDevices() }
+            }
         }
         log.info("掌声启动：\(PrivateModules.buildFlavor, privacy: .public)，控制设备 \(config.controlDeviceIDs.count) 台")
     }
@@ -90,6 +107,8 @@ final class AppModel {
         engine.onButtonEvent = { [weak self] event in
             self?.highlight(event)
             self?.lastButton = "\(event.label) \(event.phase == .down ? "按下" : event.phase == .up ? "松开" : "触发")"
+            // 「键盘按键」来源看得到用户打的每个键：没映射的键不写日志
+            guard event.deviceID != SystemKeysControlSource.keyboardDeviceID || self?.config.keyMap.isMapped(event.button) == true else { return }
             log.debug("按键 \(event.button.rawValue, privacy: .public) \(event.phase.rawValue, privacy: .public)")
         }
         engine.onGesture = { [weak self] event, gesture, action in
@@ -100,7 +119,7 @@ final class AppModel {
             case .longEnded: "长按结束"
             case .pressBegan, .pressEnded: nil
             }
-            guard let name else { return }
+            guard let name, action != nil || event.deviceID != SystemKeysControlSource.keyboardDeviceID else { return }
             self?.lastGesture = "\(event.label) \(name)" + (action.map { " → \($0.title)" } ?? "（没有映射）")
             log.info("手势 \(event.button.rawValue, privacy: .public) \(name, privacy: .public) → \(action?.title ?? "无", privacy: .public)")
         }
@@ -117,7 +136,17 @@ final class AppModel {
             log.info("语音状态 \(String(describing: state), privacy: .public)")
         }
         voice.onOutcome = { [weak self] outcome in
-            self?.onVoiceOutcome?(outcome)
+            guard let self else { return }
+            switch outcome {
+            case let .inserted(_, app):
+                self.pendingApp = app ?? "光标处"
+                self.lastInsertedAt = Date()
+            case .copied:
+                self.pendingApp = nil
+            default:
+                break
+            }
+            self.onVoiceOutcome?(outcome)
         }
         voice.onLevel = { [weak self] level in
             guard let self else { return }
@@ -129,8 +158,11 @@ final class AppModel {
             log.info("语音 \(text, privacy: .public)")
         }
         voice.onTranscript = { [weak self] text in
-            self?.lastTranscript = text
-            self?.lastTranscriptAt = Date()
+            guard let self else { return }
+            self.lastTranscript = text
+            self.lastTranscriptAt = Date()
+            self.recentTranscripts.insert(TranscriptRecord(text: text, app: self.pendingApp, at: Date()), at: 0)
+            if self.recentTranscripts.count > 3 { self.recentTranscripts.removeLast(self.recentTranscripts.count - 3) }
             log.info("出字 \(text.count) 个字")
         }
     }
@@ -261,6 +293,23 @@ final class AppModel {
         }
     }
 
+    /// 引导选设备那步：按一下任意一台设备就认出来（引擎同时听所有 HID 设备和媒体键，不执行动作）。
+    func startIdentifying(_ handler: @escaping (ControlDevice) -> Void) {
+        engine.identifyHandler = { [weak self] event in
+            guard let self else { return }
+            self.highlight(event)
+            if !self.devices.contains(where: { $0.id == event.deviceID }) { self.refreshDevices() }
+            if let device = self.devices.first(where: { $0.id == event.deviceID }) { handler(device) }
+        }
+        refreshDevices()
+    }
+
+    func stopIdentifying() {
+        engine.identifyHandler = nil
+    }
+
+    var isIdentifying: Bool { engine.identifyHandler != nil }
+
     func cancelLearning() {
         learningSpot = nil
         learnPurpose = nil
@@ -309,7 +358,21 @@ final class AppModel {
         engine.activate(paused ? [] : config.controlDeviceIDs)
     }
 
-    func openSettings(_ pane: SettingsPane? = nil) { openSettingsHandler?(pane) }
+    /// 打开设置时直接定位到要改的那一项：按键页弹出某个键的编辑小窗、设备页切到收音设备。
+    struct SettingsFocus: Equatable {
+        var editSpot: String?
+        var showsMics = false
+        let id = UUID()
+    }
+
+    private(set) var settingsFocus: SettingsFocus?
+
+    func openSettings(_ pane: SettingsPane? = nil, focus: SettingsFocus? = nil) {
+        settingsFocus = focus
+        openSettingsHandler?(pane)
+    }
+
+    func consumeSettingsFocus() { settingsFocus = nil }
     func closePanel() { closePanelHandler?() }
     func openOnboarding() { openOnboardingHandler?() }
 
@@ -322,6 +385,7 @@ final class AppModel {
         let gesture: GestureKind
         let keyName: String
         let action: Action
+        let button: ButtonID
         var verb: String { action == .pushToTalk && gesture == .long ? "说话" : "开始 / 结束说话" }
         var releaseHint: String { action == .pushToTalk && gesture == .long ? "松开「\(keyName)」出字" : "再按一下「\(keyName)」出字" }
     }
@@ -332,7 +396,13 @@ final class AppModel {
             ?? bindings.first { $0.action.isVoice }
             ?? bindings.first { $0.talkAfter == true }
         guard let pick else { return nil }
-        return TalkKey(gesture: pick.gesture, keyName: pick.buttonLabel, action: pick.action)
+        return TalkKey(gesture: pick.gesture, keyName: pick.buttonLabel, action: pick.action, button: pick.button)
+    }
+
+    /// 说话键在示意图上是哪个位置（面板点键名时，设置的按键页直接弹出它的编辑小窗）
+    var talkSpotID: String? {
+        guard let key = talkKey, let device = activeDevice else { return nil }
+        return diagram(for: device).buttons.first { $0.value == key.button }?.key
     }
 
     /// 控制设备现在连着没有（列表里找得到就算连着）
@@ -386,9 +456,11 @@ final class AppModel {
         talkStartedAt = voiceState == .idle ? nil : Date().addingTimeInterval(-startedAgo)
     }
 
-    func simulate(transcript: String) {
+    func simulate(transcript: String, app: String? = "备忘录", ago: Double = 0) {
         lastTranscript = transcript
         lastTranscriptAt = Date()
+        recentTranscripts.insert(TranscriptRecord(text: transcript, app: app, at: Date().addingTimeInterval(-ago)), at: 0)
+        if recentTranscripts.count > 3 { recentTranscripts.removeLast(recentTranscripts.count - 3) }
     }
 
     func simulate(paused: Bool) {

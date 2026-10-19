@@ -4,25 +4,31 @@ import SwiftUI
 import VoxPalmVoice
 
 /// 菜单栏的掌声图标和点开的面板。直接用 NSStatusItem（不用 MenuBarExtra），才能画带颜色、会动的图标。
+/// 点一下开面板；右键是快捷菜单；按住 ⌥ 点一下直接暂停 / 继续监听。
 @MainActor
 final class StatusItemController: NSObject, NSPopoverDelegate {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     private let popover = NSPopover()
+    private let tip = NSPopover()
     private let model: AppModel
     private var animation: Timer?
     private let started = Date()
+    private var tipWork: DispatchWorkItem?
 
     init(model: AppModel) {
         self.model = model
         super.init()
         item.button?.target = self
-        item.button?.action = #selector(toggle)
+        item.button?.action = #selector(clicked)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
         let host = NSHostingController(rootView: MenuContentView().environment(model))
         host.sizingOptions = .preferredContentSize
         popover.contentViewController = host
+        tip.behavior = .transient
+        tip.animates = true
         refresh()
         observe()
     }
@@ -38,10 +44,23 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
     }
 
-    @objc private func toggle() {
+    @objc private func clicked() {
+        let event = NSApp.currentEvent
+        if event?.type == .rightMouseUp || event?.modifierFlags.contains(.control) == true {
+            showMenu()
+        } else if event?.modifierFlags.contains(.option) == true {
+            model.setPaused(!model.isPaused)
+            showTip(model.isPaused ? "已暂停监听 · 再按住 ⌥ 点一下继续" : "继续监听", seconds: 1.6)
+        } else {
+            toggle()
+        }
+    }
+
+    private func toggle() {
         if popover.isShown {
             popover.performClose(nil)
         } else if let button = item.button {
+            tip.performClose(nil)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
@@ -49,11 +68,74 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     func closePopover() { popover.performClose(nil) }
 
-    /// 状态变了就重画；会动的状态开一个计时器（每秒约 15 帧），不动的时候不占 CPU。
+    // MARK: - 右键菜单
+
+    private func showMenu() {
+        popover.performClose(nil)
+        let menu = NSMenu()
+        let pause = NSMenuItem(title: model.isPaused ? "继续监听" : "暂停监听", action: #selector(menuPause), keyEquivalent: "")
+        pause.target = self
+        pause.toolTip = "按住 ⌥ 点图标也可以"
+        menu.addItem(pause)
+        let settings = NSMenuItem(title: "设置…", action: #selector(menuSettings), keyEquivalent: ",")
+        settings.target = self
+        menu.addItem(settings)
+        let onboarding = NSMenuItem(title: "重新打开引导", action: #selector(menuOnboarding), keyEquivalent: "")
+        onboarding.target = self
+        menu.addItem(onboarding)
+        menu.addItem(.separator())
+        menu.addItem(NSMenuItem(title: "退出掌声", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        if let button = item.button {
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
+        }
+    }
+
+    @objc private func menuPause() { model.setPaused(!model.isPaused) }
+    @objc private func menuSettings() { model.openSettings() }
+    @objc private func menuOnboarding() { model.openOnboarding() }
+
+    // MARK: - 提示气泡、到达动画
+
+    /// 图标下面冒一句话，过几秒自己收起（暂停提示、引导结束后的「掌声在这儿」）。
+    func showTip(_ text: String, title: String? = nil, seconds: Double) {
+        guard let button = item.button else { return }
+        tipWork?.cancel()
+        tip.contentViewController = NSHostingController(rootView: TipView(title: title, text: text))
+        if !tip.isShown { tip.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) }
+        let work = DispatchWorkItem { [weak self] in self?.tip.performClose(nil) }
+        tipWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
+    }
+
+    /// 引导窗口飞进来以后，图标弹一下、亮一圈。
+    func celebrateArrival() {
+        guard let button = item.button, !Motion.reduceMotion else { return }
+        button.wantsLayer = true
+        guard let layer = button.layer else { return }
+        layer.anchorPoint = CGPoint(x: 0.5, y: 0.5)
+        layer.position = CGPoint(x: button.frame.midX, y: button.frame.midY)
+        let bounce = CAKeyframeAnimation(keyPath: "transform.scale")
+        bounce.values = [0.4, 1.28, 0.92, 1.0]
+        bounce.keyTimes = [0, 0.45, 0.75, 1]
+        bounce.duration = 0.6
+        bounce.timingFunctions = [CAMediaTimingFunction(name: .easeOut), CAMediaTimingFunction(name: .easeInEaseOut), CAMediaTimingFunction(name: .easeOut)]
+        layer.add(bounce, forKey: "arrive")
+    }
+
+    /// 图标在屏幕上的位置（引导窗口往这里飞）
+    var iconFrameOnScreen: NSRect? {
+        guard let button = item.button, let window = button.window else { return nil }
+        return window.convertToScreen(button.convert(button.bounds, to: nil))
+    }
+
+    // MARK: - 画图标
+
+    /// 状态变了就重画；会动的状态开一个计时器（每秒约 20 帧），不动的时候不占 CPU。
     private func observe() {
         withObservationTracking {
             _ = state
             _ = model.micLevel
+            _ = model.lastInsertedAt
         } onChange: { [weak self] in
             DispatchQueue.main.async {
                 self?.refresh()
@@ -62,18 +144,38 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
     }
 
+    /// 出完字后 1 秒内两行字刷一下
+    private var flash: Double {
+        guard let at = model.lastInsertedAt else { return 1 }
+        return min(1, Date().timeIntervalSince(at) / 1.0)
+    }
+
+    private var progress: Double {
+        guard state == .armed, let since = model.talkStartedAt else { return 0 }
+        return Date().timeIntervalSince(since) / max(0.05, model.config.timing.longPressThreshold)
+    }
+
+    private func draw() {
+        item.button?.image = MenuBarIcon.image(state, time: Date().timeIntervalSince(started), level: model.micLevel, progress: progress, flash: flash)
+    }
+
     private func refresh() {
         let current = state
-        item.button?.image = MenuBarIcon.image(current, time: Date().timeIntervalSince(started), level: model.micLevel)
+        draw()
         item.button?.setAccessibilityLabel("掌声：" + Self.label(current))
-        if current.isAnimated, animation == nil {
-            animation = Timer.scheduledTimer(withTimeInterval: 1.0 / 15, repeats: true) { [weak self] _ in
+        let animated = current.isAnimated || flash < 1
+        if animated, animation == nil {
+            animation = Timer.scheduledTimer(withTimeInterval: 1.0 / 20, repeats: true) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self else { return }
-                    self.item.button?.image = MenuBarIcon.image(self.state, time: Date().timeIntervalSince(self.started), level: self.model.micLevel)
+                    self.draw()
+                    if !self.state.isAnimated && self.flash >= 1 {
+                        self.animation?.invalidate()
+                        self.animation = nil
+                    }
                 }
             }
-        } else if !current.isAnimated {
+        } else if !animated {
             animation?.invalidate()
             animation = nil
         }
@@ -88,5 +190,23 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         case .paused: return "已暂停"
         case .attention: return "要处理"
         }
+    }
+}
+
+/// 图标下面的提示气泡。
+private struct TipView: View {
+    let title: String?
+    let text: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            if let title { Text(title).font(.headline) }
+            Text(text).font(.callout).foregroundStyle(title == nil ? .primary : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(width: title == nil ? nil : 260, alignment: .leading)
+        .fixedSize(horizontal: title == nil, vertical: true)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
     }
 }

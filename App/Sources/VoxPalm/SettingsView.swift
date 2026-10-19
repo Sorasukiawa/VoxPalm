@@ -70,14 +70,20 @@ struct SettingsView: View {
             }
             .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 220)
         } detail: {
-            switch navigation.pane {
-            case .devices: DevicesPane()
-            case .keys: KeysPane()
-            case .voice: VoicePane()
-            case .permissions: PermissionsPane()
-            case .pro: ProPane()
-            case .about: AboutPane()
+            Group {
+                switch navigation.pane {
+                case .devices: DevicesPane()
+                case .keys: KeysPane()
+                case .voice: VoicePane()
+                case .permissions: PermissionsPane()
+                case .pro: ProPane()
+                case .about: AboutPane()
+                }
             }
+            .id(navigation.pane)
+            .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: Motion.reduceMotion ? 0 : 10)),
+                                    removal: .opacity.animation(.easeIn(duration: 0.1))))
+            .animation(Motion.pick(Motion.smooth), value: navigation.pane)
         }
         .tint(Brand.coralBottom)
         .frame(minWidth: 860, minHeight: 640)
@@ -139,74 +145,54 @@ extension AppModel {
 
 struct DevicesPane: View {
     @Environment(AppModel.self) private var model
+    @State private var showsMics = false
 
     var body: some View {
         PaneScaffold(title: "设备") {
             Button { model.refreshDevices() } label: { Label("刷新", systemImage: "arrow.clockwise") }
                 .secondaryButton()
         } content: {
-            Form {
-                Section {
-                    RadioRow(selected: model.config.controlDeviceIDs.isEmpty, icon: "nosign", color: .tileGray, title: "不用", detail: nil, status: nil) {
-                        model.selectControlDevice(nil)
+            // 放进滚动区：分栏视图的右栏直接放固定高度的内容时，屏幕外排版会整页错位
+            ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 10) {
+                    Picker("设备", selection: $showsMics.animation(Motion.pick(Motion.smooth))) {
+                        Text("控制设备").tag(false)
+                        Text("收音设备").tag(true)
                     }
-                    ForEach(model.devices) { device in
-                        let selected = model.config.controlDeviceIDs.contains(device.id)
-                        RadioRow(selected: selected, icon: Self.icon(for: device), title: device.name, detail: device.detail,
-                                 status: selected ? (model.isPaused ? ("已暂停", .secondary) : ("正在监听", .green)) : nil) {
-                            model.selectControlDevice(device.id)
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Text("控制设备")
-                        Spacer()
-                        Text("免费版同时用 1 台").font(.caption).padding(.horizontal, 7).padding(.vertical, 2)
-                            .background(Capsule().fill(Color.primary.opacity(0.07)))
-                    }
-                } footer: {
-                    FootNote("列表里没有你的设备时，先在系统设置里配好对，再点右上角的刷新。想让遥控器和脚踏板一起用，是 Pro 功能。")
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 200)
+                    Text(showsMics ? "收音可以和按键的不是同一台" : "免费版同时用 1 台 · Pro 可以几台一起用")
+                        .font(.caption).foregroundStyle(.secondary)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Color.primary.opacity(0.06)))
                 }
-
-                Section {
-                    RadioRow(selected: model.config.voice.micUID == nil, icon: "gearshape.fill", color: .tileGray, title: "跟随系统默认输入",
-                             detail: AudioDevices.inputs().first(where: \.isDefaultInput)?.name, status: nil) {
-                        model.update { $0.voice.micUID = nil }
+                Group {
+                    if showsMics {
+                        MicPicker(stageWidth: 300).transition(.opacity.combined(with: .offset(y: 8)))
+                    } else {
+                        ControlDevicePicker(identifies: false, stageWidth: 300).transition(.opacity.combined(with: .offset(y: 8)))
                     }
-                    ForEach(model.micDevices) { mic in
-                        let selected = model.config.voice.micUID == mic.uid
-                        RadioRow(selected: selected, icon: Self.icon(for: mic), color: .tileOrange, title: mic.name, detail: Self.detail(for: mic),
-                                 status: mic.isLowRateBluetoothInput ? ("通话音质", .orange) : nil) {
-                            model.update { $0.voice.micUID = mic.uid }
-                        }
-                    }
-                } header: {
-                    Text("收音设备")
-                } footer: {
-                    FootNote("收音设备可以和控制设备不是同一台：用遥控器按键，用好一点的麦克风收音。掌声直接从这里录音，不改系统的默认输入。")
                 }
+                .frame(height: 430)
+                FootNote(showsMics
+                         ? "掌声直接从这里录音，不改系统的默认输入。蓝牙耳机的麦是通话音质（16 kHz），转写会差一些。"
+                         : "转到哪台就用哪台。没连上的型号是灰的：先在系统设置 › 蓝牙 里配对，连上后会自己出现在列表里。")
             }
-            .formStyle(.grouped)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
         }
-        .onAppear { model.refreshDevices() }
+        .onAppear(perform: applyFocus)
+        .onChange(of: model.settingsFocus) { _, _ in applyFocus() }
     }
 
-    static func icon(for device: ControlDevice) -> String {
-        switch device.sourceID {
-        case "system-keys": return device.id == SystemKeysControlSource.mediaDeviceID ? "playpause" : "keyboard"
-        case "now-playing": return "headphones"
-        case "dji": return "mic"
-        default: return device.detail.contains("键盘") && !device.detail.contains("媒体键") ? "keyboard" : "av.remote"
-        }
-    }
-
-    static func icon(for mic: AudioDeviceInfo) -> String {
-        if mic.isBluetooth { return "headphones" }
-        switch mic.transport {
-        case "USB": return "cable.connector"
-        case "Built-in": return "laptopcomputer"
-        default: return mic.transport.hasPrefix("Continuity") ? "iphone" : "mic.fill"
-        }
+    private func applyFocus() {
+        guard model.settingsFocus?.showsMics == true else { return }
+        model.consumeSettingsFocus()
+        withAnimation(Motion.pick(Motion.smooth)) { showsMics = true }
     }
 
     static func transportName(_ mic: AudioDeviceInfo) -> String {
@@ -216,44 +202,6 @@ struct DevicesPane: View {
         case "Virtual": return "虚拟声卡"
         default: return mic.transport.hasPrefix("Continuity") ? "iPhone 连续互通" : mic.transport
         }
-    }
-
-    static func detail(for mic: AudioDeviceInfo) -> String {
-        var text = "\(transportName(mic)) · \(Int(mic.nominalSampleRate / 1000)) kHz"
-        if mic.isLowRateBluetoothInput { text += " · 蓝牙通话音质，转写会差一些" }
-        if mic.isDefaultInput { text += " · 系统默认" }
-        return text
-    }
-}
-
-/// 单选的一行：圆圈 + 图标 + 名字和说明 + 右边的状态。
-struct RadioRow: View {
-    let selected: Bool
-    let icon: String
-    var color: Color = .tileBlue
-    let title: String
-    let detail: String?
-    let status: (String, Color)?
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                ZStack {
-                    Circle().stroke(selected ? Brand.coralBottom : Color.secondary.opacity(0.5), lineWidth: 1.5).frame(width: 16, height: 16)
-                    if selected { Circle().fill(Brand.coral).frame(width: 9, height: 9) }
-                }
-                IconTile(symbol: icon, color: color, size: 26)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                    if let detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
-                }
-                Spacer()
-                if let status { StatusDot(color: status.1, text: status.0) }
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -271,14 +219,13 @@ struct VoicePane: View {
         PaneScaffold(title: "语音") {
         Form {
             Section {
-                Picker("出字方式", selection: model.binding(\.voice.mode)) {
-                    ForEach(VoiceSession.Mode.allCases, id: \.self) { Text($0.title).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                VoiceModeCards()
+            } header: {
+                Text("出字方式")
             } footer: {
-                FootNote(model.config.voice.mode == .builtIn
-                     ? "掌声自己录音、在本机转成文字，贴到光标处。"
-                     : "掌声按住你的输入法（豆包、微信输入法、Typeless、系统听写等）的语音键，让输入法出字；说话期间临时把系统默认输入切到你选的收音设备，结束后切回。")
+                if model.config.voice.mode == .inputMethod {
+                    FootNote("说话期间临时把系统默认输入切到你选的收音设备，结束后切回。")
+                }
             }
 
             if model.config.voice.mode == .builtIn {
@@ -439,9 +386,7 @@ struct PermissionsPane: View {
         PaneScaffold(title: "权限") {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Permission.allCases) { permission in
-                        PermissionCard(permission: permission, granted: model.permissions[permission] == true)
-                    }
+                    PermissionStack(expandsCurrent: true)
                     FootNote("点「开启」会打开系统设置，旁边浮出掌声的图标，把它拖进列表就行（麦克风是系统直接弹框问你）。打开后这里自动打勾，掌声会自动重新开始监听。")
                         .padding(.top, 6)
                         .padding(.horizontal, 4)
@@ -458,41 +403,37 @@ struct PermissionsPane: View {
 struct ProPane: View {
     @Environment(AppModel.self) private var model
 
-    private let features: [(String, String, String, Color)] = [
-        ("多台控制设备同时在线", "遥控器、脚踏板、无线麦一起用", "square.stack.3d.up.fill", .tileBlue),
-        ("多套键位方案，按 App 自动切换", "在剪辑软件里和在编程工具里，同一个键做不同的事", "rectangle.3.group.fill", .tileIndigo),
-        ("录音剪辑软件动作包", "Logic Pro、Final Cut Pro、Premiere Pro、DaVinci Resolve 等", "film.stack.fill", .tilePurple),
-        ("组合动作", "一个键依次执行多步", "list.bullet.rectangle.fill", .tileGreen),
-        ("转写增强", "热词和自定义词表、口语润色", "text.badge.star", Brand.coralBottom),
-        ("手机上的自定义面板", "掌声手机版按 Mac 当前的 App 换按键面板", "iphone.gen3", .tileGray),
-    ]
-
     var body: some View {
         PaneScaffold(title: "Pro") {
-            Form {
-                Section {
-                    HStack(alignment: .top) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(spacing: 16) {
+                        LogoMark(size: 56, interactive: false)
                         VStack(alignment: .leading, spacing: 4) {
+                            Text("掌声 Pro").font(.headline)
                             Text("免费版已经能完整用「按键 → 说话 → 出字」，全部设备都能用。Pro 是一次买断，给多设备、多场景和录音剪辑。")
-                            Text("1.0 正式版发布时开卖。现在是\(model.engine.gate.editionName)。").font(.caption).foregroundStyle(.secondary)
-                        }
-                        Spacer()
-                        Button("了解 Pro") {}.prominentButton().disabled(true)
-                    }
-                }
-                Section("Pro 里有什么") {
-                    ForEach(features, id: \.0) { feature in
-                        HStack(spacing: 12) {
-                            IconTile(symbol: feature.2, color: feature.3, size: 28)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(feature.0)
-                                Text(feature.1).font(.caption).foregroundStyle(.secondary)
+                                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 8) {
+                                Button("了解 Pro") {}.prominentButton().controlSize(.small).disabled(true)
+                                Text("1.0 正式版发布时开卖 · 现在是\(model.engine.gate.editionName)").font(.caption).foregroundStyle(.secondary)
                             }
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding(16)
+                    .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(LinearGradient(colors: [Brand.coralTop.opacity(0.16), Color.tilePurple.opacity(0.08)], startPoint: .topLeading, endPoint: .bottomTrailing)))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                    .staggerIn(0)
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
+                        ForEach(Array(ProFeatureCard.Kind.allCases.enumerated()), id: \.offset) { index, kind in
+                            ProFeatureCard(kind: kind).staggerIn(index + 1)
                         }
                     }
                 }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 14)
             }
-            .formStyle(.grouped)
         }
     }
 }
@@ -504,19 +445,19 @@ struct AboutPane: View {
 
     var body: some View {
         PaneScaffold(title: "关于") {
-            VStack(spacing: 12) {
-                AppIconImage(size: 112)
-                    .shadow(color: Brand.coralBottom.opacity(0.3), radius: 22, y: 10)
-                    .padding(.bottom, 6)
+            VStack(spacing: 10) {
+                LogoMark(size: 112)
+                    .padding(.bottom, 8)
                 Text("掌声 VoxPalm").font(.system(size: 26, weight: .bold))
                 Text("按住说话，松手出字").foregroundStyle(.secondary)
                 Text("版本 \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "开发版") · \(PrivateModules.buildFlavor) · \(model.engine.gate.editionName)")
                     .font(.caption)
                 Text("代码按 GPL-3.0-only 开源；名字和图标是专有品牌素材。").font(.caption).foregroundStyle(.secondary)
-                Button("重新走一遍第一次的引导") { model.openOnboarding() }
+                Button("重新打开引导") { model.openOnboarding() }
                     .secondaryButton()
                     .controlSize(.large)
                     .padding(.top, 10)
+                Text("按住上面的 Logo 试试").font(.caption).foregroundStyle(.tertiary).padding(.top, 4)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

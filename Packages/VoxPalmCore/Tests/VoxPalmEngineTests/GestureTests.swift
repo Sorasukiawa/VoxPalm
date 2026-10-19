@@ -248,3 +248,47 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
     let device = ControlDevice(id: "hid:x", sourceID: "hid", name: "小米蓝牙遥控器", detail: "Bluetooth Low Energy · 0x2717:0x32B8 · 媒体键（Consumer Control）、键盘", reportsRelease: true)
     #expect(DeviceDiagram.guess(for: device).id == "xiaomi-remote-2")
 }
+
+/// 记下被启用了哪些设备的假 HID 来源。
+final class RecordingHIDSource: ControlSource {
+    let sourceID = "hid"
+    var onEvent: ((ButtonEvent) -> Void)?
+    var onDevicesChanged: (() -> Void)?
+    var isMapped: ((ButtonID) -> Bool)?
+    var status = "测试"
+    private(set) var active: Set<String> = []
+    func devices() -> [ControlDevice] {
+        ["hid:1", "hid:2"].map { ControlDevice(id: $0, sourceID: sourceID, name: $0, detail: "", reportsRelease: true) }
+    }
+    func activate(_ deviceIDs: Set<String>) { active = deviceIDs }
+}
+
+@Test func 认设备模式听所有设备也不执行动作() {
+    let source = RecordingHIDSource()
+    let engine = ButtonEngine(sources: [source], scheduler: ManualScheduler())
+    let voice = FakeVoice()
+    engine.voice = voice
+    engine.keyMap.set(KeyBinding(button: button, buttonLabel: "OK", gesture: .long, action: .pushToTalk))
+    engine.activate(["hid:1"])
+    #expect(source.active == ["hid:1"])
+    var heard: [String] = []
+    engine.identifyHandler = { heard.append($0.deviceID) }
+    #expect(source.active == ["hid:1", "hid:2", SystemKeysControlSource.mediaDeviceID])
+    #expect(source.isMapped?(button) == false)
+    engine.handle(ButtonEvent(deviceID: "hid:2", button: button, label: "OK", phase: .down, time: 0))
+    engine.handle(ButtonEvent(deviceID: "hid:2", button: button, label: "OK", phase: .up, time: 0.1))
+    engine.handle(ButtonEvent(deviceID: "hid:1", button: button, label: "OK", phase: .down, time: 1))
+    #expect(heard == ["hid:2", "hid:1"])
+    #expect(voice.log.isEmpty)
+    engine.identifyHandler = nil
+    #expect(source.active == ["hid:1"])
+}
+
+@Test func 每种外形都有建议的说话键() {
+    #expect(DeviceDiagram.xiaomiRemote2.recommendedTalkSpot?.id == "ok")
+    #expect(DeviceDiagram.siriRemote.recommendedTalkSpot?.id == "ok")
+    #expect(DeviceDiagram.micTransmitter.recommendedTalkSpot?.id == "record")
+    #expect(DeviceDiagram.footPedal.recommendedTalkSpot?.id == "middle")
+    #expect(DeviceDiagram.presenter.recommendedTalkSpot?.id == "laser")
+    #expect(DeviceDiagram.mediaKeys.recommendedTalkSpot?.id == "playPause")
+}

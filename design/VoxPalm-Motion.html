@@ -466,17 +466,17 @@ kbd{font-family:var(--font-ui);font-size:11.5px;font-weight:600;padding:1px 6px;
 .coach .x{position:absolute;right:8px;top:6px;border:0;background:none;color:var(--m-fg-3);font-size:14px}
 
 /* ---------- 说话浮窗 ---------- */
-.hud{position:absolute;left:50%;bottom:34px;z-index:25;height:52px;transform:translateX(-50%);pointer-events:none;display:flex;justify-content:center}
+.hud{position:absolute;left:50%;bottom:34px;z-index:25;height:44px;transform:translateX(-50%);pointer-events:none;display:flex;justify-content:center}
 .hud.static{position:relative;left:auto;bottom:auto;transform:none}
-.hud-cap{position:relative;height:52px;border-radius:26px;background:rgba(28,25,38,.9);color:var(--hud-fg);border:.5px solid rgba(255,243,234,.1);
+.hud-cap{position:relative;height:44px;border-radius:22px;background:rgba(28,25,38,.9);color:var(--hud-fg);border:.5px solid rgba(255,243,234,.1);
   box-shadow:0 12px 34px rgba(10,8,16,.38),inset 0 1px 0 rgba(255,255,255,.07);-webkit-backdrop-filter:blur(22px) saturate(1.4);backdrop-filter:blur(22px) saturate(1.4);
-  display:flex;align-items:center;overflow:hidden;white-space:nowrap;width:52px;opacity:0;transform:translateY(16px) scale(.6);
+  display:flex;align-items:center;overflow:hidden;white-space:nowrap;width:44px;opacity:0;transform:translateY(16px) scale(.6);
   transition:width .46s var(--ease-spring),opacity .2s,transform .42s var(--ease-spring),background .3s}
 .hud.show .hud-cap{opacity:1;transform:none}
 .hud.leave .hud-cap{opacity:0;transform:translateY(10px) scale(.7);transition:opacity .22s var(--ease-in),transform .26s var(--ease-in),width .3s var(--ease-smooth)}
-.hud-dotw{position:relative;width:52px;height:52px;flex:none;display:grid;place-items:center}
-.hud-dot{width:16px;height:16px;border-radius:50%;background:linear-gradient(var(--coral-hi),var(--coral-lo));box-shadow:0 2px 0 var(--coral-deep);transition:background .3s,box-shadow .3s,transform .3s var(--ease-spring)}
-.hud-ringsvg{position:absolute;inset:8px;width:36px;height:36px;transform:rotate(-90deg)}
+.hud-dotw{position:relative;width:44px;height:44px;flex:none;display:grid;place-items:center}
+.hud-dot{width:14px;height:14px;border-radius:50%;background:linear-gradient(var(--coral-hi),var(--coral-lo));box-shadow:0 2px 0 var(--coral-deep);transition:background .3s,box-shadow .3s,transform .3s var(--ease-spring)}
+.hud-ringsvg{position:absolute;inset:6px;width:32px;height:32px;transform:rotate(-90deg)}
 .hud-ringsvg circle{fill:none;stroke-width:2.5;stroke-linecap:round}
 .hud-ringsvg .bg{stroke:rgba(255,243,234,.14)}
 .hud-ringsvg .fg{stroke:var(--coral);stroke-dasharray:100.5;stroke-dashoffset:100.5}
@@ -484,7 +484,7 @@ kbd{font-family:var(--font-ui);font-size:11.5px;font-weight:600;padding:1px 6px;
 .hud[data-s="armed"] .hud-ringsvg .fg{animation:hudring var(--hold,.5s) linear forwards}
 .hud:not([data-s="armed"]) .hud-ringsvg{opacity:0;transition:opacity .2s}
 @keyframes hudring{to{stroke-dashoffset:0}}
-.hud[data-s="listening"] .hud-dotw::after{content:"";position:absolute;left:50%;top:50%;width:16px;height:16px;margin:-8px;border-radius:50%;border:2px solid var(--coral);animation:hring 1.3s ease-out infinite}
+.hud[data-s="listening"] .hud-dotw::after{content:"";position:absolute;left:50%;top:50%;width:14px;height:14px;margin:-7px;border-radius:50%;border:2px solid var(--coral);animation:hring 1.3s ease-out infinite}
 @keyframes hring{0%{transform:scale(.8);opacity:.8}100%{transform:scale(2.1);opacity:0}}
 .hud[data-s="transcribing"] .hud-dot{background:var(--hud-trans);box-shadow:0 2px 0 rgba(0,0,0,.3)}
 .hud[data-s="done"] .hud-dot{background:var(--hud-ok);box-shadow:0 2px 0 rgba(0,0,0,.3)}
@@ -492,13 +492,13 @@ kbd{font-family:var(--font-ui);font-size:11.5px;font-weight:600;padding:1px 6px;
 .hud[data-s="error"] .hud-dot{background:var(--hud-err);box-shadow:none}
 .hud[data-s="clip"] .hud-dot{background:var(--hud-warn);box-shadow:none}
 .hud[data-s="ime"] .hud-dot{background:linear-gradient(var(--coral-hi),var(--coral-lo))}
-.hud-body{display:flex;align-items:center;gap:12px;padding-right:20px;opacity:0;transition:opacity .2s}
+.hud-body{display:flex;align-items:center;gap:10px;padding-right:16px;opacity:0;transition:opacity .2s}
 .hud.wide .hud-body{opacity:1;transition:opacity .25s .12s}
-.hud-sig{position:relative;width:62px;height:28px;flex:none}
+.hud-sig{position:relative;width:46px;height:24px;flex:none}
 .hud-wave{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between}
-.hud-wave i{width:4px;height:26px;border-radius:2px;background:linear-gradient(var(--coral-hi),var(--coral-lo));transform:scaleY(.15);transition:transform .1s linear,opacity .25s,height .35s var(--ease-spring),border-radius .35s}
+.hud-wave i{width:3.5px;height:22px;border-radius:2px;background:linear-gradient(var(--coral-hi),var(--coral-lo));transform:scaleY(.15);transition:transform .1s linear,opacity .25s,height .35s var(--ease-spring),border-radius .35s}
 .hud-lines{position:absolute;inset:2px 0;display:grid;align-content:center;gap:5px;opacity:0;transition:opacity .25s}
-.hud-lines i{height:4px;border-radius:2px;background:var(--hud-fg);transform-origin:left center}
+.hud-lines i{height:3.5px;border-radius:2px;background:var(--hud-fg);transform-origin:left center}
 .hud-lines i:nth-child(1){width:100%}.hud-lines i:nth-child(2){width:76%}.hud-lines i:nth-child(3){width:44%}
 .hud[data-s="transcribing"] .hud-wave i,.hud[data-s="done"] .hud-wave i{transform:scaleY(.08);opacity:0}
 .hud[data-s="transcribing"] .hud-lines,.hud[data-s="done"] .hud-lines{opacity:1}
@@ -507,9 +507,9 @@ kbd{font-family:var(--font-ui);font-size:11.5px;font-weight:600;padding:1px 6px;
 .hud[data-s="transcribing"] .hud-lines i:nth-child(3){animation-delay:.28s}
 .hud-sig.gone{display:none}
 .hud-text{display:grid;gap:0;min-width:0}
-.hud-text b{font-size:14.5px;font-weight:600;line-height:1.3}
-.hud-text small{font-size:11.5px;color:var(--hud-fg-2);line-height:1.35;max-width:300px;overflow:hidden;text-overflow:ellipsis}
-.hud-time{font-size:12.5px;color:var(--hud-fg-2);font-variant-numeric:tabular-nums;flex:none;min-width:30px}
+.hud-text b{font-size:13.5px;font-weight:600;line-height:1.3}
+.hud-text small{font-size:11px;color:var(--hud-fg-2);line-height:1.3;max-width:240px;overflow:hidden;text-overflow:ellipsis}
+.hud-time{font-size:12px;color:var(--hud-fg-2);font-variant-numeric:tabular-nums;flex:none;min-width:30px}
 .hud.shake .hud-cap{animation:shake .42s var(--ease-out)}
 @keyframes shake{20%{transform:translateX(-5px)}40%{transform:translateX(4px)}60%{transform:translateX(-3px)}80%{transform:translateX(2px)}}
 
@@ -878,7 +878,7 @@ ul.plain code,.card code{font-family:var(--font-mono);font-size:11.5px;backgroun
   <!-- ========== 页头 ========== -->
   <header class="head">
     <div class="top">
-      <div class="brandline"><svg aria-hidden="true"><use href="#logo"/></svg>掌声 VoxPalm <span class="tag">UI 第二版 · 动效与交互 · 待你拍板</span></div>
+      <div class="brandline"><svg aria-hidden="true"><use href="#logo"/></svg>掌声 VoxPalm <span class="tag">UI 第二版 · 动效与交互 · 已定稿</span></div>
       <div class="top-ctl">
         <div class="seg" id="theme" role="group" aria-label="外观"><span class="thumb"></span>
           <button type="button" data-t="auto" aria-pressed="true">跟随系统</button><button type="button" data-t="light" aria-pressed="false">浅色</button><button type="button" data-t="dark" aria-pressed="false">深色</button>
@@ -895,7 +895,7 @@ ul.plain code,.card code{font-family:var(--font-mono);font-size:11.5px;backgroun
       <div class="idea"><i>收尾</i><b>引导结束，窗口收进菜单栏</b><span>点完成，窗口缩小飞进菜单栏的掌声图标，图标亮一圈并冒出提示：以后在这儿找我。</span></div>
     </div>
     <nav class="toc" aria-label="目录">
-      <a href="#daily">日常使用</a><a href="#first">第一次打开</a><a href="#devices">选设备细看</a><a href="#hud">说话浮窗</a><a href="#icon">菜单栏图标</a><a href="#settings">设置窗口</a><a href="#map">跳转图</a><a href="#motion">动效规范</a><a href="#refs">借鉴了谁</a><a href="#decide">要你拍板</a><a href="#build">写代码时</a>
+      <a href="#daily">日常使用</a><a href="#first">第一次打开</a><a href="#devices">选设备细看</a><a href="#hud">说话浮窗</a><a href="#icon">菜单栏图标</a><a href="#settings">设置窗口</a><a href="#map">跳转图</a><a href="#motion">动效规范</a><a href="#refs">借鉴了谁</a><a href="#decide">已定的几处</a><a href="#build">写代码时</a>
     </nav>
   </header>
 
@@ -975,8 +975,8 @@ ul.plain code,.card code{font-family:var(--font-mono);font-size:11.5px;backgroun
         <div class="states" id="hudStates"></div>
       </div>
       <div class="morph" style="grid-template-columns:1fr 1fr">
-        <div><span class="t">0 – 0.5 秒</span><b>按下：只有 <i class="cd"></i></b><span>从底下弹出一颗 52 点的圆，<i class="cd"></i> 一跳一跳，外圈一圈珊瑚色按长按时间走满。这时已经在录（防吞字），只是还没算数。</span></div>
-        <div><span class="t">0.5 秒起</span><b>满了：展开成胶囊</b><span>宽度用弹簧拉开，声波跟着音量跳，计时数字滚动；副标题写「小米遥控器 → MacBook 麦克风」。</span></div>
+        <div><span class="t">0 – 0.5 秒</span><b>按下：只有 <i class="cd"></i></b><span>从底下弹出一颗 44 点的圆，<i class="cd"></i> 一跳一跳，外圈一圈珊瑚色按长按时间走满。这时已经在录（防吞字），只是还没算数。</span></div>
+        <div><span class="t">0.5 秒起</span><b>满了：展开成胶囊</b><span>宽度用弹簧拉开，声波跟着音量跳，计时数字滚动；副标题只写设备名「小米遥控器 2」；收音是蓝牙通话音质时才多一句提醒。</span></div>
         <div><span class="t">松手</span><b>声波收成字行</b><span>七根竖条压扁、变成三行字，一行接一行从左往右闪着填满，<i class="cd"></i> 变薰衣草色。</span></div>
         <div><span class="t">出字后 1.8 秒</span><b>写清贴到了哪</b><span>「已输入 23 字 · 备忘录」，下面一行是开头几个字。然后胶囊缩回 <i class="cd"></i>，往下掉着淡出。</span></div>
         <div><span class="t">短按</span><b>就地摇一下</b><span>没满 0.5 秒就松手：<i class="cd"></i> 变灰、整颗左右摇一下，旁边一行「按住超过 0.5 秒才算」，1.2 秒后消失。只在没绑单击的键上提示。</span></div>
@@ -1052,9 +1052,9 @@ ul.plain code,.card code{font-family:var(--font-mono);font-size:11.5px;backgroun
   <!-- ========== 取舍和要你拍板 ========== -->
   <section id="decide">
     <div class="sec-h">
-      <div class="eyebrow">10 · 要你拍板</div>
-      <h2>这几处是品味问题，我给了推荐，你来定</h2>
-      <p>技术上的做法我来定，写在下一节。下面这些会影响「掌声看起来、用起来是什么感觉」，按你的规矩由你拍板。</p>
+      <div class="eyebrow">10 · 已定</div>
+      <h2>这几处是品味问题，2026-10-19 你定了：全按推荐</h2>
+      <p>另外按你的意见，说话浮窗整体缩小（高 52 → 44 点），副标题只写设备名「小米遥控器 2」，收音是蓝牙通话音质时才多一句提醒。</p>
     </div>
     <div class="decide" id="decideList"></div>
   </section>
@@ -1608,7 +1608,7 @@ function makeHUD(host) {
     if (s === 'idle') {
       if (!el.classList.contains('show')) return;
       el.classList.remove('wide');
-      cap.style.width = '52px';
+      cap.style.width = '44px';
       hideT = setTimeout(() => {
         el.classList.add('leave');
         hideT = setTimeout(() => { el.classList.remove('show', 'leave'); el.dataset.s = 'idle'; }, 280);
@@ -1626,7 +1626,7 @@ function makeHUD(host) {
     el.classList.add('show');
     const wide = s !== 'armed';
     el.classList.toggle('wide', wide);
-    cap.style.width = wide ? (52 + body.offsetWidth) + 'px' : '52px';
+    cap.style.width = wide ? (44 + body.offsetWidth) + 'px' : '44px';
     if (QUIET.includes(s)) { void el.offsetWidth; el.classList.add('shake'); }
   }
   function level(v) {
@@ -1667,7 +1667,7 @@ function makeSession(o) {
       armT = setTimeout(() => {
         emit('listening'); t0 = performance.now();
         const d = o.dev(), ime = o.mode && o.mode() === 'ime';
-        o.hud.set('listening', { title: ime ? '输入法在听' : '正在听', sub: ime ? `${d.name} → 豆包输入法` : `${d.name} → ${d.mic}`, time: '0:00' });
+        o.hud.set('listening', { title: ime ? '输入法在听' : '正在听', sub: d.warn ? `${d.name} · ${d.mic} 通话音质` : d.name, time: '0:00' });
         icon('listening'); startLv();
         clock = setInterval(() => o.hud.setTime(`0:${String(Math.floor((performance.now() - t0) / 1000)).padStart(2, '0')}`), 200);
       }, hold());
@@ -1692,7 +1692,7 @@ function makeSession(o) {
           idleLater(4000, 'clip');
           return;
         }
-        emit('done'); o.hud.set('done', { title: `已输入 ${n} 字 · ${r.where}`, sub: `「${text.slice(0, 15)}${text.length > 15 ? '…' : ''}」` }); icon('done');
+        emit('done'); o.hud.set('done', { title: `已输入 ${n} 字 · ${r.where}`, sub: `「${text.slice(0, 12)}${text.length > 12 ? '…' : ''}」` }); icon('done');
         idleLater(1900, 'done');
       }, 950);
     },
@@ -2573,7 +2573,7 @@ let reopenFirst = () => {};
   const session = makeSession({
     hud, hold: () => ctx.long * 1000,
     icon: syncIcon,
-    dev: () => ({ name: ctx.device.short, mic: ctx.mic.short }),
+    dev: () => ({ name: ctx.device.short, mic: ctx.mic.short, warn: !!ctx.mic.warn }),
     onState: s => { ctx.voice = s; pop.voice(s); },
     onLevel: v => pop.level(v),
     blocked: () => ctx.paused,
@@ -2798,7 +2798,7 @@ let reopenFirst = () => {};
       return;
     }
     const M2 = {
-      armed: [''], listening: ['正在听', '小米遥控器 2 → MacBook 麦克风', '0:03'], ime: ['输入法在听', '小米遥控器 2 → 豆包输入法', '0:03'],
+      armed: [''], listening: ['正在听', '小米遥控器 2', '0:03'], ime: ['输入法在听', '小米遥控器 2', '0:03'],
       transcribing: ['转写中', '在这台 Mac 上'], done: ['已输入 15 字 · 备忘录', '「下午三点的会改到四点，地点不变。」'],
       short: ['按住超过 0.5 秒才算'], silent: ['没听到声音', '看看麦克风是不是静音了，或者在面板里换一个收音设备'],
       clip: ['字在剪贴板里，按 ⌘V', '缺「辅助功能」权限，贴不到光标处'], error: ['这次没转成字', '系统转写模型还没下载完，稍后再试'],

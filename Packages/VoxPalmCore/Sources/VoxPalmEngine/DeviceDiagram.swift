@@ -117,6 +117,13 @@ public struct DeviceDiagram: Hashable, Sendable, Identifiable {
 
     /// 宽的设备（展开的侧面、脚踏板、媒体键）标注在上下，竖的标注在左右。
     public var isWide: Bool { width / height > 1.2 }
+
+    /// 引导里建议用来说话的键：遥控器的确认键、无线麦的录制键、脚踏板中间那块等，没有这些就用第一个键。
+    public var recommendedTalkSpot: Spot? {
+        let preferred = ["ok", "record", "middle", "laser", "playPause", "screen"]
+        for id in preferred { if let spot = spots.first(where: { $0.id == id }) { return spot } }
+        return spots.first
+    }
 }
 
 // MARK: - 开源仓库自带的示意图
