@@ -11,3 +11,6 @@ xcuserdata/
 
 # 品牌素材的中间产物（由 brand/tools/export_icons.swift 生成，icns 已提交）
 brand/icon/VoxPalm.iconset/
+
+# 设备探针的本地报告（要提交的报告手动挑出来放 docs/）
+probe-reports/
