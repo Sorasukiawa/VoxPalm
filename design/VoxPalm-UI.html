@@ -1,0 +1,1452 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>掌声 UI 设计稿</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@500;700;900&display=swap">
+<style>
+/* 布局：一张长画板。开头是「按住说话」的实时演示（桌面 + 菜单栏 + 说话浮窗），
+   往下依次是菜单栏图标、说话浮窗、菜单栏面板、设置窗口、首次引导、手机和手表、规范。
+   品牌只用在三处：珊瑚色强调、菜单栏图标的状态、说话浮窗；其余跟随 macOS 原生样式。 */
+:root{
+  /* 品牌色（来自 brand/README.md，深浅色都不变） */
+  --ink-900:#17151F; --ink-800:#1F1D2B; --ink-700:#2B2840; --ink-edge:#6B6590;
+  --coral-hi:#FF8A5C; --coral:#FF7A4D; --coral-lo:#D85A30; --coral-deep:#A93F1C; --cream:#FFF3EA;
+  --on-accent:#FFFFFF; --knob:#FFFFFF;
+  --tl-r:#FF5F57; --tl-y:#FEBC2E; --tl-g:#28C840;
+  --strip-l-bg:#E9E7EE; --strip-l-fg:#1F1D2B; --strip-d-bg:#2B2833; --strip-d-fg:#F1ECF2; --strip-warn:#F0A030;
+  --device-frame:#0F0E14; --watch-bg:#000000; --watch-fg:#F1ECF2; --watch-fg-2:#9C97AC;
+  --hud-fg:#FFF3EA; --hud-fg-2:rgba(255,243,234,.62); --hud-ok:#5DD39A; --hud-err:#FF7A6E; --hud-trans:#B3ADE6;
+
+  /* 界面色（浅色） */
+  --bg:#F5F3F8; --surface:#FFFFFF; --surface-2:#EEEBF3; --surface-3:#DEDAE6;
+  --line:rgba(43,40,64,.11); --line-strong:rgba(43,40,64,.22);
+  --fg:#1F1D2B; --fg-2:#5E5A6E; --fg-3:#8B8799;
+  --accent:#E8673C; --accent-text:#BF4B24; --accent-soft:rgba(255,122,77,.14); --accent-ring:rgba(255,122,77,.38);
+  --ok:#1F8F5A; --ok-soft:rgba(31,143,90,.12);
+  --warn:#A8670A; --warn-soft:rgba(217,138,28,.15);
+  --err:#C8372D; --err-soft:rgba(200,55,45,.11);
+  --trans:#6259A6; --trans-soft:rgba(98,89,166,.13);
+  --win:#FFFFFF; --win-side:#F2F0F6; --group:#F8F7FA; --titlebar:#F8F7FA; --seg-on:#FFFFFF;
+  --menubar:rgba(250,249,252,.74); --menubar-fg:#1F1D2B;
+  --wall-a:#E7E2F1; --wall-b:#F6DCCD; --wall-c:#D9D3E8;
+  --hud-bg:rgba(23,21,31,.9); --hud-line:rgba(255,243,234,.06);
+  --ios-bg:#F2F1F6;
+  --shadow:0 1px 2px rgba(23,21,31,.06),0 18px 44px rgba(23,21,31,.14);
+  --shadow-sm:0 1px 2px rgba(23,21,31,.08),0 3px 10px rgba(23,21,31,.06);
+
+  --font-ui:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  --font-brand:"Source Han Sans SC","Source Han Sans CN","Noto Sans SC","PingFang SC","Hiragino Sans GB",sans-serif;
+  --font-mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#100E16; --surface:#1B1924; --surface-2:#272433; --surface-3:#3A3649;
+  --line:rgba(255,243,234,.08); --line-strong:rgba(255,243,234,.17);
+  --fg:#F1ECF2; --fg-2:#ABA6BB; --fg-3:#787389;
+  --accent:#FF7A4D; --accent-text:#FF9670; --accent-soft:rgba(255,122,77,.16); --accent-ring:rgba(255,122,77,.42);
+  --ok:#4CC38A; --ok-soft:rgba(76,195,138,.14);
+  --warn:#F0AE45; --warn-soft:rgba(240,174,69,.14);
+  --err:#FF6B5E; --err-soft:rgba(255,107,94,.14);
+  --trans:#A9A2E2; --trans-soft:rgba(169,162,226,.15);
+  --win:#211E2B; --win-side:#1A1822; --group:#2A2736; --titlebar:#24212F; --seg-on:#48435A;
+  --menubar:rgba(26,24,34,.66); --menubar-fg:#F1ECF2;
+  --wall-a:#1B1828; --wall-b:#3B2131; --wall-c:#121019;
+  --hud-bg:rgba(44,40,58,.92); --hud-line:rgba(255,243,234,.12);
+  --ios-bg:#000000;
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 18px 48px rgba(0,0,0,.5);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3),0 3px 10px rgba(0,0,0,.25);
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#100E16; --surface:#1B1924; --surface-2:#272433; --surface-3:#3A3649;
+  --line:rgba(255,243,234,.08); --line-strong:rgba(255,243,234,.17);
+  --fg:#F1ECF2; --fg-2:#ABA6BB; --fg-3:#787389;
+  --accent:#FF7A4D; --accent-text:#FF9670; --accent-soft:rgba(255,122,77,.16); --accent-ring:rgba(255,122,77,.42);
+  --ok:#4CC38A; --ok-soft:rgba(76,195,138,.14);
+  --warn:#F0AE45; --warn-soft:rgba(240,174,69,.14);
+  --err:#FF6B5E; --err-soft:rgba(255,107,94,.14);
+  --trans:#A9A2E2; --trans-soft:rgba(169,162,226,.15);
+  --win:#211E2B; --win-side:#1A1822; --group:#2A2736; --titlebar:#24212F; --seg-on:#48435A;
+  --menubar:rgba(26,24,34,.66); --menubar-fg:#F1ECF2;
+  --wall-a:#1B1828; --wall-b:#3B2131; --wall-c:#121019;
+  --hud-bg:rgba(44,40,58,.92); --hud-line:rgba(255,243,234,.12);
+  --ios-bg:#000000;
+  --shadow:0 1px 2px rgba(0,0,0,.35),0 18px 48px rgba(0,0,0,.5);
+  --shadow-sm:0 1px 2px rgba(0,0,0,.3),0 3px 10px rgba(0,0,0,.25);
+  color-scheme:dark;
+}
+
+*,*::before,*::after{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-ui);font-size:14px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+[hidden]{display:none!important}
+.sprite{position:absolute;width:0;height:0;overflow:hidden}
+
+.page{max-width:1180px;margin:0 auto;padding-block:28px 96px;display:grid;gap:88px}
+
+/* ---------- 页头 ---------- */
+.top{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap}
+.brandline{display:flex;align-items:center;gap:10px;font-family:var(--font-brand);font-weight:700;font-size:17px}
+.brandline svg{width:34px;height:34px}
+.brandline .tag{font-family:var(--font-ui);font-weight:500;font-size:12px;color:var(--fg-2);padding:2px 8px;border:1px solid var(--line-strong);border-radius:999px}
+.head{display:grid;gap:40px}
+.intro{display:grid;gap:18px}
+.intro h1{font-family:var(--font-brand);font-weight:900;font-size:clamp(34px,5.4vw,62px);line-height:1.08;letter-spacing:-.01em;margin:0;text-wrap:balance}
+.intro h1 em{font-style:normal;color:var(--accent)}
+.lede{font-size:16px;line-height:1.75;color:var(--fg-2);max-width:42em;margin:0}
+.toc{display:flex;gap:6px;flex-wrap:wrap}
+.toc a{font-size:13px;color:var(--fg-2);text-decoration:none;padding:5px 11px;border-radius:999px;background:var(--surface-2)}
+.toc a:hover{color:var(--fg);background:var(--surface-3)}
+
+/* ---------- 分节 ---------- */
+section{display:grid;gap:28px;scroll-margin-top:24px}
+.sec-h{display:grid;gap:8px;max-width:46em}
+.eyebrow{font-size:12px;font-weight:600;letter-spacing:.08em;color:var(--accent-text)}
+.sec-h h2{font-family:var(--font-brand);font-weight:700;font-size:clamp(24px,3vw,30px);line-height:1.25;margin:0;text-wrap:balance}
+.sec-h p{margin:0;font-size:15px;line-height:1.75;color:var(--fg-2)}
+.cap{font-size:12.5px;line-height:1.6;color:var(--fg-2)}
+.cap b{color:var(--fg);font-weight:600}
+
+/* ---------- 通用控件（macOS 风格） ---------- */
+.ic{width:16px;height:16px;flex:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;font-size:13px;line-height:1;padding:6px 12px;border-radius:7px;
+  background:var(--surface);border:1px solid var(--line-strong);color:var(--fg);box-shadow:0 1px 1px rgba(0,0,0,.04);white-space:nowrap}
+.btn:hover{background:var(--surface-2)}
+.btn.sm{font-size:12px;padding:5px 10px;border-radius:6px}
+.btn.primary{background:linear-gradient(var(--coral),var(--coral-lo));border-color:transparent;color:var(--on-accent);font-weight:600}
+.btn.primary:hover{filter:brightness(1.05)}
+.btn.ghost{background:none;border-color:transparent;box-shadow:none;color:var(--fg-2)}
+.btn.ghost:hover{background:var(--surface-2);color:var(--fg)}
+.btn[disabled]{opacity:.45;cursor:default}
+.popup{display:inline-flex;align-items:center;gap:8px;font-size:13px;padding:4px 6px 4px 10px;border-radius:7px;background:var(--surface);border:1px solid var(--line-strong);box-shadow:0 1px 1px rgba(0,0,0,.04);white-space:nowrap;max-width:100%}
+.popup .ic{width:12px;height:12px;color:var(--fg-2)}
+.seg{display:inline-flex;background:var(--surface-2);border-radius:8px;padding:2px;gap:2px;flex-wrap:wrap}
+.seg button{border:0;background:none;padding:4px 12px;border-radius:6px;font-size:12.5px;color:var(--fg-2);white-space:nowrap}
+.seg button[aria-pressed="true"]{background:var(--seg-on);color:var(--fg);box-shadow:var(--shadow-sm);font-weight:500}
+.switch{width:34px;height:20px;border-radius:10px;border:0;padding:0;background:var(--surface-3);position:relative;flex:none;transition:background .2s}
+.switch::after{content:"";position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:var(--knob);box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .2s}
+.switch[aria-checked="true"]{background:var(--accent)}
+.switch[aria-checked="true"]::after{transform:translateX(14px)}
+input[type=range]{accent-color:var(--accent);width:100%;min-width:0}
+kbd{font-family:var(--font-ui);font-size:12px;font-weight:600;padding:1px 7px;border-radius:5px;background:var(--surface);border:1px solid var(--line-strong);border-bottom-width:2px;color:var(--fg);white-space:nowrap}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--surface-2);color:var(--fg-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.badge.ok{background:var(--ok-soft);color:var(--ok)}
+.badge.pro{background:var(--accent-soft);color:var(--accent-text);letter-spacing:.04em}
+.dotst{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-2);white-space:nowrap}
+.dotst::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--ok)}
+.dotst.warn::before{background:var(--warn)}
+.dotst.off::before{background:var(--fg-3)}
+
+/* 手势记号：● 单击、●● 双击、━ 长按（按钮拉长） */
+.g{display:inline-flex;gap:2px;align-items:center;vertical-align:middle;margin-right:2px}
+.g i{width:6px;height:6px;border-radius:3px;background:currentColor;display:block}
+.g.long i{width:15px}
+
+/* 状态标签 */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:999px;background:var(--surface-2);color:var(--fg-2);white-space:nowrap;font-variant-numeric:tabular-nums}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill[data-s="armed"],.pill[data-s="listening"]{background:var(--accent-soft);color:var(--accent-text)}
+.pill[data-s="transcribing"]{background:var(--trans-soft);color:var(--trans)}
+.pill[data-s="done"]{background:var(--ok-soft);color:var(--ok)}
+.pill[data-s="attention"]{background:var(--warn-soft);color:var(--warn)}
+.pill[data-s="listening"]::before{animation:blink 1s steps(2) infinite}
+
+/* ---------- 菜单栏图标（模板图 + 状态） ---------- */
+.mbi{width:18px;height:18px;display:block}
+.mbi *{fill:currentColor;transform-box:fill-box;transform-origin:center;transition:opacity .2s,transform .2s,fill .2s}
+.mbi .l1,.mbi .l2{transform-origin:left center}
+.mbi .badge-dot{display:none;fill:var(--strip-warn)}
+[data-s="armed"] .mbi .dot,[data-s="listening"] .mbi .dot{fill:var(--coral)}
+[data-s="armed"] .mbi .dot{animation:pulse .9s ease-in-out infinite}
+[data-s="listening"] .mbi .bar{animation:mbwave .55s ease-in-out infinite alternate}
+[data-s="listening"] .live .bar{animation:none}
+[data-s="listening"] .mbi .l1,[data-s="listening"] .mbi .l2,[data-s="armed"] .mbi .l1,[data-s="armed"] .mbi .l2{opacity:.35}
+[data-s="transcribing"] .mbi .bar{transform:scaleY(.4);opacity:.45}
+[data-s="transcribing"] .mbi .l1{animation:fillline 1.1s ease-in-out infinite}
+[data-s="transcribing"] .mbi .l2{animation:fillline 1.1s .18s ease-in-out infinite}
+[data-s="paused"] .mbi .dot{fill:none;stroke:currentColor;stroke-width:2}
+[data-s="paused"] .mbi .bar,[data-s="paused"] .mbi .l1,[data-s="paused"] .mbi .l2{opacity:.4}
+[data-s="noperm"] .mbi .dot,[data-s="noperm"] .mbi .bar,[data-s="noperm"] .mbi .l1,[data-s="noperm"] .mbi .l2{opacity:.42}
+[data-s="noperm"] .mbi .badge-dot{display:block}
+@keyframes pulse{50%{transform:scale(.72)}}
+@keyframes mbwave{from{transform:scaleY(.35)}to{transform:scaleY(1)}}
+@keyframes fillline{0%{transform:scaleX(.15);opacity:.5}60%,100%{transform:scaleX(1);opacity:1}}
+@keyframes blink{50%{opacity:.25}}
+
+/* ---------- 演示桌面 ---------- */
+.demo{gap:18px}
+.desk{position:relative;height:clamp(440px,52vw,560px);border-radius:18px;overflow:hidden;border:1px solid var(--line);
+  background:radial-gradient(110% 80% at 88% 0%,var(--wall-b),transparent 62%),linear-gradient(165deg,var(--wall-a),var(--wall-c));box-shadow:var(--shadow)}
+.menubar{position:absolute;inset:0 0 auto 0;height:30px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 12px;
+  background:var(--menubar);color:var(--menubar-fg);backdrop-filter:blur(18px) saturate(1.4);-webkit-backdrop-filter:blur(18px) saturate(1.4);font-size:13px;z-index:3}
+.mb-left{display:flex;gap:16px;white-space:nowrap;overflow:hidden;min-width:0}
+.mb-left span{opacity:.85}
+.mb-right{display:flex;align-items:center;gap:10px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.mb-item{display:grid;place-items:center;width:30px;height:22px;border-radius:6px;border:0;background:none;color:inherit;padding:0}
+.mb-item:hover,.mb-item[aria-expanded="true"]{background:rgba(127,120,150,.22)}
+.note-win{position:absolute;left:50%;top:58px;transform:translateX(-50%);width:min(560px,calc(100% - 28px));background:var(--win);border-radius:14px;
+  box-shadow:var(--shadow);border:1px solid var(--line);overflow:hidden;z-index:1}
+.win-bar{height:38px;display:flex;align-items:center;gap:12px;padding:0 14px;background:var(--titlebar);border-bottom:1px solid var(--line);font-size:13px;font-weight:600;color:var(--fg-2)}
+.lights{display:flex;gap:8px}
+.lights i{width:12px;height:12px;border-radius:50%;background:var(--tl-r)}
+.lights i:nth-child(2){background:var(--tl-y)}
+.lights i:nth-child(3){background:var(--tl-g)}
+.note-body{padding:18px 24px 26px;font-size:14.5px;line-height:1.75}
+.note-body h4{margin:0;font-size:20px}
+.note-body .muted{color:var(--fg-3);font-size:12.5px;margin:0 0 8px}
+.note-body ul{margin:0 0 4px;padding-left:20px}
+.note-body p{margin:0}
+.caret{display:inline-block;width:2px;height:1.15em;vertical-align:-.2em;background:var(--accent);margin-left:1px;animation:blink 1.05s steps(2) infinite}
+.ins-new{background:var(--accent-soft);border-radius:3px;transition:background 1.4s}
+.ins-new.settled{background:transparent}
+.desk-pop{position:absolute;top:36px;right:10px;width:min(330px,calc(100% - 20px));z-index:4}
+
+/* 说话浮窗：● 按下 → 声波在听 → 文字行，正是 Logo 的三段 */
+.hud{position:absolute;left:50%;bottom:26px;z-index:2;display:flex;align-items:center;gap:12px;padding:9px 18px 9px 14px;min-height:52px;max-width:calc(100% - 24px);
+  border-radius:999px;background:var(--hud-bg);color:var(--hud-fg);border:1px solid var(--hud-line);
+  box-shadow:0 10px 30px rgba(10,8,16,.35),0 1px 0 rgba(255,255,255,.06) inset;backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);
+  opacity:0;transform:translate(-50%,10px) scale(.94);transition:opacity .18s ease,transform .32s cubic-bezier(.2,.9,.25,1.15);pointer-events:none}
+.hud:not([data-state="idle"]){opacity:1;transform:translate(-50%,0) scale(1)}
+.hud.static{position:relative;left:auto;bottom:auto;opacity:1;transform:none;max-width:100%}
+.hud-dot{position:relative;width:14px;height:14px;border-radius:50%;flex:none;background:linear-gradient(var(--coral-hi),var(--coral-lo));box-shadow:0 2px 0 var(--coral-deep);transition:background .2s}
+.hud-dot::after{content:"";position:absolute;inset:-5px;border-radius:50%;border:2px solid var(--coral);opacity:0}
+.hud[data-state="listening"] .hud-dot::after{animation:ring 1.3s ease-out infinite}
+.hud[data-state="armed"] .hud-dot{animation:pulse .8s ease-in-out infinite}
+.hud[data-state="transcribing"] .hud-dot{background:var(--hud-trans);box-shadow:0 2px 0 rgba(0,0,0,.3)}
+.hud[data-state="done"] .hud-dot{background:var(--hud-ok);box-shadow:0 2px 0 rgba(0,0,0,.3)}
+.hud[data-state="short"] .hud-dot{background:var(--hud-fg-2);box-shadow:none}
+.hud[data-state="error"] .hud-dot{background:var(--hud-err);box-shadow:none}
+@keyframes ring{0%{transform:scale(.7);opacity:.7}100%{transform:scale(1.5);opacity:0}}
+.hud-sig{position:relative;width:58px;height:28px;flex:none}
+.hud-wave{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between}
+.hud-wave i{width:4px;height:26px;border-radius:2px;background:linear-gradient(var(--coral-hi),var(--coral-lo));transform:scaleY(.18);transition:transform .12s ease,opacity .25s}
+.hud[data-state="armed"] .hud-wave i{transform:scaleY(.28)}
+.hud[data-state="transcribing"] .hud-wave i,.hud[data-state="done"] .hud-wave i,.hud[data-state="short"] .hud-wave i,.hud[data-state="error"] .hud-wave i{transform:scaleY(.1);opacity:0}
+.hud-lines{position:absolute;inset:3px 0;display:grid;align-content:center;gap:5px;opacity:0;transition:opacity .25s}
+.hud-lines i{height:4px;border-radius:2px;background:var(--hud-fg);transform-origin:left center}
+.hud-lines i:nth-child(1){width:100%}.hud-lines i:nth-child(2){width:78%}.hud-lines i:nth-child(3){width:46%}
+.hud[data-state="transcribing"] .hud-lines,.hud[data-state="done"] .hud-lines{opacity:1}
+.hud[data-state="transcribing"] .hud-lines i{animation:fillline 1s ease-in-out infinite;opacity:.8}
+.hud[data-state="transcribing"] .hud-lines i:nth-child(2){animation-delay:.15s}
+.hud[data-state="transcribing"] .hud-lines i:nth-child(3){animation-delay:.3s}
+.hud-lines b{position:absolute;left:calc(46% + 4px);bottom:-1px;width:3px;height:13px;border-radius:2px;background:var(--coral);opacity:0}
+.hud[data-state="done"] .hud-lines b{opacity:1;animation:blink 1s steps(2) infinite}
+.hud[data-state="short"] .hud-sig,.hud[data-state="error"] .hud-sig{width:0;margin-left:-12px}
+.hud-text{display:grid;gap:1px;min-width:0}
+.hud-text b{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud-text small{font-size:11.5px;color:var(--hud-fg-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hud-time{font-size:12px;color:var(--hud-fg-2);font-variant-numeric:tabular-nums;margin-left:2px;flex:none}
+.hud:not([data-state="listening"]):not([data-state="armed"]) .hud-time{display:none}
+/* 静态展示用的固定声波高度 */
+.hud.static[data-state="listening"] .hud-wave i:nth-child(1){transform:scaleY(.35)}
+.hud.static[data-state="listening"] .hud-wave i:nth-child(2){transform:scaleY(.7)}
+.hud.static[data-state="listening"] .hud-wave i:nth-child(3){transform:scaleY(1)}
+.hud.static[data-state="listening"] .hud-wave i:nth-child(4){transform:scaleY(.55)}
+.hud.static[data-state="listening"] .hud-wave i:nth-child(5){transform:scaleY(.85)}
+.hud.static[data-state="listening"] .hud-wave i:nth-child(6){transform:scaleY(.45)}
+.hud.static[data-state="listening"] .hud-wave i:nth-child(7){transform:scaleY(.25)}
+
+/* 演示下方的控制条 */
+.demo-ctl{display:flex;align-items:center;gap:18px 28px;flex-wrap:wrap}
+.talk{display:flex;align-items:center;gap:14px;border:0;background:none;padding:0;text-align:left;-webkit-user-select:none;user-select:none;touch-action:none}
+.talk .knob{width:64px;height:64px;border-radius:50%;flex:none;background:linear-gradient(var(--coral-hi),var(--coral-lo));box-shadow:0 7px 0 var(--coral-deep),0 12px 24px rgba(216,90,48,.3);transition:transform .09s,box-shadow .09s}
+.talk.down .knob{transform:translateY(5px);box-shadow:0 2px 0 var(--coral-deep),0 4px 10px rgba(216,90,48,.25)}
+.talk b{display:block;font-size:17px;font-family:var(--font-brand);font-weight:700}
+.talk small{display:block;font-size:12.5px;color:var(--fg-2);margin-top:2px}
+.talk:focus-visible{outline-offset:6px;border-radius:40px}
+.demo-opts{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--fg-2)}
+.flow{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.flow > div{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;align-items:center;padding:14px 16px;border-radius:12px;background:var(--surface);border:1px solid var(--line)}
+.flow svg{grid-row:span 2;width:44px;height:44px}
+.flow b{font-size:14px}
+.flow span{font-size:12.5px;color:var(--fg-2);line-height:1.5}
+.flow .part{opacity:.2}
+.flow .on{opacity:1}
+
+/* ---------- 菜单栏图标展示 ---------- */
+.mb-grid{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:12px}
+@media (max-width:1100px){.mb-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:560px){.mb-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.mb-card{display:grid;gap:10px;padding:14px;border-radius:12px;background:var(--surface);border:1px solid var(--line)}
+.mb-big{display:flex;gap:8px}
+.mb-big > div{flex:1;display:grid;place-items:center;height:76px;border-radius:9px}
+.mb-big > div:first-child{background:var(--strip-l-bg);color:var(--strip-l-fg)}
+.mb-big > div:last-child{background:var(--strip-d-bg);color:var(--strip-d-fg)}
+.mb-big .mbi{width:44px;height:44px}
+.mb-real{display:flex;gap:8px}
+.mb-real > div{flex:1;display:flex;align-items:center;justify-content:center;gap:10px;height:24px;border-radius:6px;font-size:11px}
+.mb-real > div:first-child{background:var(--strip-l-bg);color:var(--strip-l-fg)}
+.mb-real > div:last-child{background:var(--strip-d-bg);color:var(--strip-d-fg)}
+.mb-card h3{margin:0;font-size:14px}
+.mb-card p{margin:0;font-size:12px;color:var(--fg-2);line-height:1.55}
+
+/* ---------- 说话浮窗展示 ---------- */
+.hud-board{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px 22px;padding:26px;border-radius:18px;
+  background:radial-gradient(90% 120% at 100% 0%,var(--wall-b),transparent 60%),linear-gradient(165deg,var(--wall-a),var(--wall-c));border:1px solid var(--line)}
+.hud-cell{display:grid;gap:10px;justify-items:start;align-content:start;min-width:0}
+.hud-cell .cap{color:var(--fg);opacity:.85}
+
+/* ---------- 菜单栏面板 ---------- */
+.pop-row-wrap{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;align-items:start}
+.pop-col{display:grid;gap:10px;min-width:0}
+.pop{background:var(--win);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:12px;display:grid;gap:10px;font-size:13px;width:100%}
+.pop-head{display:flex;align-items:center;gap:8px;padding:2px 2px 0}
+.pop-head svg{width:22px;height:22px}
+.pop-head b{font-size:14px;flex:1}
+.banner{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;background:var(--warn-soft);color:var(--fg)}
+.banner > .ic{color:var(--warn)}
+.banner div{flex:1;display:grid;gap:1px;font-size:12px;line-height:1.45;min-width:0}
+.banner div span{color:var(--fg-2)}
+.pop-hero{display:grid;gap:6px;justify-items:start;padding:12px;border-radius:11px;background:var(--surface-2)}
+.pop-hero.is-live{background:var(--accent-soft)}
+.hero-how{font-size:15px;font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.hero-how .g{color:var(--accent)}
+.hero-sub{font-size:12px;color:var(--fg-2)}
+.live-row{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px;color:var(--accent-text);font-variant-numeric:tabular-nums}
+.mini-wave{display:flex;align-items:center;gap:2px;height:20px}
+.mini-wave i{width:3px;height:20px;border-radius:2px;background:var(--accent);transform:scaleY(.4);animation:mbwave .5s ease-in-out infinite alternate}
+.mini-wave i:nth-child(2n){animation-delay:.12s}.mini-wave i:nth-child(3n){animation-delay:.26s}.mini-wave i:nth-child(5n){animation-delay:.07s}
+.hero-btns{display:flex;gap:8px;margin-top:4px}
+.pop-rows{display:grid}
+.pop-r{display:grid;grid-template-columns:38px 1fr auto;align-items:center;gap:8px;padding:7px 2px;border-top:1px solid var(--line);min-height:36px}
+.pop-r:first-child{border-top:0}
+.pop-r > span:first-child{font-size:12px;color:var(--fg-3)}
+.pop-r .v{display:grid;min-width:0}
+.pop-r .v b{font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pop-r .v small{font-size:11px;color:var(--warn)}
+.pop-r .t{display:flex;align-items:center;gap:6px}
+.meter{display:flex;align-items:flex-end;gap:1.5px;height:12px}
+.meter i{width:2.5px;border-radius:1px;background:var(--ok);height:100%;transform-origin:bottom;animation:meter .45s ease-in-out infinite alternate}
+.meter i:nth-child(1){animation-delay:-.1s}.meter i:nth-child(2){animation-delay:-.3s}.meter i:nth-child(3){animation-delay:-.2s}.meter i:nth-child(4){animation-delay:-.4s}.meter i:nth-child(5){animation-delay:-.05s}
+@keyframes meter{from{transform:scaleY(.2)}to{transform:scaleY(1)}}
+.pop-recent{display:grid;grid-template-columns:1fr auto;gap:2px 8px;padding:10px;border-radius:10px;background:var(--group);border:1px solid var(--line)}
+.pop-recent .rc-h{display:flex;justify-content:space-between;font-size:11.5px;color:var(--fg-3);grid-column:1}
+.pop-recent p{margin:0;font-size:13px;line-height:1.5;grid-column:1}
+.icon-btn{grid-column:2;grid-row:1 / span 2;align-self:center;display:grid;place-items:center;width:28px;height:28px;border-radius:7px;border:0;background:none;color:var(--fg-2)}
+.icon-btn:hover{background:var(--surface-2);color:var(--fg)}
+.pop-foot{display:flex;align-items:center;gap:6px;padding-top:2px}
+.pop-foot .sp{flex:1}
+.pop-foot label{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--fg-2)}
+.pop-foot .switch{transform:scale(.85)}
+
+/* ---------- 设置窗口 ---------- */
+.settings{display:grid;grid-template-columns:200px minmax(0,1fr);height:600px;border-radius:16px;overflow:hidden;overflow:clip;background:var(--win);border:1px solid var(--line);box-shadow:var(--shadow)}
+.side{background:var(--win-side);border-right:1px solid var(--line);padding:14px 10px;display:flex;flex-direction:column;gap:2px}
+.side .lights{padding:2px 6px 16px}
+.side button{display:flex;align-items:center;gap:9px;width:100%;border:0;background:none;padding:7px 10px;border-radius:8px;font-size:13px;color:var(--fg);text-align:left;white-space:nowrap}
+.side button .ic{color:var(--fg-2)}
+.side button:hover{background:var(--surface-2)}
+.side button[aria-current="true"]{background:var(--accent-soft);color:var(--accent-text);font-weight:600}
+.side button[aria-current="true"] .ic{color:var(--accent)}
+.side .sp{flex:1}
+.side .ed{font-size:11.5px;color:var(--fg-3);padding:8px 10px 0;line-height:1.5}
+.main{display:flex;flex-direction:column;min-width:0}
+.main-h{height:52px;flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 24px;border-bottom:1px solid var(--line);background:var(--titlebar)}
+.main-h b{font-size:14px}
+.main-b{flex:1;overflow:auto;padding:20px 24px 32px}
+.pane{display:grid;gap:22px}
+.grp-wrap{display:grid;gap:6px}
+.grp-h{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:600;color:var(--fg-2);padding:0 4px}
+.grp{background:var(--group);border:1px solid var(--line);border-radius:10px}
+.row{display:flex;align-items:center;gap:12px;min-height:42px;padding:8px 12px;font-size:13px}
+.row + .row{border-top:1px solid var(--line)}
+.row .lab{flex:1;min-width:0;display:grid;gap:1px}
+.row .lab small{font-size:11.5px;color:var(--fg-3);line-height:1.45}
+.row .lab small.warn{color:var(--warn)}
+.grp-f{font-size:11.5px;color:var(--fg-3);line-height:1.55;padding:0 4px}
+.radio{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--line-strong);flex:none;display:grid;place-items:center;background:var(--surface)}
+[aria-checked="true"] > .radio{border-color:var(--accent);background:var(--accent)}
+[aria-checked="true"] > .radio::after{content:"";width:6px;height:6px;border-radius:50%;background:var(--on-accent)}
+.row.pick{cursor:pointer;width:100%;border:0;background:none;text-align:left}
+.row.pick:hover{background:var(--surface-2)}
+.grp > .row.pick:first-child{border-radius:10px 10px 0 0}
+.grp > .row.pick:last-child{border-radius:0 0 10px 10px}
+.row.pick + .row.pick{border-top:1px solid var(--line)}
+.row.locked{opacity:.55}
+.devic{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--surface-2);color:var(--fg-2);flex:none}
+[aria-checked="true"] .devic{background:var(--accent-soft);color:var(--accent)}
+.sl{display:flex;align-items:center;gap:10px;width:min(240px,45%)}
+.sl output{font-size:12px;font-variant-numeric:tabular-nums;color:var(--fg-2);width:52px;text-align:right;flex:none}
+
+/* 键位表：行是按键，列是 单击 / 双击 / 长按 */
+.kt-scroll{overflow-x:auto;margin:0 -2px;padding:2px}
+.kt{display:grid;grid-template-columns:118px repeat(3,minmax(140px,1fr));min-width:560px;background:var(--group);border:1px solid var(--line);border-radius:10px}
+.kt > div{padding:6px 8px;border-top:1px solid var(--line);display:flex;align-items:center;min-width:0}
+.kt > .kh{border-top:0;font-size:11.5px;font-weight:600;color:var(--fg-2);padding:9px 10px 7px}
+.kt > .kk{padding-left:12px}
+.kt .new-row{animation:flash 1.6s ease-out}
+@keyframes flash{0%{background:var(--accent-soft)}100%{background:transparent}}
+.cell{display:flex;align-items:center;gap:6px;width:100%;min-height:30px;padding:4px 9px;border-radius:7px;border:1px solid transparent;background:var(--surface);
+  font-size:12.5px;text-align:left;color:var(--fg);box-shadow:0 1px 1px rgba(0,0,0,.04);min-width:0}
+.cell span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cell:hover{border-color:var(--line-strong)}
+.cell.empty{background:none;border:1px dashed var(--line-strong);box-shadow:none;color:var(--fg-3)}
+.cell.empty:hover{color:var(--accent-text);border-color:var(--accent-ring)}
+.cell.voice{background:var(--accent-soft);color:var(--accent-text);font-weight:600;box-shadow:none}
+.cell.voice::before{content:"";width:8px;height:8px;border-radius:50%;background:linear-gradient(var(--coral-hi),var(--coral-lo));flex:none}
+.cell.locked{background:repeating-linear-gradient(135deg,transparent 0 5px,var(--line) 5px 6px);color:var(--fg-3);box-shadow:none;cursor:not-allowed}
+.cell.na{background:none;box-shadow:none;color:var(--fg-3);border:1px dashed var(--line);cursor:not-allowed}
+.cell[aria-pressed="true"]{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-ring)}
+.learn{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:var(--accent-soft);font-size:13px}
+.learn .hud-dot{animation:pulse .9s ease-in-out infinite}
+.learn span{flex:1}
+.editor{display:grid;gap:14px;padding:14px;border-radius:12px;background:var(--surface);border:1px solid var(--accent-ring);box-shadow:var(--shadow-sm)}
+.editor-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.editor-h b{font-size:14px;flex:1}
+.acts{display:grid;grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:8px}
+.act{display:grid;grid-template-columns:auto 1fr;gap:1px 9px;align-items:center;padding:9px 10px;border-radius:9px;border:1px solid var(--line);background:var(--group);text-align:left}
+.act .ic{grid-row:span 2;color:var(--fg-2)}
+.act b{font-size:12.5px;font-weight:600;display:flex;align-items:center;gap:6px}
+.act small{font-size:11px;color:var(--fg-3)}
+.act:hover{border-color:var(--line-strong)}
+.act[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft)}
+.act[aria-pressed="true"] .ic{color:var(--accent)}
+.act[disabled]{opacity:.5;cursor:not-allowed}
+.detail{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;color:var(--fg-2);min-height:30px}
+.detail input[type=text],.detail select{font-size:13px;padding:5px 9px;border-radius:7px;border:1px solid var(--line-strong);background:var(--surface);min-width:0;max-width:100%}
+.rec{font-family:var(--font-mono);font-size:13px;padding:5px 12px;border-radius:7px;border:1px solid var(--line-strong);background:var(--surface);min-width:120px;text-align:center}
+.rec.on{border-color:var(--accent);color:var(--accent-text);box-shadow:0 0 0 3px var(--accent-ring)}
+.editor-f{display:flex;gap:8px;align-items:center}
+.editor-f .sp{flex:1}
+
+/* 手势时间尺 */
+.ruler{--dbl:.30;--long:.50;position:relative;display:grid;gap:8px;padding:34px 14px 30px}
+.lane{display:grid;grid-template-columns:44px 1fr;align-items:center;gap:10px;font-size:12px;color:var(--fg-2)}
+.track{position:relative;height:22px;border-radius:6px;background:var(--surface-2)}
+.press{position:absolute;top:4px;bottom:4px;border-radius:4px;background:var(--fg-3)}
+.press.hot em{position:absolute;right:6px;top:50%;transform:translateY(-50%);font-style:normal;font-size:11px;font-weight:600;color:var(--on-accent);white-space:nowrap}
+.press.hot{background:linear-gradient(90deg,var(--fg-3) 0,var(--fg-3) var(--split,40%),var(--coral) var(--split,40%))}
+.res{position:absolute;top:50%;transform:translateY(-50%);font-size:11.5px;color:var(--fg);white-space:nowrap;padding-left:8px}
+.mk{position:absolute;top:28px;bottom:24px;width:0;border-left:1.5px dashed var(--accent);pointer-events:none;left:calc(54px + 14px + (100% - 54px - 28px) * var(--x) / 1.5)}
+.mk span{position:absolute;top:-22px;left:6px;font-size:11px;color:var(--accent-text);white-space:nowrap;font-variant-numeric:tabular-nums}
+.mk.dbl{border-left-color:var(--trans)}
+.mk.dbl span{color:var(--trans);left:auto;right:6px}
+.axis{position:absolute;left:68px;right:14px;bottom:6px;height:12px;font-size:10.5px;color:var(--fg-3);font-variant-numeric:tabular-nums}
+.axis span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.axis span:last-child{transform:translateX(-100%)}
+
+/* 预录时间线 */
+.preroll{--warm:1;position:relative;height:74px;margin:6px 4px 22px;border-radius:8px;background:var(--surface-2);overflow:visible}
+.pr-wave{position:absolute;inset:10px 8px;display:flex;align-items:center;justify-content:space-between;gap:1px}
+.pr-wave i{width:3px;border-radius:2px;background:var(--fg-3);opacity:.45}
+.pr-wave i.in{background:var(--coral);opacity:1}
+.pr-buf{position:absolute;top:0;bottom:0;right:55%;width:calc(var(--warm) / 6 * 100%);background:var(--accent-soft);border-left:1.5px dashed var(--accent);transition:width .25s}
+.pr-mk{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--fg);border-radius:1px}
+.pr-mk span{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:4px;font-size:11px;color:var(--fg-2);white-space:nowrap}
+
+.perm-ic{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;flex:none;background:var(--ok-soft);color:var(--ok)}
+.perm-ic.no{background:var(--warn-soft);color:var(--warn)}
+.ime-flow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--fg-2);padding:12px}
+.ime-flow span{padding:4px 10px;border-radius:7px;background:var(--surface);border:1px solid var(--line)}
+.ime-flow i{font-style:normal;color:var(--fg-3)}
+.pro-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px}
+.pro-list div{display:grid;gap:3px;padding:12px;border-radius:10px;background:var(--group);border:1px solid var(--line)}
+.pro-list b{font-size:13px}
+.pro-list span{font-size:12px;color:var(--fg-2);line-height:1.5}
+.about{display:grid;justify-items:center;gap:8px;text-align:center;padding:28px 0}
+.about svg{width:88px;height:88px}
+.about h3{margin:6px 0 0;font-size:20px}
+.about p{margin:0;font-size:12.5px;color:var(--fg-2)}
+
+/* ---------- 首次引导 ---------- */
+.ob{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+@media (max-width:1100px){.ob{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:600px){.ob{grid-template-columns:1fr}}
+.mini{display:flex;flex-direction:column;border-radius:14px;background:var(--win);border:1px solid var(--line);box-shadow:var(--shadow);overflow:hidden;min-height:330px}
+.mini .win-bar{height:32px}
+.mini .lights i{width:10px;height:10px}
+.mini-b{flex:1;display:flex;flex-direction:column;gap:12px;padding:18px}
+.mini-b h3{margin:0;font-size:16px;line-height:1.35}
+.mini-b p{margin:0;font-size:12.5px;color:var(--fg-2);line-height:1.6}
+.mini-b .sp{flex:1}
+.steps{display:flex;gap:5px;align-items:center}
+.steps i{width:6px;height:6px;border-radius:3px;background:var(--surface-3)}
+.steps i.on{width:16px;background:var(--accent)}
+.mini-f{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.welcome{align-items:center;text-align:center}
+.welcome svg{width:76px;height:76px;margin-top:8px}
+.welcome h3{font-size:19px}
+.keycap-big{align-self:center;margin-block:10px;display:grid;place-items:center;width:84px;height:84px;border-radius:20px;background:var(--surface);border:1px solid var(--line-strong);border-bottom-width:4px;font-weight:700;font-size:15px;position:relative}
+.keycap-big::after{content:"";position:absolute;inset:-6px;border-radius:24px;border:2px solid var(--accent);opacity:0;animation:ring-sm 1.6s ease-out infinite}
+@keyframes ring-sm{0%{transform:scale(.96);opacity:.7}100%{transform:scale(1.14);opacity:0}}
+
+/* ---------- 手机和手表 ---------- */
+.devices{display:flex;gap:32px;flex-wrap:wrap;align-items:flex-end}
+.phone{width:min(292px,100%);aspect-ratio:292/620;border-radius:46px;border:10px solid var(--device-frame);background:var(--ios-bg);display:flex;flex-direction:column;gap:12px;padding:12px 14px 18px;box-shadow:var(--shadow);max-width:100%}
+.ios-status{display:flex;justify-content:space-between;font-size:12px;font-weight:600;padding:2px 12px 0;font-variant-numeric:tabular-nums}
+.ios-conn{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:6px 6px 0}
+.ios-conn b{font-size:15px}
+.pad{flex:1;border-radius:22px;background-color:var(--surface-2);background-image:radial-gradient(var(--line-strong) 1px,transparent 1.2px);background-size:16px 16px;display:grid;place-items:center;text-align:center;font-size:11.5px;color:var(--fg-3);line-height:1.8;border:1px solid var(--line)}
+.ios-keys{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.ios-keys span{display:grid;place-items:center;height:38px;border-radius:11px;background:var(--surface);font-size:11px;color:var(--fg-2);border:1px solid var(--line)}
+.ios-talk{display:flex;align-items:center;gap:14px;padding:6px 4px 0}
+.ios-talk .knob{width:72px;height:72px;border-radius:50%;background:linear-gradient(var(--coral-hi),var(--coral-lo));box-shadow:0 6px 0 var(--coral-deep);flex:none}
+.ios-talk b{display:block;font-size:15px}
+.ios-talk small{font-size:11.5px;color:var(--fg-2)}
+.watch{width:184px;aspect-ratio:184/224;border-radius:50px;border:9px solid var(--device-frame);background:var(--watch-bg);color:var(--watch-fg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;box-shadow:var(--shadow)}
+.watch small{font-size:11px;color:var(--watch-fg-2)}
+.watch .knob{width:92px;height:92px;border-radius:50%;background:linear-gradient(var(--coral-hi),var(--coral-lo));box-shadow:0 6px 0 var(--coral-deep)}
+.watch b{font-size:13px}
+.dev-cap{display:grid;gap:10px;max-width:22em}
+
+/* ---------- 规范 ---------- */
+.spec{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr));gap:18px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:18px;display:grid;gap:14px;align-content:start;min-width:0}
+.card h3{margin:0;font-size:15px}
+.sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px}
+.sw div{display:grid;gap:4px;font-size:11.5px;color:var(--fg-2)}
+.sw i{height:44px;border-radius:9px;border:1px solid var(--line);display:block}
+.sw b{font-size:12px;color:var(--fg);font-weight:600}
+.sw code{font-family:var(--font-mono);font-size:11px}
+.tbl-wrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px;min-width:440px}
+th,td{text-align:left;padding:8px 8px;border-top:1px solid var(--line);vertical-align:middle}
+th{font-size:11.5px;color:var(--fg-2);font-weight:600;border-top:0}
+td .mbi{width:18px;height:18px}
+.comp{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.rules{margin:0;padding-left:18px;display:grid;gap:6px;font-size:13px;line-height:1.6;color:var(--fg-2)}
+.rules b{color:var(--fg)}
+
+/* ---------- 窄屏 ---------- */
+@media (max-width:760px){
+  .settings{grid-template-columns:1fr;height:auto}
+  .side{flex-direction:row;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:8px}
+  .side .lights,.side .sp,.side .ed{display:none}
+  .side button{width:auto}
+  .main-b{overflow:visible}
+  .flow{grid-template-columns:1fr}
+  .hud-board{grid-template-columns:1fr;padding:18px}
+  .sl{width:100%}
+  .row.wrap{flex-wrap:wrap}
+}
+@media (max-width:520px){
+  .hud{gap:9px;padding:8px 14px 8px 12px}
+  .hud-sig{width:44px}
+  .note-body{padding:14px 16px 20px}
+  .desk{height:470px}
+  .mb-left span:nth-child(n+3){display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+</style>
+</head>
+<body>
+
+<!-- 图标和 Logo（Logo 照 brand/icon/VoxPalm-icon.svg 的比例画） -->
+<svg class="sprite" aria-hidden="true">
+  <defs>
+    <linearGradient id="g-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2B2840"/><stop offset="1" stop-color="#17151F"/></linearGradient>
+    <linearGradient id="g-hot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF8A5C"/><stop offset="1" stop-color="#D85A30"/></linearGradient>
+  </defs>
+  <symbol id="logo" viewBox="0 0 1024 1024">
+    <rect x="100" y="100" width="824" height="824" rx="196" fill="url(#g-bg)"/>
+    <rect x="103" y="103" width="818" height="818" rx="193" fill="none" stroke="#6B6590" stroke-opacity=".45" stroke-width="6"/>
+    <circle cx="262" cy="523.2" r="70" fill="#A93F1C"/>
+    <circle cx="262" cy="512" r="70" fill="url(#g-hot)"/>
+    <rect x="356" y="312" width="56" height="400" rx="28" fill="url(#g-hot)"/>
+    <rect x="440" y="382" width="56" height="260" rx="28" fill="url(#g-hot)"/>
+    <rect x="532" y="392" width="288" height="56" rx="28" fill="#FFF3EA"/>
+    <rect x="532" y="484" width="238" height="56" rx="28" fill="#FFF3EA"/>
+    <rect x="532" y="576" width="136" height="56" rx="28" fill="#FFF3EA"/>
+    <rect x="692" y="566" width="24" height="76" rx="12" fill="#FF7A4D"/>
+  </symbol>
+  <symbol id="i-remote" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="4.75" y="1.25" width="6.5" height="13.5" rx="3.25"/><circle cx="8" cy="5" r="1.3"/><path d="M6.9 9h2.2M6.9 11.4h2.2"/></g></symbol>
+  <symbol id="i-keys" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="1.25" y="3.25" width="13.5" height="9.5" rx="2.2"/><path d="M4 6.4h.6M7.7 6.4h.6M11.4 6.4h.6M4.6 9.6h6.8"/></g></symbol>
+  <symbol id="i-wave" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M2 7v2M5 4.5v7M8 2.5v11M11 5v6M14 7v2"/></g></symbol>
+  <symbol id="i-shield" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 1.6l5.2 2v4.2c0 3-2.2 5.4-5.2 6.5-3-1.1-5.2-3.5-5.2-6.5V3.6z"/><path d="M5.7 8l1.6 1.6 3-3.2"/></g></symbol>
+  <symbol id="i-star" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M8 1.7l1.8 4 4.3.4-3.3 2.9 1 4.3L8 11 4.2 13.3l1-4.3L1.9 6.1l4.3-.4z"/></g></symbol>
+  <symbol id="i-info" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.3"/><path d="M8 7.3v4M8 4.8v.1"/></g></symbol>
+  <symbol id="i-mic" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="1.25" width="5" height="8.5" rx="2.5"/><path d="M3 7.6a5 5 0 0 0 10 0M8 12.6v2.1"/></g></symbol>
+  <symbol id="i-copy" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><rect x="5.25" y="5.25" width="8.5" height="8.5" rx="2"/><path d="M10.75 5.25V4a1.75 1.75 0 0 0-1.75-1.75H4A1.75 1.75 0 0 0 2.25 4v5A1.75 1.75 0 0 0 4 10.75h1.25"/></g></symbol>
+  <symbol id="i-lock" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="7" width="10" height="7.5" rx="2"/><path d="M5.4 7V5a2.6 2.6 0 0 1 5.2 0v2"/></g></symbol>
+  <symbol id="i-updown" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 6l3-3 3 3M5 10l3 3 3-3"/></g></symbol>
+  <symbol id="i-check" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 8.5l3 3 6-7"/></g></symbol>
+  <symbol id="i-warn" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.2l6.2 11H1.8z"/><path d="M8 6.6v3M8 11.6v.1"/></g></symbol>
+  <symbol id="i-cmd" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 6h4v4H6zM6 6V4.5A1.5 1.5 0 1 0 4.5 6H6M10 6V4.5A1.5 1.5 0 1 1 11.5 6H10M6 10v1.5A1.5 1.5 0 1 1 4.5 10H6M10 10v1.5a1.5 1.5 0 1 0 1.5-1.5H10"/></g></symbol>
+  <symbol id="i-text" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3 4h10M8 4v9M5.5 13h5"/></g></symbol>
+  <symbol id="i-play" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M3 3.2v9.6l7-4.8z"/><path d="M12 3.5v9" stroke-linecap="round"/></g></symbol>
+  <symbol id="i-app" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="12" height="12" rx="3.2"/><path d="M5.5 8h5M8 5.5v5" stroke-linecap="round"/></g></symbol>
+  <symbol id="i-ptt" viewBox="0 0 16 16"><circle cx="5" cy="8" r="3" fill="currentColor"/><path d="M10 4v8M13 6v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-toggle" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.6" fill="currentColor"/></g></symbol>
+  <symbol id="i-combo" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="1.5" y="5.5" width="4" height="5" rx="1.2"/><rect x="10.5" y="5.5" width="4" height="5" rx="1.2"/><path d="M5.5 8h5M8.6 6.4L10.2 8 8.6 9.6"/></g></symbol>
+  <symbol id="i-daw" viewBox="0 0 16 16"><g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 12.5h12M4 10V5M7 10V3M10 10V6M13 10V4.5"/></g></symbol>
+</svg>
+
+<main class="page">
+
+  <div class="head">
+  <header class="top">
+    <div class="brandline"><svg viewBox="0 0 1024 1024" aria-hidden="true"><use href="#logo"/></svg>掌声 VoxPalm <span class="tag">UI 设计稿 · 第一版</span></div>
+    <div class="seg" id="theme" role="group" aria-label="外观">
+      <button type="button" data-t="system" aria-pressed="true">跟随系统</button>
+      <button type="button" data-t="light" aria-pressed="false">浅色</button>
+      <button type="button" data-t="dark" aria-pressed="false">深色</button>
+    </div>
+  </header>
+
+  <div class="intro">
+    <h1>按住说话，<em>松手出字。</em></h1>
+    <p class="lede">掌声平时只是菜单栏里的一个小图标。你按住遥控器的那几秒，屏幕下方才浮出一个小条，顺序和 Logo 一样：● 按下，声波在听，文字落到光标处。其余界面都用 macOS 原生样式，品牌只用在三处：珊瑚色强调、菜单栏图标的状态和这个说话浮窗。</p>
+    <nav class="toc" aria-label="目录">
+      <a href="#demo">试一下</a><a href="#menubar">菜单栏图标</a><a href="#hud-states">说话浮窗</a><a href="#popover">菜单栏面板</a><a href="#settings">设置窗口</a><a href="#onboarding">第一次打开</a><a href="#mobile">手机和手表</a><a href="#spec">规范</a>
+    </nav>
+  </div>
+  </div>
+
+  <!-- ============ 演示 ============ -->
+  <section id="demo" class="demo" aria-label="按住说话演示">
+    <div class="desk" id="desk">
+      <div class="menubar">
+        <div class="mb-left"><b>备忘录</b><span>文件</span><span>编辑</span><span>格式</span><span>窗口</span></div>
+        <div class="mb-right">
+          <button type="button" class="mb-item" id="deskIcon" data-s="idle" aria-label="掌声菜单" aria-expanded="false"><span data-mbi class="live"></span></button>
+          <span>10月19日 周一 14:32</span>
+        </div>
+      </div>
+      <div class="note-win">
+        <div class="win-bar"><span class="lights"><i></i><i></i><i></i></span>备忘录</div>
+        <div class="note-body">
+          <h4>周会记录</h4>
+          <p class="muted">2026年10月19日</p>
+          <ul><li>设备探针在 4 件设备上实测</li><li>菜单栏 App 骨架已合入</li></ul>
+          <p>下一步：<span id="ins"></span><span class="caret"></span></p>
+        </div>
+      </div>
+      <div class="desk-pop" id="deskPop" hidden><div data-pop="idle" data-live></div></div>
+      <div class="hud" id="hud" data-state="idle" role="status" aria-live="polite">
+        <span class="hud-dot"></span>
+        <span class="hud-sig"><span class="hud-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="hud-lines"><i></i><i></i><i></i><b></b></span></span>
+        <span class="hud-text"><b id="hudTitle">正在听</b><small id="hudSub">松手出字</small></span>
+        <span class="hud-time" id="hudTime">0:00</span>
+      </div>
+    </div>
+
+    <div class="demo-ctl">
+      <button type="button" class="talk" id="talk" aria-label="按住说话（演示）">
+        <span class="knob"></span>
+        <span><b>按住这里说话</b><small>按住按钮或空格键，松开出字。按不到 <span class="lp-val">0.50</span> 秒不算数。</small></span>
+      </button>
+      <div class="demo-opts">
+        出字方式
+        <div class="seg" id="modeSeg" role="group" aria-label="出字方式">
+          <button type="button" data-m="builtin" aria-pressed="true">内置转写</button>
+          <button type="button" data-m="ime" aria-pressed="false">外部输入法</button>
+        </div>
+        <span>点菜单栏里的掌声图标能打开面板</span>
+      </div>
+    </div>
+
+    <div class="flow">
+      <div><svg viewBox="0 0 1024 1024" aria-hidden="true" data-flow="dot"></svg><b>● 按下</b><span>按下键的瞬间开麦，菜单栏的 ● 变成珊瑚色。按满长按时间才算数，之前的声音也会录进去。</span></div>
+      <div><svg viewBox="0 0 1024 1024" aria-hidden="true" data-flow="wave"></svg><b>声波 · 正在听</b><span>浮窗里的竖条跟着音量跳，右边是计时。浮窗不抢焦点，光标留在原来的 App 里。</span></div>
+      <div><svg viewBox="0 0 1024 1024" aria-hidden="true" data-flow="text"></svg><b>文字 · 出字</b><span>松手后竖条收成三行字，转完贴到光标处，浮窗写明贴到了哪个 App，再自己消失。</span></div>
+    </div>
+  </section>
+
+  <!-- ============ 菜单栏图标 ============ -->
+  <section id="menubar">
+    <div class="sec-h">
+      <span class="eyebrow">Mac · 0.1</span>
+      <h2>菜单栏图标：Logo 的三段轮流亮起</h2>
+      <p>平时是黑白模板图，跟随菜单栏深浅色。只有录音时 ● 变成珊瑚色，因为这时候别人需要一眼看出「它在录」。下面每格上方放大 2.4 倍，下方是实际 18 点大小。</p>
+    </div>
+    <div class="mb-grid" id="mbGrid"></div>
+  </section>
+
+  <!-- ============ 说话浮窗 ============ -->
+  <section id="hud-states">
+    <div class="sec-h">
+      <span class="eyebrow">Mac · 0.1 · 新增</span>
+      <h2>说话浮窗：浮在屏幕下方，不抢焦点</h2>
+      <p>现在的 App 说话时只换菜单栏图标，眼睛离屏幕远一点就看不到。浮窗放在屏幕下方正中、程序坞上面，深色半透明，深浅色模式下都一样。它不接受点击，不会把光标从你正在打字的 App 里抢走。</p>
+    </div>
+    <div class="hud-board" id="hudBoard"></div>
+  </section>
+
+  <!-- ============ 菜单栏面板 ============ -->
+  <section id="popover">
+    <div class="sec-h">
+      <span class="eyebrow">Mac · 0.1 · 改版</span>
+      <h2>菜单栏面板：先告诉你怎么说话</h2>
+      <p>最上面一块直接写当前的说话键，比如「长按 确认键 说话」，忘了设的是哪个键时一眼能看到。下面三行是控制、收音和出字方式，再下面是最近一次出字，可以拷贝。有问题时，提示条放在最上面，并且带上去哪里解决。</p>
+    </div>
+    <div class="pop-row-wrap">
+      <div class="pop-col"><div data-pop="idle"></div><p class="cap"><b>待命。</b>麦克风旁边的小电平条表示它正在收到声音。</p></div>
+      <div class="pop-col"><div data-pop="listening"></div><p class="cap"><b>正在听。</b>面板开着时也能说话，上面一块换成实时声波和计时。</p></div>
+      <div class="pop-col"><div data-pop="attention"></div><p class="cap"><b>要处理。</b>缺权限、设备没连上、蓝牙通话音质，都在原位置标出来，不弹窗。</p></div>
+    </div>
+  </section>
+
+  <!-- ============ 设置窗口 ============ -->
+  <section id="settings">
+    <div class="sec-h">
+      <span class="eyebrow">Mac · 0.1 · 改版</span>
+      <h2>设置窗口：左边栏，按键页做成一张表</h2>
+      <p>把现在的顶部标签换成系统设置那样的左边栏。按键页是重点：每行一个键，三列是单击、双击、长按，空格子点一下就能设。下面可以点着试：左边切页、点表格里的格子、点「学一个键」、拖手势时间。</p>
+    </div>
+
+    <div class="settings" id="settingsWin">
+      <nav class="side" aria-label="设置分类">
+        <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <button type="button" data-pane="devices"><svg class="ic"><use href="#i-remote"/></svg>设备</button>
+        <button type="button" data-pane="keys" aria-current="true"><svg class="ic"><use href="#i-keys"/></svg>按键</button>
+        <button type="button" data-pane="voice"><svg class="ic"><use href="#i-wave"/></svg>语音</button>
+        <button type="button" data-pane="perm"><svg class="ic"><use href="#i-shield"/></svg>权限</button>
+        <button type="button" data-pane="pro"><svg class="ic"><use href="#i-star"/></svg>Pro</button>
+        <button type="button" data-pane="about"><svg class="ic"><use href="#i-info"/></svg>关于</button>
+        <span class="sp"></span>
+        <span class="ed">免费版 · 开源版<br>0.1 内测</span>
+      </nav>
+      <div class="main">
+        <div class="main-h"><b id="paneTitle">按键</b><span id="paneTools"></span></div>
+        <div class="main-b">
+
+          <!-- 设备 -->
+          <div class="pane" id="pane-devices" hidden>
+            <div class="grp-wrap">
+              <div class="grp-h">控制设备 <span class="badge">免费版同时用 1 台</span></div>
+              <div class="grp" role="radiogroup" aria-label="控制设备" data-radio>
+                <button type="button" class="row pick" role="radio" aria-checked="true"><span class="radio"></span><span class="devic"><svg class="ic"><use href="#i-remote"/></svg></span><span class="lab"><span>蓝牙遥控器</span><small>蓝牙 HID · 读得到按下和松开</small></span><span class="dotst">正在监听</span></button>
+                <button type="button" class="row pick" role="radio" aria-checked="false"><span class="radio"></span><span class="devic"><svg class="ic"><use href="#i-mic"/></svg></span><span class="lab"><span>无线麦（发射器）</span><small>录制键、连接键 · 部分手势被固件占用</small></span><span class="dotst off">已连接</span></button>
+                <button type="button" class="row pick" role="radio" aria-checked="false"><span class="radio"></span><span class="devic"><svg class="ic"><use href="#i-keys"/></svg></span><span class="lab"><span>翻页笔</span><small>USB 接收器 · 键盘类设备</small></span><span class="dotst off">已连接</span></button>
+                <button type="button" class="row pick" role="radio" aria-checked="false"><span class="radio"></span><span class="devic"><svg class="ic"><use href="#i-play"/></svg></span><span class="lab"><span>「正在播放」命令</span><small class="warn">读不到松开，只能用单击和双击</small></span><span class="dotst off">系统</span></button>
+              </div>
+              <div class="grp-f">列表里没有你的设备时，先在系统设置里配好对，掌声会自动刷新。想让遥控器和脚踏板一起用，是 Pro 功能。</div>
+            </div>
+            <div class="grp-wrap">
+              <div class="grp-h">收音设备</div>
+              <div class="grp" role="radiogroup" aria-label="收音设备" data-radio>
+                <button type="button" class="row pick" role="radio" aria-checked="true"><span class="radio"></span><span class="devic"><svg class="ic"><use href="#i-mic"/></svg></span><span class="lab"><span>USB 接收器</span><small>无线麦的接收器插在 Mac 上</small></span><span class="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="badge">48 kHz</span></button>
+                <button type="button" class="row pick" role="radio" aria-checked="false"><span class="radio"></span><span class="devic"><svg class="ic"><use href="#i-mic"/></svg></span><span class="lab"><span>无线麦（蓝牙）</span><small class="warn">蓝牙通话音质，能用，转写会差一些</small></span><span class="badge warn">16 kHz</span></button>
+                <button type="button" class="row pick" role="radio" aria-checked="false"><span class="radio"></span><span class="devic"><svg class="ic"><use href="#i-mic"/></svg></span><span class="lab"><span>MacBook Pro 麦克风</span><small>系统默认输入</small></span><span class="badge">48 kHz</span></button>
+                <button type="button" class="row pick" role="radio" aria-checked="false"><span class="radio"></span><span class="devic"><svg class="ic"><use href="#i-wave"/></svg></span><span class="lab"><span>跟随系统默认输入</span><small>系统换了麦克风，掌声跟着换</small></span></button>
+              </div>
+              <div class="grp-f">收音设备可以和控制设备不是同一台：用遥控器按键，用好一点的麦克风收音。掌声直接从这里录音，不改系统的默认输入。</div>
+            </div>
+          </div>
+
+          <!-- 按键 -->
+          <div class="pane" id="pane-keys">
+            <div class="grp-wrap">
+              <div class="grp-h"><span>蓝牙遥控器 · 键位方案「默认」</span><span class="badge pro">按 App 切换方案 · PRO</span></div>
+              <div class="learn" id="learnBar" hidden><span class="hud-dot"></span><span>请按一下「蓝牙遥控器」上的键……</span><button type="button" class="btn sm" id="learnCancel">取消</button></div>
+              <div class="kt-scroll"><div class="kt" id="kt" role="table" aria-label="键位表"></div></div>
+              <div class="grp-f">确认键设了双击，所以单击要等双击间隔过去才生效；没设双击的键，单击立刻生效。</div>
+            </div>
+            <div class="editor" id="editor" hidden>
+              <div class="editor-h"><b id="edTitle">确认键</b>
+                <div class="seg" id="edGesture" role="group" aria-label="手势">
+                  <button type="button" data-g="single"><span class="g"><i></i></span>单击</button>
+                  <button type="button" data-g="double"><span class="g"><i></i><i></i></span>双击</button>
+                  <button type="button" data-g="long"><span class="g long"><i></i></span>长按</button>
+                </div>
+              </div>
+              <div class="acts" id="edActs"></div>
+              <div class="detail" id="edDetail"></div>
+              <div class="editor-f"><button type="button" class="btn sm ghost" id="edClear">清除这一格</button><span class="sp"></span><button type="button" class="btn sm" id="edCancel">取消</button><button type="button" class="btn sm primary" id="edDone">完成</button></div>
+            </div>
+            <div class="grp-wrap">
+              <div class="grp-h">手势时间</div>
+              <div class="grp">
+                <div class="ruler" id="ruler">
+                  <div class="lane"><span>单击</span><div class="track"><span class="press" style="left:0;width:7%"></span><span class="res" style="left:calc(var(--dbl) / 1.5 * 100%)">没有第二下 → 单击</span></div></div>
+                  <div class="lane"><span>双击</span><div class="track"><span class="press" style="left:0;width:6%"></span><span class="press" style="left:calc(var(--dbl) * .62 / 1.5 * 100%);width:6%"></span><span class="res" style="left:calc(var(--dbl) / 1.5 * 100%)">间隔内第二下 → 双击</span></div></div>
+                  <div class="lane"><span>长按</span><div class="track"><span class="press hot" style="left:0;width:min(100%,calc((var(--long) + .45) / 1.5 * 100%));--split:calc(var(--long) / (var(--long) + .45) * 100%)"><em>按住说话</em></span></div></div>
+                  <span class="mk dbl" style="--x:var(--dbl)"><span>双击间隔 <b id="dblLab">0.30</b> 秒</span></span>
+                  <span class="mk" style="--x:var(--long)"><span>长按 <b id="longLab">0.50</b> 秒</span></span>
+                  <div class="axis" aria-hidden="true"><span style="left:0">0</span><span style="left:33.33%">0.5</span><span style="left:66.67%">1.0</span><span style="left:100%">1.5 秒</span></div>
+                </div>
+                <div class="row wrap"><span class="lab">双击间隔<small>两下之间最多隔多久</small></span><span class="sl"><input type="range" id="dblIn" min="0.15" max="0.6" step="0.05" value="0.30" aria-label="双击间隔"><output id="dblOut">0.30 秒</output></span></div>
+                <div class="row wrap"><span class="lab">长按多久算长按<small>按满这么久才开始说话，之前的声音也算</small></span><span class="sl"><input type="range" id="longIn" min="0.25" max="1.5" step="0.05" value="0.50" aria-label="长按时间"><output id="longOut">0.50 秒</output></span></div>
+              </div>
+            </div>
+            <div class="grp-wrap">
+              <div class="grp-h">导入和导出</div>
+              <div class="grp"><div class="row"><span class="lab">把键位和设置存成一个文件，换电脑时导进去<small>掌声设置.json</small></span><button type="button" class="btn sm">导出…</button><button type="button" class="btn sm">导入…</button></div></div>
+            </div>
+          </div>
+
+          <!-- 语音 -->
+          <div class="pane" id="pane-voice" hidden>
+            <div class="grp-wrap">
+              <div class="grp-h">出字方式</div>
+              <div class="grp">
+                <div class="row wrap"><span class="lab">谁来把声音变成字</span>
+                  <div class="seg" id="voiceSeg" role="group" aria-label="出字方式"><button type="button" data-v="builtin" aria-pressed="true">内置转写</button><button type="button" data-v="ime" aria-pressed="false">外部输入法</button></div>
+                </div>
+              </div>
+              <div class="grp-f" id="voiceFoot">掌声自己录音，在这台 Mac 上转成文字，贴到光标处。声音不上传。</div>
+            </div>
+            <div id="vb-builtin" class="pane">
+              <div class="grp-wrap">
+                <div class="grp-h">内置转写</div>
+                <div class="grp">
+                  <div class="row"><span class="lab">转写引擎<small>macOS 26 以上用系统转写，更老的系统用 whisper.cpp</small></span><span class="popup">系统转写<svg class="ic"><use href="#i-updown"/></svg></span></div>
+                  <div class="row"><span class="lab">语言</span><span class="popup">普通话（简体）<svg class="ic"><use href="#i-updown"/></svg></span></div>
+                  <div class="row"><span class="lab">语言模型<small>系统转写要先下载这门语言的模型</small></span><span class="badge ok"><svg class="ic" style="width:12px;height:12px"><use href="#i-check"/></svg>已下载</span></div>
+                  <div class="row"><span class="lab">文字怎么放进去<small>粘贴最快；个别 App 不认粘贴时，换成逐字键入</small></span><span class="popup">粘贴<svg class="ic"><use href="#i-updown"/></svg></span></div>
+                </div>
+              </div>
+              <div class="grp-wrap">
+                <div class="grp-h">防吞字</div>
+                <div class="grp">
+                  <div class="row"><span class="lab">一直开着麦克风<small>蓝牙麦开麦要半秒以上时打开。代价是麦克风指示灯常亮。</small></span><button type="button" class="switch" id="warmSw" role="switch" aria-checked="true" aria-label="一直开着麦克风"></button></div>
+                  <div class="row wrap" id="warmRow"><span class="lab">保留按键前</span><span class="sl"><input type="range" id="warmIn" min="0.5" max="3" step="0.5" value="1" aria-label="保留按键前的秒数"><output id="warmOut">1.0 秒</output></span></div>
+                  <div style="padding:6px 12px 10px">
+                    <div class="preroll" id="preroll"><div class="pr-wave" id="prWave"></div><div class="pr-buf"></div><div class="pr-mk" style="left:45%"><span>按下</span></div><div class="pr-mk" style="left:88%"><span>松手</span></div></div>
+                    <div class="cap" id="warmCap">珊瑚色是会转成字的部分：按下前 1.0 秒也算进去，第一个字不会被吞掉。</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div id="vb-ime" class="pane" hidden>
+              <div class="grp-wrap">
+                <div class="grp-h">外部输入法</div>
+                <div class="grp">
+                  <div class="ime-flow"><span>按住遥控器</span><i>→</i><span>掌声切到 USB 接收器</span><i>→</i><span>替你按住 Fn</span><i>→</i><span>输入法出字</span><i>→</i><span>切回原来的麦克风</span></div>
+                  <div class="row"><span class="lab">输入法的语音键<small>要和输入法里设置的一样</small></span><span class="popup">Fn<svg class="ic"><use href="#i-updown"/></svg></span></div>
+                  <div class="row wrap"><span class="lab">怎么按</span><div class="seg" data-segonly><button type="button" aria-pressed="true">按住</button><button type="button" aria-pressed="false">按一下</button><button type="button" aria-pressed="false">连按两下</button></div></div>
+                  <div class="row wrap"><span class="lab">松手后多久切回麦克风</span><span class="sl"><input type="range" min="0" max="5" step="0.5" value="2" aria-label="切回延时" oninput="this.nextElementSibling.textContent=(+this.value).toFixed(1)+' 秒'"><output>2.0 秒</output></span></div>
+                </div>
+                <div class="grp-f">系统听写默认是「连按两下 Fn」。豆包、微信输入法、Typeless 等工具，在它们的设置里看语音键是哪个。</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 权限 -->
+          <div class="pane" id="pane-perm" hidden>
+            <div class="grp-wrap">
+              <div class="grp-h">掌声要 3 个系统权限</div>
+              <div class="grp">
+                <div class="row"><span class="perm-ic"><svg class="ic"><use href="#i-check"/></svg></span><span class="lab">输入监控<small>读遥控器、翻页笔的按键和系统媒体键</small></span><span class="dotst">已打开</span></div>
+                <div class="row" data-perm><span class="perm-ic no"><svg class="ic"><use href="#i-warn"/></svg></span><span class="lab">辅助功能<small>模拟快捷键、把文字贴到光标处、拦下映射过的键</small></span><button type="button" class="btn sm primary">去打开</button></div>
+                <div class="row"><span class="perm-ic"><svg class="ic"><use href="#i-check"/></svg></span><span class="lab">麦克风<small>内置转写时录音，只在本机处理</small></span><span class="dotst">已打开</span></div>
+              </div>
+              <div class="grp-f">点「去打开」会弹出系统设置，在列表里打开「掌声」的开关。回到这里会自动打勾，不用重启掌声。</div>
+            </div>
+          </div>
+
+          <!-- Pro -->
+          <div class="pane" id="pane-pro" hidden>
+            <div class="grp-wrap">
+              <div class="grp-h">你现在用的是免费版 <span class="badge">不限时间、不限次数</span></div>
+              <div class="grp"><div class="row"><span class="lab">免费版已经能完整用「按键 → 说话 → 出字」，全部设备都能用。Pro 是一次买断，给多设备、多场景和录音剪辑。<small>1.0 正式版发布时开卖。</small></span><button type="button" class="btn sm" disabled>了解 Pro</button></div></div>
+            </div>
+            <div class="pro-list">
+              <div><b>多台控制设备同时在线</b><span>遥控器、脚踏板、无线麦一起用</span></div>
+              <div><b>按 App 自动切换键位</b><span>在剪辑软件里和在编辑器里，同一个键做不同的事</span></div>
+              <div><b>录音剪辑动作包</b><span>常用录音和剪辑软件的录音、标记、切片</span></div>
+              <div><b>组合动作</b><span>一个键依次做几步</span></div>
+              <div><b>转写增强</b><span>热词和自定义词表、口语润色、按 App 换转写方式</span></div>
+              <div><b>手机上的自定义面板</b><span>掌声手机版按 Mac 当前的 App 换按键面板</span></div>
+            </div>
+          </div>
+
+          <!-- 关于 -->
+          <div class="pane" id="pane-about" hidden>
+            <div class="about">
+              <svg viewBox="0 0 1024 1024" aria-hidden="true"><use href="#logo"/></svg>
+              <h3>掌声 VoxPalm</h3>
+              <p>按住说话，松手出字</p>
+              <p>版本 0.1 内测 · 开源版 · 免费版</p>
+              <div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="btn sm">检查更新</button><button type="button" class="btn sm">源代码</button></div>
+              <p style="margin-top:10px;color:var(--fg-3)">代码按 GPL-3.0-only 开源；名字和图标是专有品牌素材。</p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 首次引导 ============ -->
+  <section id="onboarding">
+    <div class="sec-h">
+      <span class="eyebrow">Mac · 0.1 · 新增</span>
+      <h2>第一次打开：四步走到能说话</h2>
+      <p>现在第一次打开要自己翻设置的四个标签页。改成一个引导窗口，按顺序走完：权限、设备、说话键，最后一步当场试一句。关掉后随时能从菜单栏面板再打开。</p>
+    </div>
+    <div class="ob">
+      <div class="mini"><div class="win-bar"><span class="lights"><i></i><i></i><i></i></span></div>
+        <div class="mini-b welcome"><svg viewBox="0 0 1024 1024" aria-hidden="true"><use href="#logo"/></svg><h3>按住说话，松手出字</h3><p>把遥控器和无线麦，变成 Mac 的语音按钮。设置大约要两分钟。</p><span class="sp"></span>
+          <div class="mini-f" style="width:100%"><span class="steps"><i class="on"></i><i></i><i></i><i></i></span><button type="button" class="btn sm primary">开始设置</button></div></div></div>
+      <div class="mini"><div class="win-bar"><span class="lights"><i></i><i></i><i></i></span></div>
+        <div class="mini-b"><h3>打开 3 个权限</h3>
+          <div class="grp">
+            <div class="row"><span class="perm-ic"><svg class="ic"><use href="#i-check"/></svg></span><span class="lab">输入监控</span></div>
+            <div class="row"><span class="perm-ic no"><svg class="ic"><use href="#i-warn"/></svg></span><span class="lab">辅助功能</span><button type="button" class="btn sm">去打开</button></div>
+            <div class="row"><span class="perm-ic no"><svg class="ic"><use href="#i-warn"/></svg></span><span class="lab">麦克风</span><button type="button" class="btn sm">去打开</button></div>
+          </div>
+          <p>在系统设置里打开「掌声」的开关，回到这里会自动打勾。</p><span class="sp"></span>
+          <div class="mini-f"><span class="steps"><i></i><i class="on"></i><i></i><i></i></span><button type="button" class="btn sm" disabled>继续</button></div></div></div>
+      <div class="mini"><div class="win-bar"><span class="lights"><i></i><i></i><i></i></span></div>
+        <div class="mini-b"><h3>用什么按，用什么收音</h3>
+          <div class="grp">
+            <div class="row"><span class="lab">控制设备</span><span class="popup">蓝牙遥控器<svg class="ic"><use href="#i-updown"/></svg></span></div>
+            <div class="row"><span class="lab">收音设备</span><span class="popup">USB 接收器<svg class="ic"><use href="#i-updown"/></svg></span></div>
+          </div>
+          <p>两个可以不是同一台：用遥控器按键，用好一点的麦克风收音。</p><span class="sp"></span>
+          <div class="mini-f"><span class="steps"><i></i><i></i><i class="on"></i><i></i></span><button type="button" class="btn sm primary">继续</button></div></div></div>
+      <div class="mini"><div class="win-bar"><span class="lights"><i></i><i></i><i></i></span></div>
+        <div class="mini-b"><h3>设一个说话键</h3><span class="keycap-big">确认键</span>
+          <p>学到了「确认键」。<b style="color:var(--fg)">长按它就是按住说话</b>。现在按住它，说一句试试。</p><span class="sp"></span>
+          <div class="mini-f"><span class="steps"><i></i><i></i><i></i><i class="on"></i></span><button type="button" class="btn sm primary">完成</button></div></div></div>
+    </div>
+  </section>
+
+  <!-- ============ 手机和手表 ============ -->
+  <section id="mobile">
+    <div class="sec-h">
+      <span class="eyebrow">iPhone · Apple Watch · 0.2</span>
+      <h2>手机和手表：同一颗按钮，放大给手指按</h2>
+      <p>手机版主界面是触控板，下面一排常用键和一个大的说话键。说话键就是 Logo 里那颗 ●，连下方的厚度也照搬，按下去会沉一下。iPad 用同样的布局，触控板更大。手表上只有这一个键。</p>
+    </div>
+    <div class="devices">
+      <div class="phone" aria-label="iPhone 界面示意">
+        <div class="ios-status"><span>9:41</span><span>●●●</span></div>
+        <div class="ios-conn"><b>MacBook Pro</b><span class="dotst">已连接 · 同一网络</span></div>
+        <div class="pad">单指移动 · 轻点点击<br>双指滚动 · 长按拖动</div>
+        <div class="ios-keys"><span>撤销</span><span>拷贝</span><span>粘贴</span><span>删除</span><span>回车</span></div>
+        <div class="ios-talk"><span class="knob"></span><span><b>按住说话</b><small>声音传到 Mac，字出在 Mac 的光标处</small></span></div>
+      </div>
+      <div class="watch" aria-label="Apple Watch 界面示意"><small>MacBook Pro</small><span class="knob"></span><b>按住说话</b></div>
+      <div class="dev-cap cap">
+        <p style="margin:0"><b>为什么手机上的按钮是实心圆。</b>菜单栏、浮窗、手机、手表上，代表「按住说话」的都是同一颗 ●，用户换设备不用重新认图标。</p>
+        <p style="margin:0"><b>跟随 iOS 深浅色。</b>触控板和常用键跟着系统变，说话键在两种外观下都是珊瑚色。手表一直是黑底。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 规范 ============ -->
+  <section id="spec">
+    <div class="sec-h">
+      <span class="eyebrow">给写代码时对照</span>
+      <h2>规范</h2>
+      <p>颜色全部来自 brand/README.md。App 界面用系统字体，不打包思源黑体；强调色设成珊瑚色，系统控件自动跟着变。</p>
+    </div>
+    <div class="spec">
+      <div class="card"><h3>颜色</h3>
+        <div class="sw">
+          <div><i style="background:linear-gradient(var(--coral-hi),var(--coral-lo))"></i><b>珊瑚</b><code>#FF8A5C → #D85A30</code>强调色、● 按钮、声波</div>
+          <div><i style="background:var(--coral-deep)"></i><b>珊瑚深</b><code>#A93F1C</code>按钮的厚度</div>
+          <div><i style="background:linear-gradient(var(--ink-700),var(--ink-900))"></i><b>墨</b><code>#2B2840 → #17151F</code>说话浮窗、图标底</div>
+          <div><i style="background:var(--cream)"></i><b>奶油</b><code>#FFF3EA</code>深色底上的文字行</div>
+          <div><i style="background:var(--trans)"></i><b>薰衣草</b><code>#6259A6 / #A9A2E2</code>转写中（浅 / 深）</div>
+          <div><i style="background:var(--accent-text)"></i><b>珊瑚文字</b><code>#BF4B24 / #FF9670</code>小字用，对比度够</div>
+        </div>
+      </div>
+      <div class="card"><h3>状态</h3>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>状态</th><th>菜单栏</th><th>面板标签</th><th>什么时候</th></tr></thead>
+          <tbody id="stateRows"></tbody>
+        </table></div>
+      </div>
+      <div class="card"><h3>键位表的格子</h3>
+        <div class="comp" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px">
+          <button type="button" class="cell"><span>回车 ↩</span></button>
+          <button type="button" class="cell voice"><span>按住说话</span></button>
+          <button type="button" class="cell empty"><span>＋ 设置</span></button>
+          <button type="button" class="cell locked" disabled><svg class="ic" style="width:12px;height:12px"><use href="#i-lock"/></svg><span>固件占用</span></button>
+          <button type="button" class="cell na" disabled><span>读不到松开</span></button>
+        </div>
+        <p class="cap" style="margin:0">「固件占用」用于设备自己要用的手势，比如长按切模式、长按配对，探针实测出来的。「读不到松开」用于只有触发没有松开的来源，整列长按都显示这个。</p>
+      </div>
+      <div class="card"><h3>文字和尺寸</h3>
+        <div class="tbl-wrap"><table>
+          <thead><tr><th>用在哪</th><th>字号</th><th>字重</th></tr></thead>
+          <tbody>
+            <tr><td>窗口标题、分组标题</td><td>13 / 12 点</td><td>Semibold</td></tr>
+            <tr><td>正文、表格</td><td>13 点</td><td>Regular</td></tr>
+            <tr><td>说明文字</td><td>11.5 点</td><td>Regular，次要色</td></tr>
+            <tr><td>浮窗标题 / 副标题</td><td>14.5 / 11.5 点</td><td>Semibold / Regular</td></tr>
+            <tr><td>计时、采样率、秒数</td><td>同上</td><td>等宽数字</td></tr>
+          </tbody>
+        </table></div>
+        <p class="cap" style="margin:0">圆角：窗口 16，分组 10，按钮 7，浮窗全圆。菜单栏面板宽 330。</p>
+      </div>
+      <div class="card"><h3>文案</h3>
+        <ul class="rules">
+          <li><b>写人看得懂的。</b>「读不到松开」，不写「不支持 keyUp 事件」。</li>
+          <li><b>设备只写类别。</b>「蓝牙遥控器」「无线麦」，不写品牌，实测通过前不说「已支持」。</li>
+          <li><b>数字带单位。</b>「0.50 秒」「16 kHz」，秒数保留两位，和滑块的步长对上。</li>
+          <li><b>出问题时说怎么办。</b>「还差辅助功能权限，字贴不到光标处」，后面跟「去打开」。</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+(() => {
+  const $ = (s, r = document) => r.querySelector(s);
+  const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* ---------- 外观切换 ---------- */
+  const setTheme = t => {
+    if (t === 'system') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.dataset.theme = t;
+    $$('#theme button').forEach(b => b.setAttribute('aria-pressed', b.dataset.t === t));
+    try { localStorage.setItem('vp-theme', t); } catch (e) {}
+  };
+  let saved = 'system';
+  try { saved = localStorage.getItem('vp-theme') || 'system'; } catch (e) {}
+  setTheme(saved);
+  $$('#theme button').forEach(b => b.addEventListener('click', () => setTheme(b.dataset.t)));
+
+  /* ---------- 菜单栏图标 ---------- */
+  const MBI = '<svg class="mbi" viewBox="0 0 36 36" aria-hidden="true"><circle class="dot" cx="8" cy="18" r="4.6"/><rect class="bar" x="15.5" y="9" width="4" height="18" rx="2"/><rect class="l1" x="23" y="12" width="10" height="4" rx="2"/><rect class="l2" x="23" y="20" width="7" height="4" rx="2"/><circle class="badge-dot" cx="31" cy="27" r="4.5"/></svg>';
+  const STATES = [
+    { s: 'idle', name: '待命', pill: 'idle', label: '待命', mb: '平时的样子。黑白模板图，跟随菜单栏深浅色。', when: '在监听按键，没在说话' },
+    { s: 'armed', name: '准备中', pill: 'armed', label: '准备中', mb: '按下键的瞬间。● 变珊瑚色，已经开始录音。', when: '按下了，还没满长按时间' },
+    { s: 'listening', name: '正在听', pill: 'listening', label: '正在听 0:04', mb: '长按成立。竖条跟着音量跳。', when: '按住说话中' },
+    { s: 'transcribing', name: '转写中', pill: 'transcribing', label: '转写中', mb: '松手以后。两行字从左往右填满。', when: '松手了，正在转成字' },
+    { s: 'paused', name: '暂停监听', pill: 'idle', label: '已暂停', mb: '● 变空心。掌声不读按键，遥控器照常控制别的 App。', when: '在面板里关了监听' },
+    { s: 'noperm', name: '要处理', pill: 'attention', label: '要处理', mb: '整体变淡，右下角一个黄点。打开面板能看到原因。', when: '缺权限或控制设备没连上' },
+  ];
+  $('#mbGrid').innerHTML = STATES.map(st => `
+    <div class="mb-card" data-s="${st.s}">
+      <div class="mb-big"><div>${MBI}</div><div>${MBI}</div></div>
+      <div class="mb-real"><div>${MBI}<span>14:32</span></div><div>${MBI}<span>14:32</span></div></div>
+      <h3>${st.name}</h3><p>${st.mb}</p>
+    </div>`).join('');
+  $('#stateRows').innerHTML = STATES.map(st => `
+    <tr><td>${st.name}</td><td data-s="${st.s}" style="color:var(--fg)">${MBI}</td><td><span class="pill" data-s="${st.pill}">${st.label}</span></td><td>${st.when}</td></tr>`).join('');
+  $$('[data-mbi]').forEach(el => { el.innerHTML = MBI; });
+  $$('[data-flow]').forEach(el => {
+    const on = p => p === el.dataset.flow ? 'part on' : 'part';
+    el.innerHTML = `<rect x="100" y="100" width="824" height="824" rx="196" fill="url(#g-bg)"/>
+      <g class="${on('dot')}"><circle cx="262" cy="523.2" r="70" fill="#A93F1C"/><circle cx="262" cy="512" r="70" fill="url(#g-hot)"/></g>
+      <g class="${on('wave')}"><rect x="356" y="312" width="56" height="400" rx="28" fill="url(#g-hot)"/><rect x="440" y="382" width="56" height="260" rx="28" fill="url(#g-hot)"/></g>
+      <g class="${on('text')}"><rect x="532" y="392" width="288" height="56" rx="28" fill="#FFF3EA"/><rect x="532" y="484" width="238" height="56" rx="28" fill="#FFF3EA"/><rect x="532" y="576" width="136" height="56" rx="28" fill="#FFF3EA"/><rect x="692" y="566" width="24" height="76" rx="12" fill="#FF7A4D"/></g>`;
+  });
+
+  /* ---------- 说话浮窗：静态展示 ---------- */
+  const hudHTML = (s, t, sub, time) => `
+    <div class="hud static" data-state="${s}">
+      <span class="hud-dot"></span>
+      <span class="hud-sig"><span class="hud-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span><span class="hud-lines"><i></i><i></i><i></i><b></b></span></span>
+      <span class="hud-text"><b>${t}</b><small>${sub}</small></span>
+      <span class="hud-time">${time || ''}</span>
+    </div>`;
+  const HUDS = [
+    ['armed', '准备中', '已经在录，按住别松', '0:00', '<b>准备中。</b>按下就开麦，● 一跳一跳。不到长按时间就松手，录的这段直接丢掉。'],
+    ['listening', '正在听', '蓝牙遥控器 · USB 接收器', '0:04', '<b>正在听。</b>副标题写这次用的控制设备和麦克风，接错麦时一眼能发现。'],
+    ['transcribing', '正在转文字', '在这台 Mac 上处理', '', '<b>转写中。</b>声波收成三行字，一行一行填满。● 变成薰衣草色。'],
+    ['done', '已输入 15 字', '贴到了「备忘录」的光标处', '', '<b>已输入。</b>说清字数和贴到了哪个 App，1.5 秒后淡出。'],
+    ['short', '按得太短，没算数', '按住超过 0.50 秒才开始说话', '', '<b>没算数。</b>短按不是错误，用灰色，告诉你要按多久。'],
+    ['error', '没听到声音', '看看无线麦开了没有，或者换个收音设备', '', '<b>出错。</b>红点，副标题直接写怎么办，停留 4 秒。'],
+    ['listening', '输入法在听', '已替你按住 Fn · 麦克风临时切到 USB 接收器', '0:02', '<b>外部输入法模式。</b>同一个浮窗，文案换成输入法在做什么。'],
+    ['error', '字没贴进去', '缺「辅助功能」权限，已经拷贝，按 ⌘V 粘贴', '', '<b>贴不进去时。</b>转好的字不丢，先放进剪贴板，再告诉你怎么补救。'],
+  ];
+  $('#hudBoard').innerHTML = HUDS.map(h => `<div class="hud-cell">${hudHTML(h[0], h[1], h[2], h[3])}<div class="cap">${h[4]}</div></div>`).join('');
+
+  /* ---------- 菜单栏面板 ---------- */
+  const popHTML = v => {
+    const live = v === 'listening', warn = v === 'attention';
+    const pillS = live ? 'listening' : warn ? 'attention' : 'idle';
+    const pillT = live ? '正在听 0:04' : warn ? '要处理' : '待命';
+    const hero = live
+      ? `<div class="live-row"><span class="hud-dot"></span><span class="mini-wave">${'<i></i>'.repeat(12)}</span><span>0:04</span></div><div class="hero-sub">松开「确认键」出字</div>`
+      : `<div class="hero-how"><span class="g long"><i></i></span>长按 <kbd>确认键</kbd> 说话</div><div class="hero-sub">蓝牙遥控器 · 松手后字贴到光标处</div><div class="hero-btns"><button type="button" class="btn sm" data-hold>按住试一下</button></div>`;
+    return `
+    <div class="pop">
+      <div class="pop-head"><svg viewBox="0 0 1024 1024" aria-hidden="true"><use href="#logo"/></svg><b>掌声</b><span class="pill" data-s="${pillS}" data-pill>${pillT}</span></div>
+      ${warn ? `<div class="banner"><svg class="ic"><use href="#i-warn"/></svg><div><b>还差「辅助功能」权限</b><span>没有它，字贴不到光标处。</span></div><button type="button" class="btn sm">去打开</button></div>` : ''}
+      <div class="pop-hero ${live ? 'is-live' : ''}">${hero}</div>
+      <div class="pop-rows">
+        <div class="pop-r"><span>控制</span><span class="v"><b>蓝牙遥控器</b></span><span class="t">${warn ? '<span class="dotst warn">没连上</span>' : '<span class="dotst">已连接</span>'}</span></div>
+        <div class="pop-r"><span>收音</span><span class="v"><b>${warn ? '无线麦（蓝牙）' : 'USB 接收器'}</b>${warn ? '<small>蓝牙通话音质，转写会差一些</small>' : ''}</span><span class="t">${warn ? '<span class="badge warn">16 kHz</span>' : '<span class="meter" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span><span class="badge">48 kHz</span>'}</span></div>
+        <div class="pop-r"><span>出字</span><span class="v"><b>内置转写 · 普通话</b></span><span class="t"></span></div>
+      </div>
+      <div class="pop-recent"><div class="rc-h"><span>最近出字</span><time>14:32</time></div><p>下午三点的会改到四点，地点不变。</p><button type="button" class="icon-btn" aria-label="拷贝"><svg class="ic"><use href="#i-copy"/></svg></button></div>
+      <div class="pop-foot"><button type="button" class="btn sm">设置…</button><label>监听 <button type="button" class="switch" role="switch" aria-checked="true" aria-label="监听按键"></button></label><span class="sp"></span><button type="button" class="btn sm ghost">退出</button></div>
+    </div>`;
+  };
+  $$('[data-pop]').forEach(el => { el.innerHTML = popHTML(el.dataset.pop); });
+
+  /* 通用开关 */
+  document.addEventListener('click', e => {
+    const sw = e.target.closest('.switch');
+    if (sw && !sw.id) sw.setAttribute('aria-checked', sw.getAttribute('aria-checked') !== 'true');
+  });
+
+  /* ---------- 按住说话演示 ---------- */
+  const cfg = { dbl: 0.30, long: 0.50 };
+  const hud = $('#hud'), hudTitle = $('#hudTitle'), hudSub = $('#hudSub'), hudTime = $('#hudTime');
+  const bars = $$('#hud .hud-wave i'), talk = $('#talk'), deskIcon = $('#deskIcon'), ins = $('#ins');
+  const deskBar = () => $('#deskIcon .bar');
+  const SAMPLES = ['帮我把这个函数改成异步的，顺便补上错误处理。', '周五之前把设备兼容表更新一下。', '下午三点的会改到四点，地点不变。'];
+  const COPY = {
+    builtin: {
+      armed: () => ['准备中', '已经在录，按住别松'],
+      listening: () => ['正在听', '蓝牙遥控器 · USB 接收器'],
+      transcribing: () => ['正在转文字', '在这台 Mac 上处理'],
+      done: n => [`已输入 ${n} 字`, '贴到了「备忘录」的光标处'],
+      short: () => ['按得太短，没算数', `按住超过 ${cfg.long.toFixed(2)} 秒才开始说话`],
+      idle: () => ['', ''],
+    },
+    ime: {
+      armed: () => ['准备中', '麦克风临时切到 USB 接收器'],
+      listening: () => ['输入法在听', '已替你按住 Fn'],
+      transcribing: () => ['等输入法出字', '松开了 Fn'],
+      done: () => ['输入法已出字', '2 秒后切回原来的麦克风'],
+      short: () => ['按得太短，没算数', `按住超过 ${cfg.long.toFixed(2)} 秒才开始说话`],
+      idle: () => ['', ''],
+    },
+  };
+  const demo = { state: 'idle', held: false, t0: 0, timers: [], mode: 'builtin', i: 0, raf: 0, inserts: 0 };
+  const later = (fn, ms) => demo.timers.push(setTimeout(fn, ms));
+  const clearTimers = () => { demo.timers.forEach(clearTimeout); demo.timers = []; };
+  const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const PILL = { idle: ['idle', '待命'], armed: ['armed', '准备中'], listening: ['listening', '正在听'], transcribing: ['transcribing', '转写中'], done: ['done', '已输入'], short: ['idle', '待命'] };
+
+  function setState(s, n) {
+    demo.state = s;
+    hud.dataset.state = s;
+    deskIcon.dataset.s = (s === 'done' || s === 'short') ? 'idle' : s;
+    if (s !== 'idle') {
+      const [t, sub] = COPY[demo.mode][s](n);
+      hudTitle.textContent = t; hudSub.textContent = sub;
+    }
+    talk.classList.toggle('down', s === 'armed' || s === 'listening');
+    $$('[data-live] [data-pill]').forEach(p => { p.dataset.s = PILL[s][0]; p.textContent = PILL[s][1]; });
+  }
+
+  function loop() {
+    cancelAnimationFrame(demo.raf);
+    const tick = now => {
+      if (demo.state !== 'listening') {
+        bars.forEach(b => { b.style.transform = ''; });
+        const db = deskBar(); if (db) db.style.transform = '';
+        return;
+      }
+      const t = now / 1000;
+      let sum = 0;
+      bars.forEach((b, k) => {
+        const v = reduce ? 0.55 : Math.max(0.14, Math.min(1, 0.5 + 0.32 * Math.sin(t * 7.1 + k * 1.9) * Math.sin(t * 2.3 + k * 0.7) + 0.2 * Math.sin(t * 12.7 + k * 2.9)));
+        sum += v;
+        b.style.transform = `scaleY(${v.toFixed(3)})`;
+      });
+      const db = deskBar(); if (db) db.style.transform = `scaleY(${(0.3 + 0.7 * sum / bars.length).toFixed(3)})`;
+      hudTime.textContent = fmt((now - demo.t0) / 1000);
+      demo.raf = requestAnimationFrame(tick);
+    };
+    demo.raf = requestAnimationFrame(tick);
+  }
+
+  function insert(text) {
+    if (demo.inserts >= 2) { ins.textContent = ''; demo.inserts = 0; }
+    const span = document.createElement('span');
+    span.className = 'ins-new';
+    span.textContent = text;
+    ins.appendChild(span);
+    demo.inserts++;
+    setTimeout(() => span.classList.add('settled'), 600);
+  }
+
+  function down() {
+    if (demo.held || demo.state === 'transcribing') return;
+    demo.held = true;
+    clearTimers();
+    demo.t0 = performance.now();
+    hudTime.textContent = '0:00';
+    setState('armed');
+    later(() => { if (demo.held) { setState('listening'); loop(); } }, cfg.long * 1000);
+  }
+  function up() {
+    if (!demo.held) return;
+    demo.held = false;
+    if (demo.state === 'armed') {
+      clearTimers();
+      setState('short');
+      later(() => setState('idle'), 1700);
+      return;
+    }
+    if (demo.state !== 'listening') return;
+    setState('transcribing');
+    later(() => {
+      const text = SAMPLES[demo.i++ % SAMPLES.length];
+      insert(text);
+      setState('done', [...text].filter(ch => /[\p{L}\p{N}]/u.test(ch)).length);
+      later(() => setState('idle'), 2300);
+    }, demo.mode === 'ime' ? 1100 : 850);
+  }
+  const bindHold = el => {
+    el.addEventListener('pointerdown', e => { e.preventDefault(); el.setPointerCapture?.(e.pointerId); down(); });
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+    el.addEventListener('lostpointercapture', up);
+    el.addEventListener('keydown', e => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); down(); } else if (e.key === ' ' || e.key === 'Enter') e.preventDefault(); });
+    el.addEventListener('keyup', e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); up(); } });
+    el.addEventListener('contextmenu', e => e.preventDefault());
+  };
+  bindHold(talk);
+  $$('#deskPop [data-hold]').forEach(bindHold);
+
+  $$('#modeSeg button').forEach(b => b.addEventListener('click', () => {
+    demo.mode = b.dataset.m;
+    $$('#modeSeg button').forEach(x => x.setAttribute('aria-pressed', x === b));
+  }));
+
+  const deskPop = $('#deskPop');
+  deskIcon.addEventListener('click', e => {
+    e.stopPropagation();
+    deskPop.hidden = !deskPop.hidden;
+    deskIcon.setAttribute('aria-expanded', !deskPop.hidden);
+  });
+  document.addEventListener('click', e => {
+    if (!deskPop.hidden && !deskPop.contains(e.target) && !deskIcon.contains(e.target)) {
+      deskPop.hidden = true; deskIcon.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  /* ---------- 设置窗口：切页 ---------- */
+  const TITLES = { devices: '设备', keys: '按键', voice: '语音', perm: '权限', pro: 'Pro', about: '关于' };
+  const showPane = id => {
+    $$('.side button').forEach(b => { if (b.dataset.pane === id) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
+    $$('.main-b > .pane').forEach(p => { p.hidden = p.id !== 'pane-' + id; });
+    $('#paneTitle').textContent = TITLES[id];
+    $('#paneTools').innerHTML = id === 'keys' ? '<button type="button" class="btn sm primary" id="learnBtn">学一个键</button>' : '';
+    if (id === 'keys') $('#learnBtn').addEventListener('click', startLearn);
+  };
+  $$('.side button').forEach(b => b.addEventListener('click', () => showPane(b.dataset.pane)));
+
+  /* 单选列表 */
+  $$('[data-radio]').forEach(g => g.addEventListener('click', e => {
+    const r = e.target.closest('[role=radio]'); if (!r) return;
+    $$('[role=radio]', g).forEach(x => x.setAttribute('aria-checked', x === r));
+  }));
+  $$('[data-segonly]').forEach(g => g.addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    $$('button', g).forEach(x => x.setAttribute('aria-pressed', x === b));
+  }));
+
+  /* ---------- 键位表 ---------- */
+  const GEST = { single: '单击', double: '双击', long: '长按' };
+  const KINDS = [
+    { k: 'ptt', t: '按住说话', d: '按住开始，松手出字', ic: 'i-ptt', only: 'long' },
+    { k: 'toggle', t: '按一下开始 / 结束', d: '按一下开始，再按出字', ic: 'i-toggle' },
+    { k: 'shortcut', t: '快捷键', d: '模拟按下一组键', ic: 'i-cmd' },
+    { k: 'text', t: '输入一段文字', d: '常用回复、签名', ic: 'i-text' },
+    { k: 'media', t: '媒体键', d: '播放、切歌、音量', ic: 'i-play' },
+    { k: 'app', t: '打开 App', d: '切过去或打开', ic: 'i-app' },
+    { k: 'combo', t: '组合动作', d: '一个键依次做几步', ic: 'i-combo', pro: true },
+    { k: 'daw', t: '录音剪辑动作', d: '录音、标记、切片', ic: 'i-daw', pro: true },
+  ];
+  const rows = [
+    { key: '确认键', single: { k: 'shortcut', v: '↩', name: '回车' }, double: { k: 'shortcut', v: '⌘↩', name: '发送' }, long: { k: 'ptt' } },
+    { key: '返回键', single: { k: 'shortcut', v: '⎋', name: '取消' }, double: { k: 'shortcut', v: '⌘Z', name: '撤销' }, long: null },
+    { key: '播放 / 暂停', single: { k: 'media', v: '播放 / 暂停' }, double: { k: 'media', v: '下一首' }, long: null },
+    { key: '音量 +', single: { k: 'media', v: '音量 +' }, double: null, long: { k: 'toggle' } },
+    { key: '菜单键', single: { k: 'text', v: '好的，收到' }, double: null, long: { k: 'app', v: '备忘录' } },
+  ];
+  const esc = s => String(s).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch]));
+  const cellLabel = c => {
+    if (!c) return '＋ 设置';
+    switch (c.k) {
+      case 'ptt': return '按住说话';
+      case 'toggle': return '开始 / 结束说话';
+      case 'shortcut': return (c.name ? c.name + ' ' : '快捷键 ') + c.v;
+      case 'text': return `文字「${esc(c.v)}」`;
+      case 'media': return c.v;
+      case 'app': return `打开 ${c.v}`;
+    }
+    return '';
+  };
+  const cellClass = c => !c ? 'cell empty' : (c.k === 'ptt' || c.k === 'toggle') ? 'cell voice' : 'cell';
+  const sel = { r: -1, g: 'single', k: null };
+  function renderTable(flashRow) {
+    const head = `<div class="kh" role="columnheader">按键</div>
+      <div class="kh" role="columnheader"><span class="g"><i></i></span>单击</div>
+      <div class="kh" role="columnheader"><span class="g"><i></i><i></i></span>双击</div>
+      <div class="kh" role="columnheader"><span class="g long"><i></i></span>长按</div>`;
+    const body = rows.map((r, i) => {
+      const fl = i === flashRow ? ' new-row' : '';
+      return `<div class="kk${fl}" role="rowheader"><kbd>${r.key}</kbd></div>` +
+        ['single', 'double', 'long'].map(g => {
+          const c = r[g];
+          const on = sel.r === i && sel.g === g && !$('#editor').hidden;
+          return `<div class="${fl.trim()}" role="cell"><button type="button" class="${cellClass(c)}" data-r="${i}" data-g="${g}" aria-pressed="${on}" aria-label="${r.key} ${GEST[g]}：${cellLabel(c)}"><span>${cellLabel(c)}</span></button></div>`;
+        }).join('');
+    }).join('');
+    $('#kt').innerHTML = head + body;
+  }
+  renderTable();
+
+  const editor = $('#editor');
+  function openEditor(r, g) {
+    sel.r = r; sel.g = g;
+    const c = rows[r][g];
+    sel.k = c ? c.k : (g === 'long' ? 'ptt' : 'shortcut');
+    sel.draft = c ? { ...c } : {};
+    editor.hidden = false;
+    $('#edTitle').textContent = rows[r].key;
+    renderEditor();
+    renderTable();
+    editor.scrollIntoView({ block: 'nearest', behavior: reduce ? 'auto' : 'smooth' });
+  }
+  function renderEditor() {
+    $$('#edGesture button').forEach(b => b.setAttribute('aria-pressed', b.dataset.g === sel.g));
+    if (sel.k === 'ptt' && sel.g !== 'long') sel.k = 'toggle';
+    $('#edActs').innerHTML = KINDS.map(a => {
+      const dis = a.pro || (a.only && a.only !== sel.g);
+      const note = a.pro ? '<span class="badge pro">PRO</span>' : '';
+      const d = a.only && a.only !== sel.g ? '只能设在长按上' : a.d;
+      return `<button type="button" class="act" data-k="${a.k}" aria-pressed="${sel.k === a.k}" ${dis ? 'disabled' : ''}><svg class="ic"><use href="#${a.ic}"/></svg><b>${a.t}${note}</b><small>${d}</small></button>`;
+    }).join('');
+    const dt = $('#edDetail');
+    const d = sel.draft;
+    switch (sel.k) {
+      case 'ptt': dt.innerHTML = '按下的瞬间就开始录音，满长按时间才算数，第一个字不会被吞掉。'; break;
+      case 'toggle': dt.innerHTML = '按一下开始说话，再按一下结束出字。适合说长段话，手不用一直按着。'; break;
+      case 'shortcut': dt.innerHTML = `<span>快捷键</span><button type="button" class="rec" id="rec">${d.k === 'shortcut' && d.v ? d.v : '点这里，再按快捷键'}</button>`; break;
+      case 'text': dt.innerHTML = `<label for="edText">要输入的文字</label><input type="text" id="edText" value="${d.k === 'text' ? esc(d.v) : ''}" placeholder="比如：好的，收到">`; break;
+      case 'media': dt.innerHTML = `<label for="edMedia">媒体键</label><select id="edMedia">${['播放 / 暂停', '下一首', '上一首', '音量 +', '音量 −', '静音'].map(m => `<option ${d.v === m ? 'selected' : ''}>${m}</option>`).join('')}</select>`; break;
+      case 'app': dt.innerHTML = `<label for="edApp">打开</label><select id="edApp">${['备忘录', '终端', '访达', '日历'].map(m => `<option ${d.v === m ? 'selected' : ''}>${m}</option>`).join('')}</select><button type="button" class="btn sm">选择其他 App…</button>`; break;
+    }
+    const rec = $('#rec');
+    if (rec) rec.addEventListener('click', () => {
+      rec.classList.add('on'); rec.textContent = '请按快捷键…';
+      const onKey = e => {
+        e.preventDefault();
+        if (['Shift', 'Control', 'Alt', 'Meta'].includes(e.key)) return;
+        const SPECIAL = { Enter: '↩', Escape: '⎋', Backspace: '⌫', Tab: '⇥', ' ': '空格', ArrowLeft: '←', ArrowRight: '→', ArrowUp: '↑', ArrowDown: '↓' };
+        const v = (e.ctrlKey ? '⌃' : '') + (e.altKey ? '⌥' : '') + (e.shiftKey ? '⇧' : '') + (e.metaKey ? '⌘' : '') + (SPECIAL[e.key] || (e.code.startsWith('Key') ? e.code.slice(3) : e.code.startsWith('Digit') ? e.code.slice(5) : e.key.toUpperCase()));
+        sel.draft = { k: 'shortcut', v, name: '' };
+        rec.textContent = v; rec.classList.remove('on');
+        window.removeEventListener('keydown', onKey, true);
+      };
+      window.addEventListener('keydown', onKey, true);
+    });
+  }
+  $('#kt').addEventListener('click', e => {
+    const c = e.target.closest('.cell'); if (!c) return;
+    openEditor(+c.dataset.r, c.dataset.g);
+  });
+  $('#edGesture').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    sel.g = b.dataset.g;
+    const c = rows[sel.r][sel.g];
+    sel.draft = c ? { ...c } : {};
+    if (c) sel.k = c.k;
+    renderEditor(); renderTable();
+  });
+  $('#edActs').addEventListener('click', e => {
+    const b = e.target.closest('.act'); if (!b || b.disabled) return;
+    sel.k = b.dataset.k;
+    if (sel.draft.k !== sel.k) sel.draft = {};
+    renderEditor();
+  });
+  const closeEditor = () => { editor.hidden = true; sel.r = -1; renderTable(); };
+  $('#edCancel').addEventListener('click', closeEditor);
+  $('#edClear').addEventListener('click', () => { rows[sel.r][sel.g] = null; closeEditor(); });
+  $('#edDone').addEventListener('click', () => {
+    let c = null;
+    switch (sel.k) {
+      case 'ptt': case 'toggle': c = { k: sel.k }; break;
+      case 'shortcut': c = sel.draft.v ? { k: 'shortcut', v: sel.draft.v, name: sel.draft.name || '' } : null; break;
+      case 'text': { const v = $('#edText').value.trim(); c = v ? { k: 'text', v } : null; break; }
+      case 'media': c = { k: 'media', v: $('#edMedia').value }; break;
+      case 'app': c = { k: 'app', v: $('#edApp').value }; break;
+    }
+    if (sel.k === 'shortcut' && !c) { const rec = $('#rec'); if (rec) { rec.classList.add('on'); rec.textContent = '先按一组快捷键'; } return; }
+    if (sel.k === 'text' && !c) { $('#edText').focus(); return; }
+    rows[sel.r][sel.g] = c;
+    closeEditor();
+  });
+
+  /* 学一个键 */
+  const NEW_KEYS = ['上方向键', '下方向键', '主页键', '音量 −'];
+  let learnTimer = 0, learned = 0;
+  function startLearn() {
+    if (learned >= NEW_KEYS.length) return;
+    $('#learnBar').hidden = false;
+    $('#learnBtn').disabled = true;
+    learnTimer = setTimeout(() => {
+      $('#learnBar').hidden = true;
+      $('#learnBtn').disabled = false;
+      rows.push({ key: NEW_KEYS[learned++], single: null, double: null, long: null });
+      renderTable(rows.length - 1);
+      openEditor(rows.length - 1, 'single');
+    }, 1800);
+  }
+  $('#learnCancel').addEventListener('click', () => { clearTimeout(learnTimer); $('#learnBar').hidden = true; const b = $('#learnBtn'); if (b) b.disabled = false; });
+  showPane('keys');
+
+  /* 手势时间 */
+  const ruler = $('#ruler');
+  const syncTiming = () => {
+    cfg.dbl = +$('#dblIn').value; cfg.long = +$('#longIn').value;
+    ruler.style.setProperty('--dbl', cfg.dbl); ruler.style.setProperty('--long', cfg.long);
+    $('#dblOut').textContent = cfg.dbl.toFixed(2) + ' 秒'; $('#longOut').textContent = cfg.long.toFixed(2) + ' 秒';
+    $('#dblLab').textContent = cfg.dbl.toFixed(2); $('#longLab').textContent = cfg.long.toFixed(2);
+    $$('.lp-val').forEach(x => { x.textContent = cfg.long.toFixed(2); });
+  };
+  $('#dblIn').addEventListener('input', syncTiming);
+  $('#longIn').addEventListener('input', syncTiming);
+  syncTiming();
+
+  /* ---------- 语音页 ---------- */
+  $$('#voiceSeg button').forEach(b => b.addEventListener('click', () => {
+    $$('#voiceSeg button').forEach(x => x.setAttribute('aria-pressed', x === b));
+    const ime = b.dataset.v === 'ime';
+    $('#vb-builtin').hidden = ime; $('#vb-ime').hidden = !ime;
+    $('#voiceFoot').textContent = ime
+      ? '掌声替你按住输入法的语音键，让输入法出字；说话期间临时把系统默认输入切到你选的收音设备，结束后切回。'
+      : '掌声自己录音，在这台 Mac 上转成文字，贴到光标处。声音不上传。';
+  }));
+  const prWave = $('#prWave');
+  const N = 64;
+  let seed = 7;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  prWave.innerHTML = Array.from({ length: N }, (_, i) => {
+    const x = i / (N - 1);
+    const speech = x > 0.3 && x < 0.86 ? 0.35 + 0.6 * rnd() : 0.08 + 0.12 * rnd();
+    return `<i style="height:${Math.round(speech * 100)}%" data-x="${x.toFixed(3)}"></i>`;
+  }).join('');
+  const syncWarm = () => {
+    const on = $('#warmSw').getAttribute('aria-checked') === 'true';
+    const w = on ? +$('#warmIn').value : 0;
+    $('#warmRow').hidden = !on;
+    $('#preroll').style.setProperty('--warm', w);
+    $('#warmOut').textContent = w.toFixed(1) + ' 秒';
+    // 按下在 45% 处，时间轴总长 6 秒
+    const start = 0.45 - w / 6, end = 0.88;
+    $$('#prWave i').forEach(i => { const x = +i.dataset.x; i.classList.toggle('in', x >= start && x <= end); });
+    $('#warmCap').textContent = on
+      ? `珊瑚色是会转成字的部分：按下前 ${w.toFixed(1)} 秒也算进去，第一个字不会被吞掉。`
+      : '珊瑚色是会转成字的部分：从按下那一刻开始录。蓝牙麦开麦慢的话，第一个字可能录不全。';
+  };
+  $('#warmSw').addEventListener('click', () => {
+    const s = $('#warmSw'); s.setAttribute('aria-checked', s.getAttribute('aria-checked') !== 'true'); syncWarm();
+  });
+  $('#warmIn').addEventListener('input', syncWarm);
+  syncWarm();
+
+  /* 权限：点「去打开」后模拟自动打勾 */
+  $$('[data-perm] .btn').forEach(b => b.addEventListener('click', () => {
+    const row = b.closest('[data-perm]');
+    b.textContent = '等你在系统设置里打开…'; b.disabled = true;
+    setTimeout(() => {
+      $('.perm-ic', row).classList.remove('no');
+      $('.perm-ic', row).innerHTML = '<svg class="ic"><use href="#i-check"/></svg>';
+      b.outerHTML = '<span class="dotst">已打开</span>';
+    }, 1400);
+  }));
+})();
+</script>
+</body>
+</html>
