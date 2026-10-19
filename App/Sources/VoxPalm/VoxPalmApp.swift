@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var settingsWindow: NSWindow?
     private var onboardingWindow: NSWindow?
     private let navigation = SettingsNavigation()
+    private let launchedAt = Date()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         PrivateModules.setUp()
@@ -33,10 +34,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         model.openSettingsHandler = { [weak self] pane in self?.showSettings(pane) }
         model.openOnboardingHandler = { [weak self] in self?.showOnboarding() }
         model.closePanelHandler = { [weak self] in self?.status?.closePopover() }
-        // 用调试配置文件跑的时候不弹引导。
-        if !model.config.onboardingDone, ProcessInfo.processInfo.environment["VOXPALM_CONFIG"] == nil {
+        // 用调试配置文件跑的时候不弹引导；带 --onboarding 启动时直接打开引导（open VoxPalm.app --args --onboarding）。
+        if CommandLine.arguments.contains("--onboarding")
+            || (!model.config.onboardingDone && ProcessInfo.processInfo.environment["VOXPALM_CONFIG"] == nil) {
             showOnboarding()
         }
+    }
+
+    /// 系统在启动时、以及在访达里再次打开掌声时会发「重新打开」，默认处理会去点主菜单的「设置…」弹出设置窗口。
+    /// 启动时那次不管；之后再次打开掌声时弹出菜单栏面板，告诉用户掌声在哪。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag, Date().timeIntervalSince(launchedAt) > 2 { status?.showPopover() }
+        return false
     }
 
     /// 退出前等控制设备收尾：接管了设备按键的来源要先让设备恢复普通按键。
