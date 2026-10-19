@@ -11,11 +11,18 @@ struct MenuContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             header
             if let attention = model.attentions.first {
-                AttentionBanner(attention: attention) { model.openSettings(attention.fix) }
+                AttentionBanner(attention: attention) {
+                    if let permission = attention.permission {
+                        model.closePanel()
+                        permission.request()
+                    } else {
+                        model.openSettings(attention.fix)
+                    }
+                }
             }
             TalkCard()
             VStack(spacing: 0) {
-                row("控制") {
+                row("控制", symbol: model.activeDevice.map(DevicesPane.icon(for:)) ?? "av.remote.fill", color: .tileBlue) {
                     Text(model.activeDeviceName ?? "还没选").lineLimit(1)
                 } trailing: {
                     if model.isPaused {
@@ -28,8 +35,8 @@ struct MenuContentView: View {
                         StatusDot(color: .orange, text: "没连上")
                     }
                 }
-                Divider()
-                row("收音") {
+                Divider().padding(.leading, 50)
+                row("收音", symbol: model.selectedMic.map(DevicesPane.icon(for:)) ?? "mic.fill", color: .tileOrange) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(model.selectedMic?.name ?? "系统默认输入").lineLimit(1)
                         if let mic = model.selectedMic, mic.isLowRateBluetoothInput {
@@ -44,9 +51,12 @@ struct MenuContentView: View {
                         }
                     }
                 }
-                Divider()
-                row("出字") { Text(model.outputSummary).lineLimit(1) } trailing: { EmptyView() }
+                Divider().padding(.leading, 50)
+                row("出字", symbol: "text.alignleft", color: .tileGreen) { Text(model.outputSummary).lineLimit(1) } trailing: { EmptyView() }
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 2)
+            .cardBackground(cornerRadius: 14)
             if let transcript = model.lastTranscript {
                 RecentTranscript(text: transcript, at: model.lastTranscriptAt)
             } else if let message = model.message {
@@ -61,10 +71,8 @@ struct MenuContentView: View {
 
     private var header: some View {
         HStack(spacing: 8) {
-            if let icon = NSImage(named: "VoxPalm") {
-                Image(nsImage: icon).resizable().frame(width: 20, height: 20)
-            }
-            Text("掌声").font(.headline)
+            AppIconImage(size: 24)
+            Text("掌声").font(.system(size: 15, weight: .bold))
             Spacer()
             StatePill()
         }
@@ -73,6 +81,7 @@ struct MenuContentView: View {
     private var footer: some View {
         HStack(spacing: 10) {
             Button("设置…") { model.openSettings() }
+                .secondaryButton()
             Toggle("监听", isOn: Binding(get: { !model.isPaused }, set: { model.setPaused(!$0) }))
                 .toggleStyle(.switch)
                 .controlSize(.small)
@@ -85,10 +94,14 @@ struct MenuContentView: View {
         .font(.callout)
     }
 
-    private func row<Leading: View, Trailing: View>(_ title: String, @ViewBuilder _ leading: () -> Leading, @ViewBuilder trailing: () -> Trailing) -> some View {
+    private func row<Leading: View, Trailing: View>(_ title: String, symbol: String, color: Color, @ViewBuilder _ leading: () -> Leading,
+                                                    @ViewBuilder trailing: () -> Trailing) -> some View {
         HStack(alignment: .center, spacing: 10) {
-            Text(title).foregroundStyle(.secondary).frame(width: 34, alignment: .leading)
-            leading()
+            IconTile(symbol: symbol, color: color, size: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.caption).foregroundStyle(.secondary)
+                leading()
+            }
             Spacer(minLength: 6)
             trailing()
         }
@@ -167,7 +180,7 @@ struct TalkCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Brand.coralTop.opacity(0.16)))
+                .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Brand.coralTop.opacity(0.16)))
             case .transcribing:
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
@@ -175,7 +188,7 @@ struct TalkCard: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
-                .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+                .cardBackground(cornerRadius: 14)
             case .idle:
                 idle
             }
@@ -205,7 +218,7 @@ struct TalkCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .cardBackground(cornerRadius: 14)
     }
 }
 
@@ -215,13 +228,14 @@ struct PressToTalkButton: View {
     @Binding var trying: Bool
 
     var body: some View {
-        Text("按住试一下")
-            .font(.callout)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 4)
-            .background(RoundedRectangle(cornerRadius: 6).fill(trying ? Brand.coralTop.opacity(0.25) : Color.primary.opacity(0.06)))
-            .overlay(RoundedRectangle(cornerRadius: 6).stroke(Color.primary.opacity(0.15)))
-            .contentShape(Rectangle())
+        Label("按住试一下", systemImage: "mic.fill")
+            .font(.callout.weight(.medium))
+            .foregroundStyle(trying ? .white : Brand.coralText)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 5)
+            .background(Capsule().fill(trying ? AnyShapeStyle(Brand.coral) : AnyShapeStyle(Brand.coralTop.opacity(0.14))))
+            .overlay(Capsule().strokeBorder(Brand.coralTop.opacity(trying ? 0 : 0.35), lineWidth: 0.5))
+            .contentShape(Capsule())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { _ in
@@ -337,16 +351,18 @@ struct AttentionBanner: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+            IconTile(symbol: attention.permission?.symbol ?? "exclamationmark", color: attention.permission?.tileColor ?? .tileOrange, size: 26)
             VStack(alignment: .leading, spacing: 2) {
                 Text(attention.title).font(.callout.weight(.semibold))
                 Text(attention.detail).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
-            Button("去打开", action: fix).controlSize(.small)
+            Button(attention.permission == nil ? "去选" : "开启", action: fix)
+                .prominentButton()
+                .controlSize(.small)
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.orange.opacity(0.14)))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.tileOrange.opacity(0.12)))
     }
 }
 
@@ -384,6 +400,6 @@ struct RecentTranscript: View {
             .help("拷贝")
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 10).fill(Color.primary.opacity(0.05)))
+        .cardBackground(cornerRadius: 14)
     }
 }

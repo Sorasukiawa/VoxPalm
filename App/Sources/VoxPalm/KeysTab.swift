@@ -11,10 +11,12 @@ struct KeysPane: View {
 
     var body: some View {
         PaneScaffold(title: "按键") {
-            Button(model.learningSpot == nil ? "学一个键" : "取消学键") {
+            Button {
                 if model.learningSpot == nil { learnNew() } else { model.cancelLearning() }
+            } label: {
+                Label(model.learningSpot == nil ? "学一个键" : "取消学键", systemImage: model.learningSpot == nil ? "plus" : "xmark")
             }
-            .buttonStyle(.borderedProminent)
+            .prominentButton()
             .disabled(model.activeDevice == nil)
         } content: {
             Form {
