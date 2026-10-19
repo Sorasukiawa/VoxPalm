@@ -10,11 +10,11 @@ enum DiagramPreview {
         guard let index = args.firstIndex(of: "--render-diagrams"), index + 1 < args.count else { return }
         let directory = URL(fileURLWithPath: args[index + 1])
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        var diagrams = DeviceDiagram.Body.allCases.map { body -> DeviceDiagram in
-            body == .generic
+        var diagrams = DeviceDiagram.choices.map { diagram -> DeviceDiagram in
+            diagram.id == "generic"
                 ? .generic(buttons: [(ButtonID("key:121"), "按键 PageDown"), (ButtonID("key:116"), "按键 PageUp"), (ButtonID("key:11"), "按键 B")])
-                : .template(body)
-        }
+                : diagram
+        } + [DeviceDiagram.mediaKeys]
         diagrams += PrivateModules.previewDiagrams()
         for diagram in diagrams {
             var buttons: [String: ButtonID] = [:]
@@ -26,7 +26,7 @@ enum DiagramPreview {
             for binding in AIPreset.bindings(for: resolved) { keyMap.set(binding) }
             let callouts = DiagramCallout.make(diagram: diagram, buttons: buttons, keyMap: keyMap,
                                                reportsRelease: resolved.reportsRelease, learning: nil)
-            let selected = diagram.spots.first { ["down", "next", "record", "pad"].contains($0.id) }?.id
+            let selected = diagram.spots.first { ["down", "next", "record"].contains($0.id) }?.id
             for scheme in [ColorScheme.light, .dark] {
                 let view = DeviceDiagramView(diagram: diagram, callouts: callouts, pressed: [], buttons: buttons, selected: selected)
                     .padding(16)
