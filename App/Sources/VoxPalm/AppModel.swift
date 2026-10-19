@@ -141,8 +141,9 @@ final class AppModel {
             case let .inserted(_, app):
                 self.pendingApp = app ?? "光标处"
                 self.lastInsertedAt = Date()
-            case .copied:
+            case let .copied(_, reason):
                 self.pendingApp = nil
+                log.info("没贴，字放进剪贴板：\(reason.pasteMessage, privacy: .public)")
             default:
                 break
             }
