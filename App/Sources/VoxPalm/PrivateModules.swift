@@ -13,6 +13,15 @@ enum PrivateModules {
         #endif
     }
 
+    /// 闭源模块自带的设备示意图（调试渲染用）。
+    static func previewDiagrams() -> [DeviceDiagram] {
+        #if VOXPALM_PRIVATE
+        return DJIModule.previewDiagrams()
+        #else
+        return []
+        #endif
+    }
+
     static var buildFlavor: String {
         #if VOXPALM_PRIVATE
         return "官方版（含 DJI 适配）"

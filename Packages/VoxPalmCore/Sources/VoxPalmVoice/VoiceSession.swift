@@ -38,6 +38,8 @@ public final class VoiceSession: VoiceActionHandler {
         public var inputMethodKey = InputMethodKey()
         /// 外部输入法模式下，松手后等多久再把系统默认输入切回去（输入法可能还在收尾）
         public var restoreInputDelay: Double = 1.5
+        /// 外部输入法模式下要「说完回车发送」时，松手后等多久再按回车（等输入法把字放进去）
+        public var inputMethodSendDelay: Double = 1.5
         /// 一直开着麦克风、保留最近一段声音：蓝牙麦开麦要半秒以上时用，代价是麦克风指示灯常亮
         public var keepMicWarm = false
         public var warmSeconds: Double = 1.0
@@ -58,6 +60,7 @@ public final class VoiceSession: VoiceActionHandler {
             whisper = try c.decodeIfPresent(WhisperCLITranscriber.Configuration.self, forKey: .whisper) ?? d.whisper
             inputMethodKey = try c.decodeIfPresent(InputMethodKey.self, forKey: .inputMethodKey) ?? d.inputMethodKey
             restoreInputDelay = try c.decodeIfPresent(Double.self, forKey: .restoreInputDelay) ?? d.restoreInputDelay
+            inputMethodSendDelay = try c.decodeIfPresent(Double.self, forKey: .inputMethodSendDelay) ?? d.inputMethodSendDelay
             keepMicWarm = try c.decodeIfPresent(Bool.self, forKey: .keepMicWarm) ?? d.keepMicWarm
             warmSeconds = try c.decodeIfPresent(Double.self, forKey: .warmSeconds) ?? d.warmSeconds
             textMethod = try c.decodeIfPresent(TextInserter.Method.self, forKey: .textMethod) ?? d.textMethod
@@ -87,6 +90,8 @@ public final class VoiceSession: VoiceActionHandler {
     private var ring: [AVAudioPCMBuffer] = []
     private var savedDefaultInput: AudioObjectID?
     private var restoreWork: DispatchWorkItem?
+    /// 这次说话的附加要求（说完要不要回车发送）
+    private var request = VoiceRequest()
 
     public init(settings: Settings = Settings()) {
         self.settings = settings
@@ -108,8 +113,9 @@ public final class VoiceSession: VoiceActionHandler {
 
     public var isVoiceActive: Bool { state == .listening || state == .armed }
 
-    public func voiceArm() {
+    public func voiceArm(_ request: VoiceRequest) {
         guard state == .idle else { return }
+        self.request = request
         switch settings.mode {
         case .builtIn:
             lock.lock()
@@ -138,9 +144,10 @@ public final class VoiceSession: VoiceActionHandler {
         state = .idle
     }
 
-    public func voiceBegin() {
-        if state == .idle { voiceArm() }
+    public func voiceBegin(_ request: VoiceRequest) {
+        if state == .idle { voiceArm(request) }
         guard state == .armed else { return }
+        self.request = request
         state = .listening
         if settings.mode == .inputMethod {
             guard KeyPoster.canPost else {
@@ -157,6 +164,12 @@ public final class VoiceSession: VoiceActionHandler {
         case .inputMethod:
             if state == .listening { InputMethodBridge.end(settings.inputMethodKey) }
             restoreDefaultInput(after: settings.restoreInputDelay)
+            if request.sendReturn, state == .listening {
+                // 输入法什么时候把字放进去不确定，等一会儿；输入框还是空的就不发。
+                DispatchQueue.main.asyncAfter(deadline: .now() + settings.inputMethodSendDelay) { [weak self] in
+                    self?.onMessage?(FocusedField.sendReturn())
+                }
+            }
             state = .idle
         case .builtIn:
             lock.lock()
@@ -179,13 +192,13 @@ public final class VoiceSession: VoiceActionHandler {
                 return
             }
             state = .transcribing
-            transcribe(buffers)
+            transcribe(buffers, sendReturn: request.sendReturn)
         }
     }
 
     // MARK: - 内置转写
 
-    private func transcribe(_ buffers: [AVAudioPCMBuffer]) {
+    private func transcribe(_ buffers: [AVAudioPCMBuffer], sendReturn: Bool) {
         let settings = settings
         let started = Date()
         // 主线程上的任务；转写本身是非隔离的异步函数，在后台执行，不卡界面。
@@ -205,9 +218,15 @@ public final class VoiceSession: VoiceActionHandler {
                     self.onMessage?("没听出文字")
                 } else {
                     if let file = self.debugTranscriptFile {
-                        Self.append(text, to: file)
+                        Self.append(sendReturn ? text + "⏎" : text, to: file)
                     } else {
                         TextInserter.insert(text, method: settings.textMethod)
+                        if sendReturn {
+                            // 等粘贴落进输入框，再确认焦点、按回车。
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                                self?.onMessage?(FocusedField.sendReturn())
+                            }
+                        }
                     }
                     self.onTranscript?(text)
                     self.onMessage?(String(format: "转写用时 %.1f 秒（%.1f 秒录音）", elapsed, AudioConversion.duration(buffers)))

@@ -9,6 +9,8 @@ struct AppConfig: Codable, Equatable {
     var keyMap = KeyMap()
     var timing = GestureTiming()
     var voice = VoiceSession.Settings()
+    /// 每台控制设备的示意图：选的外形、示意图上的键对应学到的哪个键
+    var deviceLayouts: [String: DeviceLayout] = [:]
 
     init() {}
 
@@ -20,6 +22,7 @@ struct AppConfig: Codable, Equatable {
         keyMap = try c.decodeIfPresent(KeyMap.self, forKey: .keyMap) ?? KeyMap()
         timing = try c.decodeIfPresent(GestureTiming.self, forKey: .timing) ?? GestureTiming()
         voice = try c.decodeIfPresent(VoiceSession.Settings.self, forKey: .voice) ?? VoiceSession.Settings()
+        deviceLayouts = try c.decodeIfPresent([String: DeviceLayout].self, forKey: .deviceLayouts) ?? [:]
     }
 
     static var fileURL: URL {
@@ -44,4 +47,19 @@ struct AppConfig: Codable, Equatable {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(self).write(to: url, options: .atomic)
     }
+}
+
+/// 一台控制设备在示意图上的样子。
+struct DeviceLayout: Codable, Equatable {
+    /// 用户选的外形；nil = 自动（适配模块给的或者按设备说明猜的）
+    var body: DeviceDiagram.Body?
+    /// 示意图上的键（spot id）→ 学到的键
+    var spotButtons: [String: ButtonID] = [:]
+    /// 外形是「通用按键」时，学到的键按顺序排
+    var learned: [LearnedButton] = []
+}
+
+struct LearnedButton: Codable, Equatable {
+    var button: ButtonID
+    var label: String
 }
