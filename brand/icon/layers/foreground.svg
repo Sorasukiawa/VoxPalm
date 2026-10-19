@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>掌声 VoxPalm 前景层</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#E66B3F"/><stop offset="1" stop-color="#C94F28"/></linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFFBF8"/><stop offset="1" stop-color="#F6E5DA"/></linearGradient>
+  </defs>
+  <g>
+    <rect x="313" y="321" width="200" height="430" rx="100.0" fill="url(#body)"/>
+    <circle cx="413" cy="444" r="56" fill="#D85A30"/>
+    <circle cx="413" cy="636" r="20" fill="#F0997B"/>
+    <path d="M554.7 325.1 A185 185 0 0 1 554.7 562.9" fill="none" stroke="#FFF7F2" stroke-width="44" stroke-linecap="round"/>
+    <path d="M623.7 267.2 A275 275 0 0 1 623.7 620.8" fill="none" stroke="#FFF7F2" stroke-width="44" stroke-linecap="round"/>
+  </g>
+</svg>
