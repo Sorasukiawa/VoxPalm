@@ -141,19 +141,241 @@ struct NeutralButtonStyle: ButtonStyle {
     }
 }
 
-/// 引导、授权小窗的底：窗口底色上，左上角透出一点珊瑚色的光。
+/// 引导、设置窗口、授权小窗的底：窗口底色上，左上角透出一点珊瑚色的光。
 struct BrandBackdrop: View {
+    /// 面板这种自带材质的地方不垫窗口底色，只叠光
+    var opaque = true
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         ZStack {
-            Color(nsColor: .windowBackgroundColor)
+            if opaque { Color(nsColor: .windowBackgroundColor) }
             RadialGradient(colors: [Brand.coralTop.opacity(scheme == .dark ? 0.22 : 0.16), .clear],
                            center: UnitPoint(x: 0.12, y: -0.05), startRadius: 0, endRadius: 420)
             RadialGradient(colors: [Color.tilePurple.opacity(scheme == .dark ? 0.12 : 0.07), .clear],
                            center: UnitPoint(x: 1.0, y: 1.05), startRadius: 0, endRadius: 380)
         }
         .ignoresSafeArea()
+        .allowsHitTesting(false)
+    }
+}
+
+// MARK: - 设置页共用的版式（和引导同一套：大标题加一句说明、圆角卡片、彩色图标块）
+
+/// 设置里的一块卡片：左上彩色图标块、标题和一句说明，右边可以放按钮；下面是内容。
+struct SettingsCard<Accessory: View, Content: View>: View {
+    let title: String
+    var subtitle: String?
+    var symbol: String?
+    var color: Color = .tileGray
+    var highlighted: Color?
+    @ViewBuilder var accessory: () -> Accessory
+    @ViewBuilder var content: () -> Content
+
+    init(_ title: String, subtitle: String? = nil, symbol: String? = nil, color: Color = .tileGray, highlighted: Color? = nil,
+         @ViewBuilder accessory: @escaping () -> Accessory, @ViewBuilder content: @escaping () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.symbol = symbol
+        self.color = color
+        self.highlighted = highlighted
+        self.accessory = accessory
+        self.content = content
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .center, spacing: 12) {
+                if let symbol { IconTile(symbol: symbol, color: color, size: 30) }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(.headline)
+                    if let subtitle {
+                        Text(subtitle).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 8)
+                accessory()
+            }
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardBackground(cornerRadius: 16, highlighted: highlighted)
+    }
+}
+
+extension SettingsCard where Accessory == EmptyView {
+    init(_ title: String, subtitle: String? = nil, symbol: String? = nil, color: Color = .tileGray, highlighted: Color? = nil,
+         @ViewBuilder content: @escaping () -> Content) {
+        self.init(title, subtitle: subtitle, symbol: symbol, color: color, highlighted: highlighted, accessory: { EmptyView() }, content: content)
+    }
+}
+
+/// 卡片里的一行设置：左边名字（可带一句小字），右边控件。
+struct SettingRow<Control: View>: View {
+    let title: String
+    var detail: String?
+    @ViewBuilder var control: () -> Control
+
+    init(_ title: String, detail: String? = nil, @ViewBuilder control: @escaping () -> Control) {
+        self.title = title
+        self.detail = detail
+        self.control = control
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let detail {
+                    Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .layoutPriority(1)
+            Spacer(minLength: 12)
+            control()
+        }
+        .frame(minHeight: 32)
+        .padding(.vertical, 5)
+    }
+}
+
+/// 卡片里两行之间的细线
+struct RowDivider: View {
+    var body: some View {
+        Rectangle().fill(Color.primary.opacity(0.08)).frame(height: 0.5)
+    }
+}
+
+/// 灰色小字说明，前面带一个小图标（代替系统表单分组下面的脚注）。
+struct Hint: View {
+    let text: String
+    var symbol = "info.circle"
+
+    init(_ text: String, symbol: String = "info.circle") {
+        self.text = text
+        self.symbol = symbol
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: symbol).font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+            Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// 不画刻度的滑块：自己把值吸到步长上（系统滑块给了 step 会画一排很密的刻度）。
+struct SnapSlider: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+
+    init(value: Binding<Double>, in range: ClosedRange<Double>, step: Double) {
+        _value = value
+        self.range = range
+        self.step = step
+    }
+
+    var body: some View {
+        Slider(value: Binding(get: { value }, set: { raw in
+            let stepped = range.lowerBound + ((raw - range.lowerBound) / step).rounded() * step
+            let snapped = min(range.upperBound, (stepped * 10000).rounded() / 10000)
+            if abs(snapped - value) > step / 1000 { value = snapped }
+        }), in: range)
+    }
+}
+
+/// 滑块旁边的数值：等宽数字的小胶囊。
+struct ValueChip: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.callout.monospacedDigit().weight(.medium))
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(Capsule().fill(Color.primary.opacity(0.06)))
+            .contentTransition(.numericText())
+    }
+}
+
+extension Color {
+    /// 分段控件选中那一段的底：浅色白、深色灰（设计稿 .ed-tabs .thumb）
+    static let tabThumb = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.333, green: 0.322, blue: 0.361, alpha: 1)
+            : NSColor.white
+    })
+}
+
+/// 分段切换（控制设备 | 收音设备、图 | 表）：选中的底色用弹簧滑过去，和编辑小窗的手势分段一个样子。
+struct PillTabs<Value: Hashable>: View {
+    struct Option {
+        let value: Value
+        let title: String
+        var symbol: String?
+    }
+
+    @Binding var selection: Value
+    let options: [Option]
+    var segmentWidth: CGFloat?
+    @Namespace private var thumb
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options, id: \.value) { option in
+                let on = option.value == selection
+                Button {
+                    withAnimation(Motion.pick(Motion.bounce)) { selection = option.value }
+                } label: {
+                    HStack(spacing: 5) {
+                        if let symbol = option.symbol { Image(systemName: symbol).font(.system(size: 11, weight: .semibold)) }
+                        Text(option.title)
+                    }
+                    .font(.system(size: 12.5, weight: on ? .semibold : .regular))
+                    .foregroundStyle(on ? .primary : .secondary)
+                    .padding(.horizontal, 12)
+                    .frame(width: segmentWidth, height: 24)
+                    .background {
+                        if on {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.tabThumb)
+                                .shadow(color: .black.opacity(0.15), radius: 1.5, y: 1)
+                                .matchedGeometryEffect(id: "thumb", in: thumb)
+                        }
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.07)))
+    }
+}
+
+/// 只有图标的圆形小按钮（刷新、关闭这类）。
+struct IconButton: View {
+    let symbol: String
+    let help: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .background(Circle().fill(Color.primary.opacity(hovering ? 0.1 : 0.06)))
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5))
+                .contentShape(Circle())
+        }
+        .buttonStyle(TileButtonStyle())
+        .onHover { hovering = $0 }
+        .help(help)
     }
 }
 

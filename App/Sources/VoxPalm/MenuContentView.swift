@@ -8,12 +8,13 @@ import VoxPalmVoice
 struct MenuContentView: View {
     @Environment(AppModel.self) private var model
     @State private var expanded: Tile?
+    @State private var outputHover = false
 
     enum Tile { case control, mic }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            header
+            header.staggerIn(0, dy: 6)
             if let attention = model.attentions.first {
                 AttentionBanner(attention: attention) {
                     if let permission = attention.permission {
@@ -24,22 +25,28 @@ struct MenuContentView: View {
                     }
                 }
                 .transition(.move(edge: .top).combined(with: .opacity))
+                .staggerIn(1, dy: 6)
             }
-            TalkCard()
-            switch expanded {
-            case .control: ControlSwitcher(close: collapse)
-                .transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity))
-            case .mic: MicSwitcher(close: collapse)
-                .transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity))
-            case nil:
-                tiles.transition(.opacity)
-                outputRow
+            TalkCard().staggerIn(2, dy: 6)
+            Group {
+                switch expanded {
+                case .control: ControlSwitcher(close: collapse)
+                    .transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity))
+                case .mic: MicSwitcher(close: collapse)
+                    .transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity))
+                case nil:
+                    tiles.transition(.opacity)
+                    outputRow.transition(.opacity)
+                }
             }
-            RecentList()
-            footer
+            .staggerIn(3, dy: 6)
+            RecentList().staggerIn(4, dy: 6)
+            footer.staggerIn(5, dy: 6)
         }
         .padding(14)
         .frame(width: 340)
+        // 和引导、设置窗口一样，左上角透一点珊瑚色的光
+        .background(BrandBackdrop(opaque: false))
         .tint(Brand.coralBottom)
         .animation(Motion.pick(Motion.smooth), value: expanded)
         .animation(Motion.pick(Motion.smooth), value: model.attentions.map(\.id))
@@ -100,15 +107,19 @@ struct MenuContentView: View {
         Button { model.openSettings(.voice) } label: {
             HStack(spacing: 9) {
                 IconTile(symbol: "text.alignleft", color: .tileGreen, size: 22)
-                Text("出字：\(model.outputSummary)").font(.callout.weight(.medium)).lineLimit(1)
+                Text("出字").font(.callout).foregroundStyle(.secondary)
+                Text(model.outputSummary).font(.callout.weight(.medium)).lineLimit(1)
                 Spacer()
                 Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.primary.opacity(outputHover ? 0.06 : 0)))
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(TileButtonStyle())
+        .onHover { outputHover = $0 }
+        .help("打开设置的语音页")
     }
 
     private var footer: some View {
@@ -118,14 +129,17 @@ struct MenuContentView: View {
                 .controlSize(.small)
                 .help("关掉后掌声不读按键，遥控器照常控制别的 App（也可以按住 ⌥ 点菜单栏图标）")
             Spacer()
-            Button("设置…") { model.openSettings() }
+            Button { model.openSettings() } label: { Label("设置…", systemImage: "gearshape") }
                 .secondaryButton()
                 .controlSize(.small)
+                .keyboardShortcut(",", modifiers: .command)
             Button("退出") { NSApp.terminate(nil) }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .padding(.leading, 2)
         }
         .font(.callout)
+        .padding(.top, 2)
     }
 }
 
@@ -268,13 +282,12 @@ struct RecentList: View {
         if !model.recentTranscripts.isEmpty {
             VStack(alignment: .leading, spacing: 1) {
                 HStack {
-                    Text("最近出字")
+                    Text("最近出字").fontWeight(.semibold).foregroundStyle(.secondary)
                     Spacer()
-                    Text("只记在这次运行里")
+                    Text("只记在这次运行里").foregroundStyle(.tertiary)
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 6)
+                .padding(.horizontal, 8)
                 .padding(.bottom, 2)
                 ForEach(model.recentTranscripts) { record in
                     RecentRow(record: record)
@@ -315,10 +328,11 @@ private struct RecentRow: View {
             .opacity(hovering || copied ? 1 : 0)
             .help("拷贝")
         }
-        .padding(.horizontal, 6)
+        .padding(.horizontal, 8)
         .padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(hovering ? 0.05 : 0)))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(hovering ? 0.06 : 0)))
         .onHover { hovering = $0 }
+        .animation(Motion.pick(Motion.press), value: hovering)
     }
 
     static func ago(_ seconds: Double) -> String {
@@ -363,7 +377,7 @@ struct StatePill: View {
     private var color: Color {
         switch model.voiceState {
         case .armed, .listening: return Brand.coralBottom
-        case .transcribing: return Color(red: 0.38, green: 0.35, blue: 0.65)
+        case .transcribing: return Brand.lavender
         case .idle:
             if model.isPaused { return .secondary }
             return model.attentions.isEmpty ? .secondary : .orange
@@ -371,27 +385,42 @@ struct StatePill: View {
     }
 }
 
-/// 最上面一块「怎么说话」：平时写「━ 长按 [确认键] 说话」；按住时就地变成声波 + 计时，转写时闪着字行，出完字写贴到了哪。
+/// 最上面一块「怎么说话」：左边一颗照 Logo 画的 ●（按住就能试），右边平时写「━ 长按 [确认键] 说话」；
+/// 按住时 ● 外圈扩散、右边就地变成声波 + 计时，转写时 ● 变薰衣草色、闪着字行，出完字 ● 打勾、写贴到了哪。
 struct TalkCard: View {
     @Environment(AppModel.self) private var model
     @State private var trying = false
     @State private var showsDone = false
 
-    var body: some View {
-        Group {
-            if model.isPaused && model.voiceState == .idle {
-                paused
-            } else {
-                switch model.voiceState {
-                case .armed, .listening: recording
-                case .transcribing: transcribing
-                case .idle: showsDone ? AnyView(done) : AnyView(idle)
-                }
-            }
+    enum Phase: Equatable { case idle, noKey, paused, armed, listening, transcribing, done }
+
+    private var phase: Phase {
+        switch model.voiceState {
+        case .armed: return .armed
+        case .listening: return .listening
+        case .transcribing: return .transcribing
+        case .idle:
+            if model.isPaused { return .paused }
+            if showsDone { return .done }
+            return model.talkKey == nil ? .noKey : .idle
         }
-        .transition(.opacity)
-        .animation(Motion.pick(Motion.bounce), value: model.voiceState)
-        .animation(Motion.pick(Motion.bounce), value: showsDone)
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            TalkOrb(phase: phase, trying: $trying)
+            ZStack(alignment: .leading) {
+                content
+                    .id(phase == .armed ? Phase.listening : phase)
+                    .transition(.swapIn)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(tint.opacity(phase == .idle || phase == .noKey || phase == .paused ? 0.045 : 0.14)))
+        .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .strokeBorder(phase == .idle || phase == .noKey || phase == .paused ? Color.primary.opacity(0.08) : tint.opacity(0.35), lineWidth: 0.5))
+        .animation(Motion.pick(Motion.bounce), value: phase)
         .onChange(of: model.lastInsertedAt) { _, new in
             guard new != nil else { return }
             showsDone = true
@@ -399,100 +428,173 @@ struct TalkCard: View {
         }
     }
 
-    private var recording: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                Circle().fill(Brand.coral).frame(width: 14, height: 14)
-                    .shadow(color: HUDColors.coralDeep, radius: 0, y: 2)
-                LevelWave(level: model.micLevel)
-                    .frame(width: 96, height: 20)
-                if let since = model.talkStartedAt {
-                    TimelineView(.periodic(from: since, by: 1)) { context in
-                        Text(SpeechHUDView.clock(context.date.timeIntervalSince(since)))
-                            .font(.title3.monospacedDigit().weight(.semibold))
-                            .foregroundStyle(Brand.coralText)
-                            .contentTransition(.numericText())
-                    }
-                }
-            }
-            Text(model.voiceState == .armed ? "按住别松，外圈走满就开始算" : (trying ? "松开按钮出字" : (model.talkKey?.releaseHint ?? "说完出字")))
-                .font(.caption).foregroundStyle(.secondary)
+    private var tint: Color {
+        switch phase {
+        case .armed, .listening: return Brand.coralTop
+        case .transcribing: return Brand.lavender
+        case .done: return .tileGreen
+        default: return .primary
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Brand.coralTop.opacity(0.16)))
     }
 
-    private var transcribing: some View {
-        HStack(spacing: 10) {
-            ShimmerLines().frame(width: 92, height: 18)
-            Text("正在转成字…").font(.callout.weight(.semibold))
-            Spacer()
-        }
-        .padding(12)
-        .cardBackground(cornerRadius: 14)
-    }
-
-    private var done: some View {
-        let record = model.recentTranscripts.first
-        return VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 7) {
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(.white, Color.tileGreen)
-                    .symbolEffect(.bounce, value: showsDone)
-                Text("已输入 \(record?.text.count ?? 0) 字 → \(record?.app ?? "剪贴板")").font(.callout.weight(.semibold)).lineLimit(1)
-            }
-            if let text = record?.text {
-                Text("「\(text)」").font(.caption).foregroundStyle(.secondary).lineLimit(2)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.tileGreen.opacity(0.11)))
-    }
-
-    private var paused: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("已暂停监听").font(.title3.weight(.semibold))
-            Text("掌声不读按键，\(model.activeShortName ?? "遥控器")照常控制别的 App。").font(.caption).foregroundStyle(.secondary)
-            Button("继续监听") { model.setPaused(false) }.prominentButton().controlSize(.small)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .cardBackground(cornerRadius: 14)
-    }
-
-    private var idle: some View {
-        VStack(alignment: .leading, spacing: 8) {
+    @ViewBuilder
+    private var content: some View {
+        switch phase {
+        case .idle:
             if let key = model.talkKey {
-                HStack(spacing: 6) {
-                    GestureGlyph(gesture: key.gesture)
-                    Text(key.gesture.title).font(.title3.weight(.semibold))
-                    Button {
-                        model.openSettings(.keys, focus: .init(editSpot: model.talkSpotID))
-                    } label: {
-                        KeyChip(name: key.keyName)
+                VStack(alignment: .leading, spacing: 5) {
+                    HStack(spacing: 6) {
+                        GestureGlyph(gesture: key.gesture)
+                        Text(key.gesture.title).font(.title3.weight(.semibold))
+                        Button {
+                            model.openSettings(.keys, focus: .init(editSpot: model.talkSpotID))
+                        } label: {
+                            KeyChip(name: key.keyName)
+                        }
+                        .buttonStyle(TileButtonStyle())
+                        .help("改说话键")
+                        Text(key.verb).font(.title3.weight(.semibold))
                     }
-                    .buttonStyle(.plain)
-                    .help("改说话键")
-                    Text(key.verb).font(.title3.weight(.semibold))
+                    Text("松手后字贴到光标处 · 按住左边的 ● 也能试").font(.caption).foregroundStyle(.secondary)
                 }
-                Text("\(model.activeShortName ?? "控制设备") · 松手后字贴到光标处").font(.caption).foregroundStyle(.secondary)
-            } else {
-                Text("还没设说话键").font(.headline)
-                Text("在「按键」里把一个键的长按设成「按住说话」。").font(.caption).foregroundStyle(.secondary)
             }
-            HStack {
-                PressToTalkButton(trying: $trying)
-                if model.talkKey == nil {
-                    Button("设一个说话键") { model.openSettings(.keys) }
-                        .secondaryButton()
+        case .noKey:
+            VStack(alignment: .leading, spacing: 5) {
+                Text("还没设说话键").font(.headline)
+                HStack(spacing: 8) {
+                    Text("按住左边的 ● 先试一下").font(.caption).foregroundStyle(.secondary)
+                    Spacer(minLength: 4)
+                    Button("设一个") { model.openSettings(.keys) }
+                        .prominentButton()
                         .controlSize(.small)
                 }
             }
+        case .paused:
+            HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("已暂停监听").font(.headline)
+                    Text("\(model.activeShortName ?? "遥控器")照常控制别的 App").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                Spacer(minLength: 4)
+                Button("继续") { model.setPaused(false) }.prominentButton().controlSize(.small)
+            }
+        case .armed, .listening:
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: 10) {
+                    LevelWave(level: model.micLevel)
+                        .frame(width: 96, height: 20)
+                    if let since = model.talkStartedAt {
+                        TimelineView(.periodic(from: since, by: 1)) { context in
+                            Text(SpeechHUDView.clock(context.date.timeIntervalSince(since)))
+                                .font(.title3.monospacedDigit().weight(.semibold))
+                                .foregroundStyle(Brand.coralText)
+                                .contentTransition(.numericText())
+                        }
+                    }
+                }
+                Text(model.voiceState == .armed ? "按住别松，外圈走满就开始算" : (trying ? "松开出字" : (model.talkKey?.releaseHint ?? "说完出字")))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        case .transcribing:
+            VStack(alignment: .leading, spacing: 6) {
+                Text("正在转成字…").font(.headline)
+                ShimmerLines().frame(width: 120, height: 14)
+            }
+        case .done:
+            let record = model.recentTranscripts.first
+            VStack(alignment: .leading, spacing: 3) {
+                Text("已输入 \(record?.text.count ?? 0) 字 → \(record?.app ?? "剪贴板")").font(.headline).lineLimit(1)
+                if let text = record?.text {
+                    Text("「\(text)」").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .cardBackground(cornerRadius: 14)
+    }
+}
+
+/// 说话块左边的 ●：照 Logo 的按钮画（珊瑚色、底下有厚度），按住开麦说话、松手出字。
+/// 准备中外圈按长按时间走满，正在听时一圈圈往外扩、跟着音量胀缩；转写中变薰衣草色，出完字打勾，暂停时是空心的。
+struct TalkOrb: View {
+    @Environment(AppModel.self) private var model
+    let phase: TalkCard.Phase
+    @Binding var trying: Bool
+    @State private var hovering = false
+
+    private let size: CGFloat = 38
+
+    private var animated: Bool { (phase == .armed || phase == .listening) && !Motion.reduceMotion }
+    private var pressable: Bool { phase == .idle || phase == .noKey || trying }
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !animated)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            ZStack {
+                if phase == .armed, let since = model.talkStartedAt {
+                    let progress = min(1, max(0, context.date.timeIntervalSince(since) / max(model.config.timing.longPressThreshold, 0.05)))
+                    Circle().stroke(Brand.coralTop.opacity(0.18), lineWidth: 3).frame(width: size + 10, height: size + 10)
+                    Circle().trim(from: 0, to: progress)
+                        .stroke(Brand.coralTop, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                        .rotationEffect(.degrees(-90))
+                        .frame(width: size + 10, height: size + 10)
+                }
+                if phase == .listening {
+                    ForEach(0..<2, id: \.self) { index in
+                        let p = ((t + Double(index) * 0.65).truncatingRemainder(dividingBy: 1.3)) / 1.3
+                        Circle()
+                            .stroke(Brand.coralTop.opacity(0.7 * (1 - p)), lineWidth: 2)
+                            .frame(width: size + 22 * p, height: size + 22 * p)
+                    }
+                }
+                orb
+                    .scaleEffect(phase == .listening && !Motion.reduceMotion ? 1 + 0.08 * CGFloat(min(1, model.micLevel * 1.5)) : 1)
+            }
+            .frame(width: size + 16, height: size + 16)
+        }
+        .contentShape(Circle())
+        .gesture(DragGesture(minimumDistance: 0)
+            .onChanged { _ in
+                guard pressable, !trying else { return }
+                trying = true
+                model.tryPress(true)
+            }
+            .onEnded { _ in
+                guard trying else { return }
+                trying = false
+                model.tryPress(false)
+            })
+        .onHover { hovering = $0 }
+        .help(pressable ? "按住说话，松开出字" : "")
+        .accessibilityLabel("按住试一下")
+    }
+
+    @ViewBuilder
+    private var orb: some View {
+        let down = trying || phase == .armed || phase == .listening
+        switch phase {
+        case .paused:
+            Circle().strokeBorder(Color.secondary.opacity(0.6), lineWidth: 2.5).frame(width: size, height: size)
+                .overlay(Image(systemName: "pause.fill").font(.system(size: 13, weight: .bold)).foregroundStyle(.secondary))
+        case .transcribing:
+            Circle().fill(Brand.lavender).frame(width: size, height: size)
+                .overlay(Image(systemName: "text.alignleft").font(.system(size: 14, weight: .bold)).foregroundStyle(.white))
+                .transition(.scale(scale: 0.8).combined(with: .opacity))
+        case .done:
+            Circle().fill(Color.tileGreen).frame(width: size, height: size)
+                .overlay(Image(systemName: "checkmark").font(.system(size: 15, weight: .heavy)).foregroundStyle(.white))
+                .transition(.scale(scale: 0.6).combined(with: .opacity))
+        default:
+            ZStack {
+                // 厚度：底下一层深珊瑚色，按下去时顶面落到它的位置
+                Circle().fill(HUDColors.coralDeep).frame(width: size, height: size).offset(y: 3)
+                Circle().fill(Brand.coral).frame(width: size, height: size)
+                    .overlay(Circle().fill(LinearGradient(colors: [.white.opacity(0.25), .clear], startPoint: .top, endPoint: .center)))
+                    .overlay(Image(systemName: "mic.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(.white.opacity(down ? 0.75 : 1)))
+                    .offset(y: down ? 3 : (hovering && pressable ? -1 : 0))
+            }
+            .shadow(color: Brand.coralBottom.opacity(down ? 0.15 : 0.35), radius: down ? 2 : 6, y: down ? 1 : 3)
+            .animation(Motion.press, value: down)
+            .animation(Motion.pick(Motion.bounce), value: hovering)
+        }
     }
 }
 
@@ -506,42 +608,10 @@ struct ShimmerLines: View {
                     let p = (t - Double(index) * 0.14).truncatingRemainder(dividingBy: 1)
                     let fill = Motion.reduceMotion ? 1 : 0.15 + 0.85 * min(1, (p < 0 ? p + 1 : p) / 0.6)
                     let rect = CGRect(x: 0, y: Double(index) * 9 + 2, width: size.width * width * fill, height: 5)
-                    canvas.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(Color(red: 0.38, green: 0.35, blue: 0.65).opacity(0.7)))
+                    canvas.fill(Path(roundedRect: rect, cornerRadius: 2.5), with: .color(Brand.lavender.opacity(0.8)))
                 }
             }
         }
-    }
-}
-
-/// 「按住试一下」：按下开麦，松手出字。
-struct PressToTalkButton: View {
-    @Environment(AppModel.self) private var model
-    @Binding var trying: Bool
-
-    var body: some View {
-        Label("按住试一下", systemImage: "mic.fill")
-            .font(.callout.weight(.medium))
-            .foregroundStyle(trying ? .white : Brand.coralText)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 5)
-            .background(Capsule().fill(trying ? AnyShapeStyle(Brand.coral) : AnyShapeStyle(Brand.coralTop.opacity(0.14))))
-            .overlay(Capsule().strokeBorder(Brand.coralTop.opacity(trying ? 0 : 0.35), lineWidth: 0.5))
-            .scaleEffect(trying ? 0.97 : 1)
-            .animation(Motion.press, value: trying)
-            .contentShape(Capsule())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in
-                        guard !trying else { return }
-                        trying = true
-                        model.tryPress(true)
-                    }
-                    .onEnded { _ in
-                        trying = false
-                        model.tryPress(false)
-                    }
-            )
-            .help("按住这个按钮说话，松开出字")
     }
 }
 

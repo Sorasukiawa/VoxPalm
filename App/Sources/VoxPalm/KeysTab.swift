@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 import VoxPalmEngine
 
-/// 按键页：上面是设备示意图，下面一张表（行是键，列是单击 / 双击 / 长按，点格子就地设），再下面是手势时间。
+/// 按键页：上面一张卡是设备示意图（或「图 | 表」切到键位表），点键就地弹出编辑小窗；下面是「AI 编程」预设和手势时间。
 struct KeysPane: View {
     @Environment(AppModel.self) private var model
     @State private var selectedSpot: String?
@@ -12,128 +12,166 @@ struct KeysPane: View {
     @State private var editingSpot: String?
 
     var body: some View {
-        PaneScaffold(title: "按键") {
-            Picker("看法", selection: $showsTable) {
-                Text("图").tag(false)
-                Text("表").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 92)
+        PaneScaffold(title: "按键", subtitle: "点图上的键，改它单击、双击、长按做什么。") {
+            PillTabs(selection: $showsTable, options: [
+                .init(value: false, title: "图"),
+                .init(value: true, title: "表"),
+            ])
             Button {
                 if model.learningSpot == nil { learnNew() } else { model.cancelLearning() }
             } label: {
                 Label(model.learningSpot == nil ? "学一个键" : "取消学键", systemImage: model.learningSpot == nil ? "plus" : "xmark")
+                    .contentTransition(.opacity)
             }
             .prominentButton()
             .disabled(model.activeDevice == nil)
         } content: {
-            Form {
-                if let device = model.activeDevice {
-                    let resolved = model.diagram(for: device)
-                    Section {
-                        if !resolved.isFixed {
-                            Picker("外形", selection: Binding(get: { resolved.diagram.id }, set: { model.setDiagram($0, for: device.id) })) {
-                                ForEach(DeviceDiagram.choices) { Text($0.title).tag($0.id) }
-                                if resolved.diagram.id == DeviceDiagram.mediaKeys.id {
-                                    Text(DeviceDiagram.mediaKeys.title).tag(DeviceDiagram.mediaKeys.id)
-                                }
-                            }
-                        }
-                        if model.learningSpot != nil {
-                            LearnBar(deviceName: device.name, spotName: resolved.diagram.spots.first { $0.id == model.learningSpot }?.name) {
-                                model.cancelLearning()
-                            }
-                        }
-                        if showsTable {
-                            KeyTable(rows: rows(resolved: resolved, device: device), reportsRelease: resolved.reportsRelease,
-                                     selectedSpot: $selectedSpot)
-                                .transition(.opacity)
-                        } else {
-                            DeviceDiagramView(
-                                diagram: resolved.diagram,
-                                callouts: DiagramCallout.make(diagram: resolved.diagram, buttons: resolved.buttons, keyMap: model.config.keyMap,
-                                                              reportsRelease: resolved.reportsRelease, learning: model.learningSpot),
-                                pressed: model.pressedButtons,
-                                buttons: resolved.buttons,
-                                selected: selectedSpot,
-                                onSelect: { spot in
-                                    selectedSpot = spot
-                                    if resolved.buttons[spot] == nil { model.startLearning(spot: spot) } else { editingSpot = spot }
-                                },
-                                editing: $editingSpot,
-                                editor: { spot in
-                                    guard let button = resolved.buttons[spot], let name = resolved.diagram.spots.first(where: { $0.id == spot })?.name else {
-                                        return AnyView(EmptyView())
-                                    }
-                                    let initial = [GestureKind.long, .single, .double].first { model.binding(for: button, gesture: $0) != nil }
-                                    return AnyView(SpotEditor(button: button, name: name, reportsRelease: resolved.reportsRelease, initial: initial).environment(model))
-                                }
-                            )
-                            .transition(.opacity)
-                        }
-                    } header: {
-                        HStack {
-                            Text("\(device.name) · 键位方案「\(model.config.keyMap.name)」")
-                            Spacer()
-                            Text("按 App 切换方案 · PRO").font(.caption.weight(.semibold)).foregroundStyle(Brand.coralText)
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(Capsule().fill(Brand.coralTop.opacity(0.14)))
-                        }
-                    } footer: {
-                        FootNote((resolved.diagram.note.map { $0 + "。" } ?? "") + (resolved.isFixed
-                             ? "照产品图画的示意图。按设备上的键，图上对应的键会亮。"
-                             : "照产品图画的示意图。图上还没对上的键，点一下再按设备上的同一个键；按键时图上会亮。"))
-                    }
-
-                    Section {
-                        HStack {
-                            Text(tableNote).font(.caption).foregroundStyle(.secondary)
-                            Spacer()
-                            if !AIPreset.bindings(for: resolved).isEmpty {
-                                Button("套用「AI 编程」预设…") { confirmPreset = true }
-                            }
-                        }
-                    }
-                    .alert("套用「AI 编程」预设？", isPresented: $confirmPreset) {
-                        Button("套用") { for binding in AIPreset.bindings(for: resolved) { model.setBinding(binding) } }
-                        Button("取消", role: .cancel) {}
-                    } message: {
-                        Text(AIPreset.description(for: resolved))
-                    }
-                } else {
-                    Section {
-                        Text("先在「设备」里选一个控制设备。").foregroundStyle(.secondary)
-                        Button("去选设备") { model.openSettings(.devices) }
-                    }
+            if let device = model.activeDevice {
+                let resolved = model.diagram(for: device)
+                deviceCard(device: device, resolved: resolved)
+                    .staggerIn(1)
+                if !AIPreset.bindings(for: resolved).isEmpty {
+                    presetCard(resolved: resolved)
+                        .staggerIn(2)
                 }
-
-                Section("手势时间") {
+            } else {
+                SettingsCard("还没选控制设备", subtitle: "先在「设备」里选一个遥控器、无线麦或者媒体键。", symbol: "av.remote.fill", color: .tileBlue) {
+                    Button("去选设备") { model.openSettings(.devices) }.prominentButton()
+                } content: {
+                    EmptyView()
+                }
+                .staggerIn(1)
+            }
+            SettingsCard("手势时间", subtitle: "拖下面的滑块，时间尺上的线跟着动。", symbol: "timer", color: .tilePurple) {
+                VStack(spacing: 0) {
                     GestureRuler(doubleTap: model.config.timing.doubleTapWindow, longPress: model.config.timing.longPressThreshold)
-                        .frame(height: 156)
-                    LabeledContent("双击间隔") {
-                        Slider(value: model.binding(\.timing.doubleTapWindow), in: 0.15...0.6, step: 0.05)
-                        Text(String(format: "%.2f 秒", model.config.timing.doubleTapWindow)).monospacedDigit().frame(width: 60)
+                        .frame(height: 150)
+                        .padding(.bottom, 6)
+                    RowDivider()
+                    SettingRow("双击间隔", detail: "两下之间不超过这么久，算双击") {
+                        SnapSlider(value: model.binding(\.timing.doubleTapWindow), in: 0.15...0.6, step: 0.05).frame(width: 200)
+                        ValueChip(text: String(format: "%.2f 秒", model.config.timing.doubleTapWindow))
                     }
-                    LabeledContent("长按多久算长按") {
-                        Slider(value: model.binding(\.timing.longPressThreshold), in: 0.25...1.5, step: 0.05)
-                        Text(String(format: "%.2f 秒", model.config.timing.longPressThreshold)).monospacedDigit().frame(width: 60)
-                    }
-                }
-
-                Section("导入导出") {
-                    HStack {
-                        Button("导出设置…") { exportConfig() }
-                        Button("导入设置…") { importConfig() }
+                    RowDivider()
+                    SettingRow("长按多久算长按", detail: "按住超过这么久才开始说话，短按不会误录") {
+                        SnapSlider(value: model.binding(\.timing.longPressThreshold), in: 0.25...1.5, step: 0.05).frame(width: 200)
+                        ValueChip(text: String(format: "%.2f 秒", model.config.timing.longPressThreshold))
                     }
                 }
             }
-            .formStyle(.grouped)
-            .animation(Motion.pick(Motion.smooth), value: showsTable)
+            .staggerIn(3)
         }
+        .animation(Motion.pick(Motion.smooth), value: showsTable)
+        .animation(Motion.pick(Motion.bounce), value: model.learningSpot)
         .onChange(of: model.activeDevice?.id) { _, _ in selectedSpot = nil }
         .onAppear(perform: applyFocus)
         .onChange(of: model.settingsFocus) { _, _ in applyFocus() }
+    }
+
+    /// 设备这张卡：上面设备小图、名字、键位方案，右边换外形；中间是示意图或键位表。
+    private func deviceCard(device: ControlDevice, resolved: AppModel.ResolvedDiagram) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 12) {
+                DeviceFigure(diagram: model.activePickerDevice?.art ?? resolved.diagram, showsSymbols: false)
+                    .padding(5)
+                    .frame(width: 36, height: 36)
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(0.06)))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(device.name).font(.headline).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text("键位方案「\(model.config.keyMap.name)」")
+                        Text("按 App 切换方案 · PRO").font(.caption2.weight(.bold)).foregroundStyle(Brand.coralText)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Brand.coralTop.opacity(0.14)))
+                    }
+                    .font(.callout).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                if !resolved.isFixed {
+                    Picker("外形", selection: Binding(get: { resolved.diagram.id }, set: { model.setDiagram($0, for: device.id) })) {
+                        ForEach(DeviceDiagram.choices) { Text($0.title).tag($0.id) }
+                        if resolved.diagram.id == DeviceDiagram.mediaKeys.id {
+                            Text(DeviceDiagram.mediaKeys.title).tag(DeviceDiagram.mediaKeys.id)
+                        }
+                    }
+                    .fixedSize()
+                    .help("图上画成什么样子")
+                }
+            }
+            if model.learningSpot != nil {
+                LearnBar(deviceName: device.name, spotName: resolved.diagram.spots.first { $0.id == model.learningSpot }?.name) {
+                    model.cancelLearning()
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+            ZStack(alignment: .top) {
+                if showsTable {
+                    KeyTable(rows: rows(resolved: resolved, device: device), reportsRelease: resolved.reportsRelease,
+                             selectedSpot: $selectedSpot)
+                        .transition(.opacity)
+                } else {
+                    diagram(resolved: resolved)
+                        .transition(.opacity)
+                }
+            }
+            RowDivider()
+            Hint((resolved.diagram.note.map { $0 + "。" } ?? "") + (resolved.isFixed
+                 ? "按实物上的键，图上对应的键会亮。" : "按实物上的键，图上对应的键会亮；还没对上的键，点一下再按设备上的同一个键。") + tableNote)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardBackground(cornerRadius: 16)
+    }
+
+    private func diagram(resolved: AppModel.ResolvedDiagram) -> some View {
+        DeviceDiagramView(
+            diagram: resolved.diagram,
+            callouts: DiagramCallout.make(diagram: resolved.diagram, buttons: resolved.buttons, keyMap: model.config.keyMap,
+                                          reportsRelease: resolved.reportsRelease, learning: model.learningSpot),
+            pressed: model.pressedButtons,
+            buttons: resolved.buttons,
+            selected: selectedSpot,
+            onSelect: { spot in
+                selectedSpot = spot
+                if resolved.buttons[spot] == nil { model.startLearning(spot: spot) } else { editingSpot = spot }
+            },
+            editing: $editingSpot,
+            editor: { spot in
+                guard let button = resolved.buttons[spot], let name = resolved.diagram.spots.first(where: { $0.id == spot })?.name else {
+                    return AnyView(EmptyView())
+                }
+                let initial = [GestureKind.long, .single, .double].first { model.binding(for: button, gesture: $0) != nil }
+                return AnyView(SpotEditor(button: button, name: name, reportsRelease: resolved.reportsRelease, initial: initial).environment(model))
+            }
+        )
+    }
+
+    /// 「AI 编程」预设：一行说明加一个按钮，点了先确认会覆盖哪些键。
+    private func presetCard(resolved: AppModel.ResolvedDiagram) -> some View {
+        HStack(spacing: 12) {
+            IconTile(symbol: "sparkle", color: .tilePurple, size: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("「AI 编程」预设").font(.headline)
+                Text("给 Claude Code / Codex 用：上下切对话，确认键长按说话、单击发送。").font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Button("套用…") { confirmPreset = true }
+                .secondaryButton()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .cardBackground(cornerRadius: 16)
+        .alert("套用「AI 编程」预设？", isPresented: $confirmPreset) {
+            Button("套用") {
+                withAnimation(Motion.pick(Motion.smooth)) {
+                    for binding in AIPreset.bindings(for: resolved) { model.setBinding(binding) }
+                }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text(AIPreset.description(for: resolved))
+        }
     }
 
     /// 从面板点说话键过来：选中它，弹出编辑小窗。
@@ -180,21 +218,6 @@ struct KeysPane: View {
         }
         return rows
     }
-
-    private func exportConfig() {
-        let panel = NSSavePanel()
-        panel.nameFieldStringValue = "掌声设置.json"
-        panel.allowedContentTypes = [.json]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? model.exportConfig(to: url)
-    }
-
-    private func importConfig() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? model.importConfig(from: url)
-    }
 }
 
 /// 学键时的提示条。
@@ -205,13 +228,17 @@ struct LearnBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            HUDDot(state: .listening(since: Date(), subtitle: "")).frame(width: 24, height: 24)
+            HUDDot(state: .listening(since: Date(), subtitle: "")).frame(width: 26, height: 26)
             Text(spotName.map { "请按一下「\(deviceName)」上的「\($0)」……" } ?? "请按一下「\(deviceName)」上的键……")
+                .font(.callout.weight(.medium))
+                .foregroundStyle(Brand.coralText)
             Spacer()
-            Button("取消", action: cancel).controlSize(.small)
+            Button("取消", action: cancel).secondaryButton().controlSize(.small)
         }
-        .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Brand.coralTop.opacity(0.12)))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Brand.coralTop.opacity(0.13)))
+        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(Brand.coralTop.opacity(0.35), lineWidth: 0.5))
     }
 }
 
@@ -387,10 +414,12 @@ struct GestureRuler: View {
                 }
                 .frame(width: max(0, x(min(span - 0.05, longPress + 0.45)) - x(longPress)), height: 14)
                 .position(x: (x(longPress) + x(min(span - 0.05, longPress + 0.45))) / 2, y: rowY[2])
-                Text("没有第二下 → 单击").font(.caption2).foregroundStyle(.secondary).fixedSize()
-                    .position(x: x(doubleTap) + 60, y: rowY[0])
-                Text("间隔内第二下 → 双击").font(.caption2).foregroundStyle(.secondary).fixedSize()
-                    .position(x: x(doubleTap) + 66, y: rowY[1])
+                // 说明字靠右写，不和两条虚线叠在一起
+                ForEach(0..<2, id: \.self) { index in
+                    Text(["没有第二下 → 单击", "间隔内第二下 → 双击"][index]).font(.caption2).foregroundStyle(.secondary).fixedSize()
+                        .frame(width: width - 20, alignment: .trailing)
+                        .position(x: left + width / 2 - 2, y: rowY[index])
+                }
                 // 两条线挨得近时标签会叠在一起：双击的写在上一行
                 marker(x(doubleTap), color: Self.lavender, label: String(format: "双击间隔 %.2f 秒", doubleTap), labelY: 8, top: 30, bottom: 120)
                 marker(x(longPress), color: Brand.coralBottom, label: String(format: "长按 %.2f 秒", longPress), labelY: 24, top: 30, bottom: 120)
@@ -400,6 +429,8 @@ struct GestureRuler: View {
                 }
             }
         }
+        .animation(Motion.pick(Motion.bounce), value: doubleTap)
+        .animation(Motion.pick(Motion.bounce), value: longPress)
     }
 
     private func bar(_ from: CGFloat, _ to: CGFloat, y: CGFloat, color: Color) -> some View {
@@ -408,14 +439,25 @@ struct GestureRuler: View {
 
     private func marker(_ x: CGFloat, color: Color, label: String, labelY: CGFloat, top: CGFloat, bottom: CGFloat) -> some View {
         ZStack(alignment: .topLeading) {
-            Path { path in
-                path.move(to: CGPoint(x: x, y: top))
-                path.addLine(to: CGPoint(x: x, y: bottom))
-            }
-            .stroke(color, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+            // 用摆位置的竖线（不用固定坐标的 Path），拖滑块时线和字一起弹过去
+            VerticalLine()
+                .stroke(color, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
+                .frame(width: 2, height: bottom - top)
+                .position(x: x, y: (top + bottom) / 2)
             Text(label).font(.caption.weight(.semibold)).foregroundStyle(color).fixedSize()
+                .contentTransition(.numericText())
                 .position(x: x, y: labelY)
         }
+    }
+}
+
+/// 竖着的一条线（手势时间尺上的虚线）
+struct VerticalLine: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        return path
     }
 }
 

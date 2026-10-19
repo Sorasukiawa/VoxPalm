@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import VoxPalmEngine
+import VoxPalmVoice
 
 /// 调试用，不开窗口、画完就退出：
 /// - `VoxPalm --render-diagrams <目录>`：每种示意图（套上「AI 编程」预设）画成 PNG
@@ -114,12 +115,50 @@ extension UIPreview {
             model.cancelLearning()
             liveShot(MenuContentView().environment(model), titled: true, dark: dark,
                      to: directory.appendingPathComponent("live-panel-\(suffix).png"))
+            // 面板说话块的几个状态：正在听、转写中、暂停
+            for (name, state) in [("listening", VoiceSession.State.listening), ("transcribing", .transcribing)] {
+                model.simulate(voiceState: state, level: 0.6)
+                liveShot(MenuContentView().environment(model), titled: true, dark: dark,
+                         to: directory.appendingPathComponent("live-panel-\(name)-\(suffix).png"))
+            }
+            model.simulate(voiceState: .idle)
+            model.simulate(paused: true)
+            liveShot(MenuContentView().environment(model), titled: true, dark: dark,
+                     to: directory.appendingPathComponent("live-panel-paused-\(suffix).png"))
+            model.simulate(paused: false)
+            // 真的 NSPopover：和点菜单栏图标时同一套装面板的做法，开两次，看大小一开始就对
+            for round in 1...2 {
+                panelPopoverShot(model: model, dark: dark, to: directory.appendingPathComponent("live-popover-panel\(round)-\(suffix).png"))
+            }
+            // 菜单栏图标下面的提示气泡
+            liveShot(TipView(title: "掌声在这儿", text: "点一下打开面板，右键是快捷菜单。按住说话键就能说话。").padding(8), titled: true, dark: dark,
+                     to: directory.appendingPathComponent("live-tip-arrive-\(suffix).png"))
+            liveShot(TipView(title: nil, text: "已暂停监听 · 再按住 ⌥ 点一下继续", symbol: "pause.circle.fill").padding(8), titled: true, dark: dark,
+                     to: directory.appendingPathComponent("live-tip-pause-\(suffix).png"))
             for pane in SettingsPane.allCases where pane != .permissions {
                 let navigation = SettingsNavigation()
                 navigation.pane = pane
+                // 设置窗口带上左上角的三个按钮，看得到它们落在浮起来的边栏里
                 liveShot(SettingsView().environment(model).environment(navigation).frame(width: 900, height: 680), titled: true, dark: dark,
-                         to: directory.appendingPathComponent("live-settings-\(pane.rawValue)-\(suffix).png"))
+                         to: directory.appendingPathComponent("live-settings-\(pane.rawValue)-\(suffix).png"), windowButtons: true)
             }
+            // 长的两页再截一张整页高的，看得到滚动区下面的卡片
+            for pane in [SettingsPane.keys, .voice] {
+                let navigation = SettingsNavigation()
+                navigation.pane = pane
+                liveShot(SettingsView().environment(model).environment(navigation).frame(width: 900, height: 1240), titled: true, dark: dark,
+                         to: directory.appendingPathComponent("live-settings-\(pane.rawValue)-full-\(suffix).png"))
+            }
+            // 语音页换成外部输入法再截一张（只改调试配置文件）
+            let mode = model.config.voice.mode
+            model.update { $0.voice.mode = .inputMethod }
+            let voice = SettingsNavigation()
+            voice.pane = .voice
+            liveShot(SettingsView().environment(model).environment(voice).frame(width: 900, height: 680), titled: true, dark: dark,
+                     to: directory.appendingPathComponent("live-settings-voice-ime-full-\(suffix).png"))
+            model.update { $0.voice.mode = mode }
+            // 设置文件晚半秒才写，等它写回去再往下截
+            RunLoop.main.run(until: Date().addingTimeInterval(0.8))
             let navigation = SettingsNavigation()
             navigation.pane = .permissions
             liveShot(SettingsView().environment(model).environment(navigation).frame(width: 900, height: 680), titled: true, dark: dark,
@@ -153,7 +192,10 @@ extension UIPreview {
         exit(0)
     }
 
-    private static func liveShot<V: View>(_ view: V, titled: Bool, dark: Bool, to url: URL, popover: URL? = nil) {
+    private static func liveShot<V: View>(_ view: V, titled: Bool, dark: Bool, to url: URL, popover: URL? = nil, windowButtons: Bool = false) {
+        // 调试用：VOXPALM_RENDER_ONLY=settings,panel 时只截文件名里带这些字的
+        if let only = ProcessInfo.processInfo.environment["VOXPALM_RENDER_ONLY"], !only.isEmpty,
+           !only.split(separator: ",").contains(where: { url.lastPathComponent.contains($0) }) { return }
         let host = NSHostingView(rootView: view)
         let size = host.fittingSize
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
@@ -164,8 +206,9 @@ extension UIPreview {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-                window.standardWindowButton(button)?.isHidden = true
+                window.standardWindowButton(button)?.isHidden = !windowButtons
             }
+            if windowButtons { AppDelegate.useInsetTitlebar(window) }
         } else {
             window.isOpaque = false
             window.backgroundColor = dark ? NSColor(white: 0.18, alpha: 1) : NSColor(white: 0.86, alpha: 1)
@@ -188,6 +231,29 @@ extension UIPreview {
             others().forEach { $0.orderOut(nil) }
         }
         window.orderOut(nil)
+    }
+
+    /// 屏幕外放一个小窗口当「菜单栏图标」，从它弹出面板，截弹出框的窗口。
+    private static func panelPopoverShot(model: AppModel, dark: Bool, to url: URL) {
+        if let only = ProcessInfo.processInfo.environment["VOXPALM_RENDER_ONLY"], !only.isEmpty,
+           !only.split(separator: ",").contains(where: { url.lastPathComponent.contains($0) }) { return }
+        let anchor = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 40, height: 24), styleMask: [.borderless], backing: .buffered, defer: false)
+        anchor.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        anchor.orderFrontRegardless()
+        anchor.setFrameOrigin(NSPoint(x: -6000, y: -5000))
+        let popover = NSPopover()
+        popover.behavior = .applicationDefined
+        popover.animates = false
+        popover.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        StatusItemController.loadPanel(into: popover, model: model)
+        guard let view = anchor.contentView else { return }
+        popover.show(relativeTo: view.bounds, of: view, preferredEdge: .minY)
+        RunLoop.main.run(until: Date().addingTimeInterval(1.2))
+        // 屏幕锁着时窗口服务器不给截屏上的窗口，这张会截不到
+        if let window = popover.contentViewController?.view.window { capture(window, to: url) }
+        popover.performClose(nil)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.3))
+        anchor.orderOut(nil)
     }
 
     private static func capture(_ window: NSWindow, to url: URL) {
