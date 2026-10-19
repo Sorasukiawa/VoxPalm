@@ -103,7 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.setContentSize(NSSize(width: 900, height: 680))
             window.isReleasedWhenClosed = false
             window.isRestorable = false
-            window.center()
+            Self.centerOnActiveScreen(window)
             settingsWindow = window
         }
         settingsWindow?.makeKeyAndOrderFront(nil)
@@ -125,11 +125,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.isReleasedWhenClosed = false
             window.isRestorable = false
             window.delegate = self
-            window.center()
+            Self.centerOnActiveScreen(window)
             onboardingWindow = window
         }
         onboardingWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate()
+    }
+
+    /// 窗口开在鼠标所在的那块屏幕正中（接了外接显示器时，`center()` 会放到别的屏幕上）。
+    static func centerOnActiveScreen(_ window: NSWindow) {
+        let mouse = NSEvent.mouseLocation
+        guard let visible = (NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main)?.visibleFrame else {
+            window.center()
+            return
+        }
+        let size = window.frame.size
+        // 和系统的 center() 一样略偏上一点
+        window.setFrameOrigin(NSPoint(x: visible.midX - size.width / 2,
+                                      y: visible.midY - size.height / 2 + (visible.height - size.height) / 6))
     }
 
     /// 关掉引导窗口也一样收进菜单栏。
