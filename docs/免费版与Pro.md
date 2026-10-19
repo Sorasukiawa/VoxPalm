@@ -18,10 +18,10 @@
 | 录音剪辑软件动作包：Logic Pro、Final Cut Pro、Premiere Pro、DaVinci Resolve、Audition、Reaper、Audacity | — | ✅ |
 | 组合动作（一个键依次执行多步） | — | ✅ |
 | 配置导入导出 | ✅ | ✅ |
-| 多台 Mac 同步配置（以后再做） | — | ✅ |
+| 多台 Mac 同步配置，走你自己的 iCloud（以后再做） | — | ✅ |
 | 设备探针、提交兼容报告 | ✅ | ✅ |
 
-## 掌声遥控（iPhone / iPad / Apple Watch）
+## 手机、平板和手表（iPhone / iPad / Apple Watch）
 
 | 功能 | 免费 | Pro |
 |---|---|---|
@@ -37,4 +37,5 @@
 ## 怎么买
 
 - Pro 是一次买断，不自动续费；价格在 1.0 正式版发布时公布。
-- Pro 在 Mac 上购买。连到这台 Mac 的 iPhone、iPad、Apple Watch 共用 Mac 的 Pro，不用另买；掌声遥控 App 本身免费，App 里不卖东西。
+- 买一份 Pro 就全包含：Mac、iPhone、iPad、Apple Watch 上的 Pro 功能都在里面，不分开卖。
+- Pro 在 Mac 上购买，一份可以激活 3 台 Mac。连到这台 Mac 的 iPhone、iPad、Apple Watch 共用 Mac 的 Pro，不用另买；掌声的手机版本身免费，App 里不卖东西。
