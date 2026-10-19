@@ -24,9 +24,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
-        let host = NSHostingController(rootView: MenuContentView().environment(model))
-        host.sizingOptions = .preferredContentSize
-        popover.contentViewController = host
+        Self.loadPanel(into: popover, model: model)
         tip.behavior = .transient
         tip.animates = true
         refresh()
@@ -61,9 +59,18 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             popover.performClose(nil)
         } else if let button = item.button {
             tip.performClose(nil)
+            Self.loadPanel(into: popover, model: model)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
+    }
+
+    /// 换一份新的面板：每次打开都换，磁贴收起、里面的几块依次浮上来。先排好版、定好大小再弹出，免得先小后大。
+    static func loadPanel(into popover: NSPopover, model: AppModel) {
+        let host = NSHostingController(rootView: MenuContentView().environment(model))
+        host.sizingOptions = .preferredContentSize
+        popover.contentViewController = host
+        popover.contentSize = host.view.fittingSize
     }
 
     func closePopover() { popover.performClose(nil) }
@@ -78,21 +85,52 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private func showMenu() {
         popover.performClose(nil)
         let menu = NSMenu()
+        // 第一行写现在的状态（不能点），和面板右上角的标签一致
+        let header = NSMenuItem(title: "掌声 · \(Self.label(state))", action: nil, keyEquivalent: "")
+        header.isEnabled = false
+        header.image = Self.symbol("circle.fill", color: stateColor)
+        menu.addItem(header)
+        menu.addItem(.separator())
         let pause = NSMenuItem(title: model.isPaused ? "继续监听" : "暂停监听", action: #selector(menuPause), keyEquivalent: "")
         pause.target = self
+        pause.image = Self.symbol(model.isPaused ? "play.circle" : "pause.circle")
         pause.toolTip = "按住 ⌥ 点图标也可以"
         menu.addItem(pause)
         let settings = NSMenuItem(title: "设置…", action: #selector(menuSettings), keyEquivalent: ",")
         settings.target = self
+        settings.image = Self.symbol("gearshape")
         menu.addItem(settings)
         let onboarding = NSMenuItem(title: "重新打开引导", action: #selector(menuOnboarding), keyEquivalent: "")
         onboarding.target = self
+        onboarding.image = Self.symbol("sparkles")
         menu.addItem(onboarding)
         menu.addItem(.separator())
-        menu.addItem(NSMenuItem(title: "退出掌声", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        let quit = NSMenuItem(title: "退出掌声", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        quit.image = Self.symbol("power")
+        menu.addItem(quit)
         if let button = item.button {
             menu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height + 4), in: button)
         }
+    }
+
+    private var stateColor: NSColor {
+        switch state {
+        case .armed, .listening: return NSColor(Brand.coralBottom)
+        case .transcribing: return NSColor(Brand.lavender)
+        case .attention: return .systemOrange
+        case .idle: return .systemGreen
+        case .paused: return .secondaryLabelColor
+        }
+    }
+
+    /// 菜单项前面的小图标（SF Symbol）；给了颜色就画成彩色，否则跟着菜单的文字色
+    private static func symbol(_ name: String, color: NSColor? = nil) -> NSImage? {
+        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return nil }
+        guard let color else { return image }
+        let config = NSImage.SymbolConfiguration(pointSize: 8, weight: .bold).applying(.init(paletteColors: [color]))
+        let colored = image.withSymbolConfiguration(config)
+        colored?.isTemplate = false
+        return colored
     }
 
     @objc private func menuPause() { model.setPaused(!model.isPaused) }
@@ -105,7 +143,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     func showTip(_ text: String, title: String? = nil, seconds: Double) {
         guard let button = item.button else { return }
         tipWork?.cancel()
-        tip.contentViewController = NSHostingController(rootView: TipView(title: title, text: text))
+        let symbol = title != nil ? nil : (model.isPaused ? "pause.circle.fill" : "play.circle.fill")
+        tip.contentViewController = NSHostingController(rootView: TipView(title: title, text: text, symbol: symbol))
         if !tip.isShown { tip.show(relativeTo: button.bounds, of: button, preferredEdge: .minY) }
         let work = DispatchWorkItem { [weak self] in self?.tip.performClose(nil) }
         tipWork = work
@@ -198,20 +237,31 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 }
 
-/// 图标下面的提示气泡。
-private struct TipView: View {
+/// 图标下面的提示气泡：有标题时（引导结束的「掌声在这儿」）左边是会动的 Logo，否则是一个小图标加一句话。
+struct TipView: View {
     let title: String?
     let text: String
+    var symbol: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            if let title { Text(title).font(.headline) }
-            Text(text).font(.callout).foregroundStyle(title == nil ? .primary : .secondary)
-                .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: title == nil ? .center : .top, spacing: 11) {
+            if title != nil {
+                LogoMark(size: 40, interactive: false)
+            } else if let symbol {
+                Image(systemName: symbol).font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.white, Brand.coralBottom)
+                    .symbolRenderingMode(.palette)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                if let title { Text(title).font(.headline) }
+                Text(text).font(.callout).foregroundStyle(title == nil ? .primary : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .frame(width: title == nil ? nil : 260, alignment: .leading)
+        .frame(width: title == nil ? nil : 280, alignment: .leading)
         .fixedSize(horizontal: title == nil, vertical: true)
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
+        .background(BrandBackdrop(opaque: false))
     }
 }

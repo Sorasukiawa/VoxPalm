@@ -27,6 +27,20 @@ enum Motion {
     }
 }
 
+extension AnyTransition {
+    /// 设置换页：旧页很快淡出，新页往上浮 8 点淡入（设计稿第 06 节）
+    static var paneSwap: AnyTransition {
+        .asymmetric(insertion: .opacity.combined(with: .offset(y: Motion.reduceMotion ? 0 : 8)),
+                    removal: .opacity.animation(Motion.reduceMotion ? Motion.reduced : .easeIn(duration: 0.1)))
+    }
+
+    /// 卡片就地换内容：新的从上面一点落下来，旧的淡出
+    static var swapIn: AnyTransition {
+        .asymmetric(insertion: .opacity.combined(with: .offset(y: Motion.reduceMotion ? 0 : -6)),
+                    removal: .opacity.animation(Motion.reduceMotion ? Motion.reduced : Motion.exit))
+    }
+}
+
 /// 进来时从旁边滑进、依次浮上来。换步时整页重建，onAppear 会再触发一次。
 struct StaggerIn: ViewModifier {
     let index: Int

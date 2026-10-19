@@ -17,6 +17,12 @@ enum Brand {
             ? NSColor(red: 1.0, green: 0.588, blue: 0.439, alpha: 1)
             : NSColor(red: 0.749, green: 0.294, blue: 0.141, alpha: 1)
     })
+    /// 转写中的薰衣草色：浅色底 #6259A6，深色底 #A9A2E2
+    static let lavender = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(red: 0.663, green: 0.635, blue: 0.886, alpha: 1)
+            : NSColor(red: 0.384, green: 0.349, blue: 0.651, alpha: 1)
+    })
 }
 
 /// 示意图旁边一条标注要显示的内容。
@@ -153,8 +159,8 @@ struct DiagramLayout {
     static func preferredHeight(diagram: DeviceDiagram, callouts: [DiagramCallout], width: CGFloat = 650) -> CGFloat {
         if usesRows(diagram) {
             let labelWidth = min(240, (width - 16) / CGFloat(max(1, callouts.count > 3 ? (callouts.count + 1) / 2 : callouts.count)) - 8)
-            let row = callouts.map { $0.height(width: labelWidth) }.max() ?? 40
-            return (callouts.count > 3 ? row * 2 + 40 : row + 20) + 140
+            let (top, bottom) = rowHeights(callouts.map(\.spot), heights: Dictionary(uniqueKeysWithValues: callouts.map { ($0.id, $0.height(width: labelWidth)) }))
+            return (callouts.count > 3 ? top + bottom + 40 : bottom + 20) + 140
         }
         if diagram.id == "generic" { return max(260, CGFloat(callouts.count) * 64 + 40) }
         guard diagram.isWide else { return 460 }
@@ -165,6 +171,18 @@ struct DiagramLayout {
         let left = callouts.filter { spotIsLeft($0.spot, diagram) }.reduce(CGFloat(0)) { $0 + $1.height(width: labelWidth) + 6 }
         let right = callouts.filter { !spotIsLeft($0.spot, diagram) }.reduce(CGFloat(0)) { $0 + $1.height(width: labelWidth) + 6 }
         return max(deviceHeight, left, right) + 30
+    }
+
+    /// 标注放上下两排时，上排和下排各自最高的标注（只有一排时都算下排）
+    private static func rowHeights(_ spots: [DeviceDiagram.Spot], heights: [String: CGFloat]) -> (top: CGFloat, bottom: CGFloat) {
+        let sorted = spots.sorted { $0.box.midX < $1.box.midX }
+        let twoRows = sorted.count > 3
+        var top: CGFloat = 0, bottom: CGFloat = 0
+        for (index, spot) in sorted.enumerated() {
+            let height = heights[spot.id] ?? 40
+            if twoRows && index % 2 == 0 { top = max(top, height) } else { bottom = max(bottom, height) }
+        }
+        return (top == 0 && twoRows ? 40 : top, bottom == 0 ? 40 : bottom)
     }
 
     private static func spotIsLeft(_ spot: DeviceDiagram.Spot, _ diagram: DeviceDiagram) -> Bool {
@@ -238,10 +256,11 @@ struct DiagramLayout {
         let perRowCount = twoRows ? Int((Double(sorted.count) / 2).rounded(.up)) : sorted.count
         let rowLabelWidth = min(240, (size.width - pad * 2) / CGFloat(max(perRowCount, 1)) - 8)
         let heights = Dictionary(uniqueKeysWithValues: callouts.map { ($0.id, $0.height(width: rowLabelWidth)) })
-        let rowHeight = heights.values.max() ?? 40
-        let deviceWidth = min(size.width * 0.82, (size.height - (twoRows ? rowHeight * 2 + 80 : rowHeight + 60)) * aspect)
+        // 上下两排各按自己最高的标注留地方（只有下排有三行字时，上面不空出一大块）
+        let (topRow, bottomRow) = Self.rowHeights(sorted, heights: heights)
+        let deviceWidth = min(size.width * 0.82, (size.height - (twoRows ? topRow + bottomRow + 80 : bottomRow + 60)) * aspect)
         let deviceHeight = deviceWidth / aspect
-        let top = twoRows ? pad + rowHeight + 34 : pad + 10
+        let top = twoRows ? pad + topRow + 34 : pad + 10
         device = CGRect(x: (size.width - deviceWidth) / 2, y: top, width: deviceWidth, height: deviceHeight)
         scale = deviceWidth / diagram.width
         let labelWidth = rowLabelWidth

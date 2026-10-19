@@ -88,8 +88,8 @@ struct ProFeatureCard: View {
             Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .cardBackground(cornerRadius: 14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .cardBackground(cornerRadius: 16)
     }
 
     private var title: String {

@@ -141,8 +141,9 @@ struct SpotEditor: View {
                 KeyChip(name: name)
                 Spacer()
                 Button("完成") { dismiss() }
-                    .buttonStyle(.borderless)
-                    .font(.system(size: 12.5))
+                    .prominentButton()
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
             }
             GestureTabs(selection: $gesture, reportsRelease: reportsRelease)
             VStack(alignment: .leading, spacing: 9) {
@@ -166,13 +167,19 @@ struct SpotEditor: View {
             }
             options
             if current != nil {
-                Button("清除这一格") { clear() }
-                    .buttonStyle(.link)
-                    .font(.system(size: 12))
+                Button { clear() } label: {
+                    Label("清除这一格", systemImage: "trash").font(.system(size: 12))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .transition(.opacity)
             }
         }
         .padding(14)
         .frame(width: 330, alignment: .leading)
+        // 弹出框是单独的窗口，不继承设置窗口的珊瑚色
+        .tint(Brand.coralBottom)
+        .animation(Motion.pick(Motion.bounce), value: current)
         .onAppear(perform: loadText)
         .onChange(of: gesture) { _, _ in
             pending = nil
@@ -339,13 +346,6 @@ struct GestureTabs: View {
     let reportsRelease: Bool
     @Namespace private var thumb
 
-    /// 选中那一段的底：浅色白、深色灰（设计稿 .ed-tabs .thumb）
-    private static let thumbColor = Color(nsColor: NSColor(name: nil) { appearance in
-        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            ? NSColor(red: 0.333, green: 0.322, blue: 0.361, alpha: 1)
-            : NSColor.white
-    })
-
     var body: some View {
         HStack(spacing: 2) {
             ForEach(GestureKind.allCases, id: \.self) { gesture in
@@ -364,7 +364,7 @@ struct GestureTabs: View {
                     .background {
                         if on {
                             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                                .fill(Self.thumbColor)
+                                .fill(Color.tabThumb)
                                 .shadow(color: .black.opacity(0.15), radius: 1.5, y: 1)
                                 .matchedGeometryEffect(id: "thumb", in: thumb)
                         }

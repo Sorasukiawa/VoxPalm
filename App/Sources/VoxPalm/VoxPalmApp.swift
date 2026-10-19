@@ -109,6 +109,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.titlebarAppearsTransparent = true
             window.titleVisibility = .hidden
             window.title = "掌声设置"
+            Self.useInsetTitlebar(window)
             window.setContentSize(NSSize(width: 900, height: 680))
             window.isReleasedWhenClosed = false
             window.isRestorable = false
@@ -139,6 +140,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         onboardingWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate()
+    }
+
+    /// 设置窗口的标题栏加高（空的工具栏）：左上角三个按钮往下挪，落在浮起来的边栏里面，和系统设置一样。
+    static func useInsetTitlebar(_ window: NSWindow) {
+        window.toolbar = NSToolbar(identifier: "settings")
+        window.toolbarStyle = .unified
     }
 
     /// 窗口开在鼠标所在的那块屏幕正中（接了外接显示器时，`center()` 会放到别的屏幕上）。
