@@ -72,10 +72,10 @@ func lockup(textColor: String, withIcon: Bool) -> String {
 let dir = brand.appendingPathComponent("wordmark")
 try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
 let outputs: [(String, String, Bool)] = [
-    ("VoxPalm-lockup-light.svg", "#2A1B15", true),  // 浅色背景用
-    ("VoxPalm-lockup-dark.svg", "#FFF7F2", true),   // 深色背景用
-    ("VoxPalm-wordmark-light.svg", "#2A1B15", false),
-    ("VoxPalm-wordmark-dark.svg", "#FFF7F2", false),
+    ("VoxPalm-lockup-light.svg", "#1F1D2B", true),  // 浅色背景用
+    ("VoxPalm-lockup-dark.svg", "#FFF3EA", true),   // 深色背景用
+    ("VoxPalm-wordmark-light.svg", "#1F1D2B", false),
+    ("VoxPalm-wordmark-dark.svg", "#FFF3EA", false),
 ]
 for (name, color, icon) in outputs {
     let svg = lockup(textColor: color, withIcon: icon)
