@@ -75,14 +75,15 @@ enum Permission: String, CaseIterable, Identifiable {
     }
 
     /// 打开权限。打包好的 App：打开系统设置对应的页面，旁边浮出可以拖进列表的掌声图标（见 `PermissionGuide`）。
-    /// 麦克风没问过时直接弹系统授权框。直接跑可执行文件（不在 App 包里）时拖不了，退回系统授权框。
+    /// 麦克风不跳系统设置，直接弹系统授权框（本人 2026-10-19 定）：以前拒绝过的，先把掌声自己的麦克风记录清掉再问一次，
+    /// 清不掉才退回系统设置。直接跑可执行文件（不在 App 包里）时拖不了，退回系统授权框。
     @MainActor
     func request() {
         switch self {
-        case .microphone where MicrophoneAccess.status == .notDetermined:
-            AVCaptureDevice.requestAccess(for: .audio) { _ in
-                DispatchQueue.main.async { AppModel.shared.refreshPermissions() }
-            }
+        case .microphone:
+            // 别的权限的拖拽小窗还开着的话先收起，免得系统设置挡在前面
+            PermissionGuide.shared.stop()
+            Self.askMicrophone(allowReset: true)
             return
         case .inputMonitoring where !Self.isAppBundle:
             HIDAccess.request()
@@ -96,4 +97,30 @@ enum Permission: String, CaseIterable, Identifiable {
     }
 
     private static var isAppBundle: Bool { Bundle.main.bundleURL.pathExtension == "app" }
+
+    @MainActor
+    private static func askMicrophone(allowReset: Bool) {
+        switch MicrophoneAccess.status {
+        case .notDetermined:
+            NSApp.activate()
+            AVCaptureDevice.requestAccess(for: .audio) { _ in
+                DispatchQueue.main.async { AppModel.shared.refreshPermissions() }
+            }
+        case .denied where allowReset && isAppBundle:
+            // 系统不会再弹第二次框：把掌声自己的麦克风记录重置成「没问过」，再问一次。
+            DispatchQueue.global().async {
+                let reset = Process()
+                reset.executableURL = URL(fileURLWithPath: "/usr/bin/tccutil")
+                reset.arguments = ["reset", "Microphone", Bundle.main.bundleIdentifier ?? "com.sorasukiawa.VoxPalm"]
+                try? reset.run()
+                reset.waitUntilExit()
+                DispatchQueue.main.async { askMicrophone(allowReset: false) }
+            }
+        case .authorized:
+            AppModel.shared.refreshPermissions()
+        default:
+            // 重置不了（比如被管理策略限制）才打开系统设置的麦克风列表
+            NSWorkspace.shared.open(Permission.microphone.settingsURL)
+        }
+    }
 }

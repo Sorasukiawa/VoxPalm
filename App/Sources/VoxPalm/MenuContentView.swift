@@ -78,7 +78,12 @@ struct MenuContentView: View {
                 let mic = model.pickerMics.first { $0.uid == model.config.voice.micUID } ?? model.pickerMics.first
                 DeviceTile(label: "收音", name: mic?.shortName ?? "系统默认输入", art: mic?.art ?? PickerArt.system) {
                     HStack(spacing: 6) {
-                        LevelBars(level: model.micLevel, live: model.voiceState == .listening || model.voiceState == .armed)
+                        // 说话时显示跳动的声波；平时写是哪种麦（不放像信号格的图标）
+                        if model.voiceState == .listening || model.voiceState == .armed {
+                            LevelWave(level: model.micLevel).frame(width: 44, height: 12)
+                        } else if let selected = model.selectedMic {
+                            Text(DevicesPane.transportName(selected)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
                         Spacer(minLength: 0)
                         if let selected = model.selectedMic {
                             Chip(text: "\(Int(selected.nominalSampleRate / 1000)) kHz", warn: selected.isLowRateBluetoothInput)
@@ -203,11 +208,10 @@ struct ControlSwitcher: View {
     }
 }
 
-/// 收音磁贴点开后：麦克风列表，选中的那个在跳音量。
+/// 收音磁贴点开后：麦克风列表，点一下就换。
 struct MicSwitcher: View {
     @Environment(AppModel.self) private var model
     let close: () -> Void
-    @State private var meter = MicMeter()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -216,11 +220,9 @@ struct MicSwitcher: View {
                 let selected = model.config.voice.micUID == mic.uid
                 Button {
                     model.update { $0.voice.micUID = mic.uid }
-                    meter.start(uid: mic.uid, after: 0.3)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: close)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: close)
                 } label: {
-                    PickerRow(art: mic.art, title: mic.name, detail: mic.detail + (mic.warning == nil ? "" : " · 通话音质"), selected: selected,
-                              trailing: selected ? AnyView(LevelBars(level: meter.level, live: true)) : nil)
+                    PickerRow(art: mic.art, title: mic.name, detail: mic.detail + (mic.warning == nil ? "" : " · 通话音质"), selected: selected)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)
                         .contentShape(Rectangle())
@@ -232,8 +234,6 @@ struct MicSwitcher: View {
         }
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(0.045)))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
-        .onAppear { meter.start(uid: model.config.voice.micUID, after: 0.3) }
-        .onDisappear { meter.stop() }
     }
 }
 
@@ -587,25 +587,6 @@ struct Chip: View {
             .padding(.vertical, 2)
             .foregroundStyle(warn ? Color.orange : Color.secondary)
             .background(Capsule().fill((warn ? Color.orange : Color.primary).opacity(0.1)))
-    }
-}
-
-/// 麦克风旁边的四根小电平条。
-struct LevelBars: View {
-    let level: Float
-    let live: Bool
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            ForEach(0..<4, id: \.self) { index in
-                let threshold = Float(index) / 4
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(live && level > threshold ? Brand.coralTop : Color.secondary.opacity(0.35))
-                    .frame(width: 3, height: CGFloat(5 + index * 3))
-            }
-        }
-        .frame(height: 14, alignment: .bottom)
-        .animation(.linear(duration: 0.08), value: level)
     }
 }
 
