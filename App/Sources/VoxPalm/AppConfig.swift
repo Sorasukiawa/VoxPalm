@@ -13,6 +13,8 @@ struct AppConfig: Codable, Equatable {
     var deviceLayouts: [String: DeviceLayout] = [:]
     /// 第一次打开的引导走完了没有
     var onboardingDone = false
+    /// 按键时在屏幕下方弹一张小卡片：设备图上点亮刚按的键，写清楚做了什么
+    var showKeyFlash = true
 
     init() {}
 
@@ -26,6 +28,7 @@ struct AppConfig: Codable, Equatable {
         voice = try c.decodeIfPresent(VoiceSession.Settings.self, forKey: .voice) ?? VoiceSession.Settings()
         deviceLayouts = try c.decodeIfPresent([String: DeviceLayout].self, forKey: .deviceLayouts) ?? [:]
         onboardingDone = try c.decodeIfPresent(Bool.self, forKey: .onboardingDone) ?? false
+        showKeyFlash = try c.decodeIfPresent(Bool.self, forKey: .showKeyFlash) ?? true
     }
 
     static var fileURL: URL {

@@ -16,6 +16,8 @@ final class AppModel {
     private(set) var config: AppConfig
     private(set) var devices: [ControlDevice] = []
     private(set) var micDevices: [AudioDeviceInfo] = []
+    /// 控制设备连着但用不了的原因（适配模块报的，比如 DJI 接管按键失败）；面板顶上显示成提醒
+    private(set) var controlProblem: String?
     private(set) var voiceState: VoiceSession.State = .idle
     private(set) var lastButton: String?
     private(set) var lastGesture: String?
@@ -55,6 +57,8 @@ final class AppModel {
     /// 说话浮窗、菜单栏图标监听这些回调（AppDelegate 接上）
     @ObservationIgnored var onVoiceStateChange: ((VoiceSession.State) -> Void)?
     @ObservationIgnored var onVoiceOutcome: ((VoiceSession.Outcome) -> Void)?
+    /// 按键提示（说话浮窗接上）
+    @ObservationIgnored var onKeyFlash: ((KeyFlash) -> Void)?
     /// 打开设置、引导窗口（AppDelegate 接上；界面里调这两个）
     @ObservationIgnored var openSettingsHandler: ((SettingsPane?) -> Void)?
     @ObservationIgnored var closePanelHandler: (() -> Void)?
@@ -124,6 +128,7 @@ final class AppModel {
             guard let name, action != nil || event.deviceID != SystemKeysControlSource.keyboardDeviceID else { return }
             self?.lastGesture = "\(event.label) \(name)" + (action.map { " → \($0.title)" } ?? "（没有映射）")
             log.info("手势 \(event.button.rawValue, privacy: .public) \(name, privacy: .public) → \(action?.title ?? "无", privacy: .public)")
+            self?.flashKey(event, gesture: gesture, action: action)
         }
         voice.onStateChange = { [weak self] state in
             guard let self else { return }
@@ -220,6 +225,17 @@ final class AppModel {
     func refreshDevices() {
         devices = engine.allDevices()
         micDevices = AudioDevices.inputs()
+        let problem = activeDevice.flatMap { engine.problem(of: $0.id) }
+        if problem != controlProblem {
+            controlProblem = problem
+            if let problem { log.notice("控制设备出问题：\(problem, privacy: .public)") }
+        }
+    }
+
+    /// 提醒条上的「重试」：让适配模块重新接管控制设备
+    func retryControlDevice() {
+        guard let id = activeDevice?.id else { return }
+        engine.retry(id)
     }
 
     var activeDevice: ControlDevice? {
@@ -346,6 +362,28 @@ final class AppModel {
         update { $0.keyMap.bindings.removeAll { $0.id == id } }
     }
 
+    /// 按键提示：平时按控制设备上的键，屏幕下方弹一张小卡片，设备图上点亮这个键，写清楚做了什么，
+    /// 一眼看出连对了没有、设对了没有。说话类的动作有说话浮窗，不再弹；「键盘按键」看得到用户打的每个键，没设动作的不弹。
+    private func flashKey(_ event: ButtonEvent, gesture: RecognizedGesture, action: Action?) {
+        guard config.showKeyFlash, !isPaused, learningSpot == nil else { return }
+        let gestureName: String
+        switch gesture {
+        case .single: gestureName = "单击"
+        case .double: gestureName = "双击"
+        case .longBegan: gestureName = "长按"
+        default: return
+        }
+        if action?.isVoice == true { return }
+        if action == nil, event.deviceID == SystemKeysControlSource.keyboardDeviceID { return }
+        guard let device = devices.first(where: { $0.id == event.deviceID }) else { return }
+        let resolved = diagram(for: device)
+        let spot = resolved.buttons.first { $0.value == event.button }?.key
+        let name = spot.flatMap { id in resolved.diagram.spots.first { $0.id == id }?.name } ?? event.label
+        let shortName = name.replacingOccurrences(of: #"（.*）"#, with: "", options: .regularExpression)
+        onKeyFlash?(KeyFlash(diagram: resolved.diagram, spot: spot, title: "\(shortName) · \(gestureName)",
+                             detail: action.map { "→ \($0.title)" } ?? "这个手势还没设动作，点菜单栏图标去设置", bound: action != nil))
+    }
+
     private func highlight(_ event: ButtonEvent) {
         switch event.phase {
         case .down:
@@ -440,6 +478,8 @@ final class AppModel {
         let fix: SettingsPane
         /// 缺权限的提醒：点「开启」直接走授权小窗
         var permission: Permission?
+        /// 控制设备接管失败的提醒：点「重试」重新接管
+        var retry = false
     }
 
     var attentions: [Attention] {
@@ -451,6 +491,8 @@ final class AppModel {
             items.append(Attention(id: "no-device", title: "还没选控制设备", detail: "选一个遥控器、无线麦或者媒体键，才能按键说话。", fix: .devices))
         } else if !activeDeviceConnected {
             items.append(Attention(id: "disconnected", title: "控制设备没连上", detail: "先在系统的蓝牙设置里连上它。", fix: .devices))
+        } else if let controlProblem, !isPaused {
+            items.append(Attention(id: "control-problem", title: "\(activeShortName ?? "控制设备")的按键没接上", detail: controlProblem, fix: .devices, retry: true))
         }
         return items
     }

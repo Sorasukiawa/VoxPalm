@@ -57,6 +57,10 @@ struct KeysPane: View {
                         SnapSlider(value: model.binding(\.timing.longPressThreshold), in: 0.25...1.5, step: 0.05).frame(width: 200)
                         ValueChip(text: String(format: "%.2f 秒", model.config.timing.longPressThreshold))
                     }
+                    RowDivider()
+                    SettingRow("按键时提示按了哪个键", detail: "屏幕下方弹出设备图，点亮刚按的键，写清楚做了什么；说话时看说话浮窗") {
+                        Toggle("按键提示", isOn: model.binding(\.showKeyFlash)).toggleStyle(.switch).labelsHidden()
+                    }
                 }
             }
             .staggerIn(3)

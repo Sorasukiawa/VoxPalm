@@ -1,6 +1,7 @@
 import AppKit
 import Observation
 import SwiftUI
+import VoxPalmEngine
 import VoxPalmVoice
 
 /// 说话浮窗的状态（design/VoxPalm-Motion.html「说话浮窗」一节）。
@@ -17,12 +18,14 @@ enum HUDState: Equatable {
     case handedOff
     /// 一句提示：按得太短、没听到声音、贴不进去、出错。会就地摇一下。
     case message(title: String, subtitle: String?, tone: Tone)
+    /// 按键提示：设备图上点亮刚按的键
+    case key(KeyFlash)
 
     enum Tone: Equatable { case muted, warn, error }
 
     var dotColor: Color {
         switch self {
-        case .hidden, .armed, .listening, .inputMethod: return Brand.coralTop
+        case .hidden, .armed, .listening, .inputMethod, .key: return Brand.coralTop
         case .transcribing: return HUDColors.lavender
         case .done, .handedOff: return HUDColors.ok
         case let .message(_, _, tone):
@@ -47,6 +50,18 @@ enum HUDState: Equatable {
         default: return false
         }
     }
+}
+
+/// 按键提示的内容：哪台设备、图上哪个键、键名和手势、做了什么。
+struct KeyFlash: Equatable {
+    let id = UUID()
+    let diagram: DeviceDiagram
+    /// 图上对应的位置；图上没有这个键（还没学过）时是 nil，只画设备
+    let spot: String?
+    let title: String
+    let detail: String
+    /// 这个手势设了动作没有：没设的话副标题用黄色提示去设
+    let bound: Bool
 }
 
 enum HUDColors {
@@ -102,6 +117,7 @@ final class SpeechHUDController {
         panel.contentView = host
 
         model.onVoiceStateChange = { [weak self] state in self?.voiceStateChanged(state) }
+        model.onKeyFlash = { [weak self] flash in self?.flash(flash) }
         model.onVoiceOutcome = { [weak self] outcome in
             // 出字结果先到、转写的字后到：等一拍再显示，「已输入」下面才有开头几个字。
             DispatchQueue.main.async { self?.outcome(outcome) }
@@ -187,6 +203,15 @@ final class SpeechHUDController {
         }
     }
 
+    /// 按键提示：正在说话、转写、有提示要看时不打断；出完字的提示、上一张按键提示可以被换掉。
+    private func flash(_ flash: KeyFlash) {
+        switch hud.state {
+        case .armed, .listening, .inputMethod, .transcribing, .message: return
+        default: break
+        }
+        show(.key(flash), hideAfter: 1.6)
+    }
+
     func show(_ state: HUDState, hideAfter delay: Double? = nil) {
         hideWork?.cancel()
         layout()
@@ -221,7 +246,7 @@ final class SpeechHUDController {
     }
 
     /// 透明画布的大小，比最长的一条提示宽；浮窗不接鼠标，空白处不挡操作。
-    private static let canvas = NSSize(width: 640, height: 120)
+    private static let canvas = NSSize(width: 640, height: 180)
 
     /// 放在鼠标所在屏幕的下方正中、程序坞上面。
     private func layout() {
@@ -239,7 +264,12 @@ struct SpeechHUDView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            if hud.state != .hidden {
+            if case let .key(flash) = hud.state {
+                keyCard(flash)
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.6, anchor: .bottom).combined(with: .opacity).combined(with: .offset(y: 16)),
+                        removal: .scale(scale: 0.7, anchor: .bottom).combined(with: .opacity).combined(with: .offset(y: 10))))
+            } else if hud.state != .hidden {
                 capsule
                     .transition(.asymmetric(
                         insertion: .scale(scale: 0.6, anchor: .bottom).combined(with: .opacity).combined(with: .offset(y: 16)),
@@ -250,6 +280,37 @@ struct SpeechHUDView: View {
         .padding(.horizontal, 28)
         .padding(.top, 16)
         .padding(.bottom, 40)
+    }
+
+    /// 按键提示：左边设备图（刚按的键点亮、光圈往外扩），右边键名和做了什么。
+    private func keyCard(_ flash: KeyFlash) -> some View {
+        HStack(spacing: 12) {
+            DeviceFigure(diagram: flash.diagram, highlighted: flash.spot.map { [$0: .pressed] } ?? [:], lit: flash.spot)
+                .frame(width: Self.figureSize(flash.diagram).width, height: Self.figureSize(flash.diagram).height)
+                .environment(\.colorScheme, .dark)
+                .padding(7)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(HUDColors.fg.opacity(0.07)))
+            VStack(alignment: .leading, spacing: 3) {
+                Text(flash.title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(HUDColors.fg).lineLimit(1)
+                Text(flash.detail).font(.system(size: 11)).foregroundStyle(flash.bound ? HUDColors.fg2 : HUDColors.warn).lineLimit(1)
+            }
+            .fixedSize()
+        }
+        .padding(8)
+        .padding(.trailing, 10)
+        .background(RoundedRectangle(cornerRadius: 20, style: .continuous).fill(HUDColors.background).shadow(color: .black.opacity(0.38), radius: 14, y: 7))
+        .overlay(RoundedRectangle(cornerRadius: 20, style: .continuous).strokeBorder(HUDColors.line, lineWidth: 0.5))
+        .scaleEffect(hud.collapsed ? 0.85 : 1, anchor: .bottom)
+        .opacity(hud.collapsed ? 0 : 1)
+        .fixedSize()
+    }
+
+    /// 设备图高 64 点（遥控器这类细长的 88 点，不然键太小）、最宽 104 点，按设备的长宽比缩
+    static func figureSize(_ diagram: DeviceDiagram) -> CGSize {
+        let ratio = CGFloat(diagram.width / diagram.height)
+        let height: CGFloat = ratio < 0.5 ? 88 : 64
+        let width = min(104, height * ratio)
+        return CGSize(width: width, height: width / ratio)
     }
 
     private var expanded: Bool {
@@ -308,6 +369,7 @@ struct SpeechHUDView: View {
     private var title: String {
         switch hud.state {
         case .hidden, .armed: return ""
+        case let .key(flash): return flash.title
         case .listening: return "正在听"
         case .inputMethod: return "输入法在听"
         case .transcribing: return "转写中"
@@ -328,6 +390,7 @@ struct SpeechHUDView: View {
     private var subtitle: String? {
         switch hud.state {
         case .hidden, .armed: return nil
+        case let .key(flash): return flash.detail
         case let .listening(_, subtitle): return showsLive ? hud.live : subtitle
         case let .inputMethod(_, subtitle): return subtitle
         case .transcribing: return showsLive ? hud.live : "在这台 Mac 上"
