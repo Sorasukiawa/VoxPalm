@@ -134,6 +134,8 @@ extension AppModel {
 
     var pickerMics: [PickerMic] {
         func kind(_ mic: AudioDeviceInfo) -> (String, DeviceDiagram) {
+            // 认识的无线麦（比如 DJI）画它自己的样子，不画成蓝牙耳机
+            if let known = PrivateModules.micModel(named: mic.name) { return ("无线麦", known.diagram) }
             if mic.transport == "Built-in" { return ("这台 Mac", PickerArt.laptop) }
             if mic.isBluetooth { return ("蓝牙", PickerArt.earbuds) }
             if mic.transport.hasPrefix("Continuity") { return ("iPhone", PickerArt.phone) }
@@ -147,12 +149,12 @@ extension AppModel {
                                detail: "现在是 \(systemDefault?.name ?? "系统默认输入")", warning: nil)]
         for mic in micDevices {
             let (group, art) = kind(mic)
-            let short = mic.transport == "Built-in" ? "Mac 麦克风" : mic.name
+            let short = PrivateModules.micModel(named: mic.name)?.shortName ?? (mic.transport == "Built-in" ? "Mac 麦克风" : mic.name)
             items.append(PickerMic(id: mic.uid, uid: mic.uid, name: mic.name, shortName: short, group: group, art: art,
                                    detail: "\(DevicesPane.transportName(mic)) · \(Int(mic.nominalSampleRate / 1000)) kHz",
                                    warning: mic.isLowRateBluetoothInput ? "通话音质，转写会差一些" : nil))
         }
-        let order = ["系统", "这台 Mac", "外接", "蓝牙", "iPhone", "其他"]
+        let order = ["系统", "这台 Mac", "无线麦", "外接", "蓝牙", "iPhone", "其他"]
         return items.sorted { (order.firstIndex(of: $0.group) ?? 9) < (order.firstIndex(of: $1.group) ?? 9) }
     }
 

@@ -14,6 +14,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var animation: Timer?
     private let started = Date()
     private var tipWork: DispatchWorkItem?
+    /// 面板正在收起（收起动画还没走完，这时 isShown 仍然是 true）
+    private var closing = false
+    /// 面板是被「按在图标上」那一下关掉的（transient 面板按下就收起）：松手时别再打开
+    private var closedByIconPressAt: Date?
 
     init(model: AppModel) {
         self.model = model
@@ -54,15 +58,35 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
     }
 
+    /// 点图标：开着就关，关着就开。以前收起动画没走完时点一下会被当成「关」，看起来就是点了没反应。
     private func toggle() {
-        if popover.isShown {
-            popover.performClose(nil)
-        } else if let button = item.button {
-            tip.performClose(nil)
-            Self.loadPanel(into: popover, model: model)
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+        if let at = closedByIconPressAt {
+            closedByIconPressAt = nil
+            if Date().timeIntervalSince(at) < 1 { return }
         }
+        if popover.isShown && !closing {
+            popover.performClose(nil)
+            return
+        }
+        // 正在收起时又点了：先关干净，再打开
+        if popover.isShown { popover.close() }
+        closing = false
+        guard let button = item.button else { return }
+        tip.performClose(nil)
+        Self.loadPanel(into: popover, model: model)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        closing = true
+        if NSEvent.pressedMouseButtons & 1 != 0, let frame = iconFrameOnScreen, frame.contains(NSEvent.mouseLocation) {
+            closedByIconPressAt = Date()
+        }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        closing = false
     }
 
     /// 换一份新的面板：每次打开都换，磁贴收起、里面的几块依次浮上来。先排好版、定好大小再弹出，免得先小后大。
