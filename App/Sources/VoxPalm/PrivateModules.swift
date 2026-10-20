@@ -30,6 +30,15 @@ enum PrivateModules {
         #endif
     }
 
+    /// 闭源模块认识的收音设备（按设备名认）：收音列表和面板里画它的样子、用短名字。
+    static func micModel(named name: String) -> (diagram: DeviceDiagram, shortName: String)? {
+        #if VOXPALM_PRIVATE
+        return DJIModule.micModel(forAudioDeviceNamed: name)
+        #else
+        return nil
+        #endif
+    }
+
     /// 闭源模块自带的设备示意图（调试渲染用）。
     static func previewDiagrams() -> [DeviceDiagram] {
         #if VOXPALM_PRIVATE
