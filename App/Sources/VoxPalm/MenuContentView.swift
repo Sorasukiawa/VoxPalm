@@ -492,8 +492,13 @@ struct TalkCard: View {
                         }
                     }
                 }
-                Text(model.voiceState == .armed ? "按住别松，外圈走满就开始算" : (trying ? "松开出字" : (model.talkKey?.releaseHint ?? "说完出字")))
-                    .font(.caption).foregroundStyle(.secondary)
+                if model.voiceState == .listening, !model.liveTranscript.isEmpty {
+                    // 实时预览出了字：这一行换成说到现在的字，太长只留最后一截
+                    Text(model.liveTranscript).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                } else {
+                    Text(model.voiceState == .armed ? "按住别松，外圈走满就开始算" : (trying ? "松开出字" : (model.talkKey?.releaseHint ?? "说完出字")))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         case .transcribing:
             VStack(alignment: .leading, spacing: 6) {

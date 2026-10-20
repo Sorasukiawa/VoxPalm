@@ -122,6 +122,59 @@ public enum AudioConversion {
         return output
     }
 
+    /// 一段段送进来、一段段转出去（边说边转用）。同一个转换器一直用到底：每段新开一个的话，重采样在接缝处会断。
+    public final class StreamConverter {
+        private let converter: AVAudioConverter?
+        private let target: AVAudioFormat
+
+        public init(from source: AVAudioFormat, to target: AVAudioFormat) throws {
+            self.target = target
+            if source == target {
+                converter = nil
+            } else {
+                guard let converter = AVAudioConverter(from: source, to: target) else { throw AudioCapture.CaptureError.unsupportedFormat }
+                self.converter = converter
+            }
+        }
+
+        public func convert(_ buffer: AVAudioPCMBuffer) throws -> [AVAudioPCMBuffer] {
+            guard converter != nil else { return [buffer] }
+            return try pull(buffer, ending: false)
+        }
+
+        /// 送完了：把转换器里压着的最后一点也倒出来
+        public func flush() throws -> [AVAudioPCMBuffer] {
+            guard converter != nil else { return [] }
+            return try pull(nil, ending: true)
+        }
+
+        private func pull(_ buffer: AVAudioPCMBuffer?, ending: Bool) throws -> [AVAudioPCMBuffer] {
+            guard let converter else { return [] }
+            var pending = buffer
+            var output: [AVAudioPCMBuffer] = []
+            let ratio = target.sampleRate / converter.inputFormat.sampleRate
+            while true {
+                let capacity = AVAudioFrameCount(Double(max(buffer?.frameLength ?? 0, 1024)) * ratio) + 64
+                guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { break }
+                var error: NSError?
+                let status = converter.convert(to: out, error: &error) { _, inputStatus in
+                    if let next = pending {
+                        pending = nil
+                        inputStatus.pointee = .haveData
+                        return next
+                    }
+                    inputStatus.pointee = ending ? .endOfStream : .noDataNow
+                    return nil
+                }
+                if let error { throw error }
+                if out.frameLength > 0 { output.append(out) }
+                // 输出缓冲满了还可能有剩，接着倒；送进去的用完了（或者结束了）就停
+                if status != .haveData { break }
+            }
+            return output
+        }
+    }
+
     public static func duration(_ buffers: [AVAudioPCMBuffer]) -> Double {
         buffers.reduce(0) { $0 + Double($1.frameLength) / $1.format.sampleRate }
     }

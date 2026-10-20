@@ -96,7 +96,9 @@ public final class VoiceSession: VoiceActionHandler {
     public var onLevel: ((Float) -> Void)?
     public var onMessage: ((String) -> Void)?
     public var onTranscript: ((String) -> Void)?
-    /// 调试：用这个音频文件代替麦克风（环境变量 VOXPALM_DEBUG_AUDIO_FILE）
+    /// 说话时的实时预览：到目前为止转出来的字（还会变，标点不全），主线程回调
+    public var onPartial: ((String) -> Void)?
+    /// 调试：用这个音频文件代替麦克风（环境变量 VOXPALM_DEBUG_AUDIO_FILE）。按下时按真实时间一段段送，松手时剩下的一次送完。
     public var debugAudioFile: URL?
     /// 调试：转写结果追加写进这个文件，不贴到前台 App（环境变量 VOXPALM_DEBUG_TRANSCRIPT_FILE）
     public var debugTranscriptFile: URL?
@@ -109,7 +111,12 @@ public final class VoiceSession: VoiceActionHandler {
     private let lock = NSLock()
     private var collecting = false
     private var sessionBuffers: [AVAudioPCMBuffer] = []
+    /// 实时预览（确认开始说话后才开，按得太短的不开）；和 sessionBuffers 一起由 lock 保护
+    private var preview: LivePreview?
     private var ring: [AVAudioPCMBuffer] = []
+    private var debugQueue: ArraySlice<AVAudioPCMBuffer> = []
+    private var debugFed: Double = 0
+    private var debugTimer: Timer?
     private var savedDefaultInput: AudioObjectID?
     private var restoreWork: DispatchWorkItem?
     /// 这次说话的附加要求（说完要不要回车发送）
@@ -152,6 +159,7 @@ public final class VoiceSession: VoiceActionHandler {
             collecting = true
             lock.unlock()
             startCaptureIfNeeded()
+            if let file = debugAudioFile { startDebugFeed(file) }
         case .inputMethod:
             switchDefaultInput()
         }
@@ -163,10 +171,14 @@ public final class VoiceSession: VoiceActionHandler {
         if let threshold { onOutcome?(.tooShort(threshold: threshold)) }
         switch settings.mode {
         case .builtIn:
+            stopDebugFeed()
             lock.lock()
             collecting = false
             sessionBuffers.removeAll()
+            let preview = preview
+            self.preview = nil
             lock.unlock()
+            preview?.stop()
             stopCaptureUnlessWarm()
         case .inputMethod:
             restoreDefaultInput(after: 0)
@@ -179,6 +191,7 @@ public final class VoiceSession: VoiceActionHandler {
         guard state == .armed else { return }
         self.request = request
         state = .listening
+        if settings.mode == .builtIn { startPreview() }
         if settings.mode == .inputMethod {
             guard KeyPoster.canPost else {
                 onMessage?("没有辅助功能权限，模拟不了输入法的语音键")
@@ -204,19 +217,16 @@ public final class VoiceSession: VoiceActionHandler {
             }
             state = .idle
         case .builtIn:
+            flushDebugFeed()
             lock.lock()
             collecting = false
-            var buffers = sessionBuffers
+            let buffers = sessionBuffers
             sessionBuffers.removeAll()
+            let preview = preview
+            self.preview = nil
             lock.unlock()
+            preview?.stop()
             stopCaptureUnlessWarm()
-            if let file = debugAudioFile {
-                do {
-                    buffers = try AudioConversion.read(file)
-                } catch {
-                    onMessage?("读调试音频失败：\(error.localizedDescription)")
-                }
-            }
             let seconds = AudioConversion.duration(buffers)
             guard seconds >= settings.minimumSeconds else {
                 onMessage?(buffers.isEmpty ? "没录到声音：检查收音设备和麦克风权限" : String(format: "录音太短（%.1f 秒），当成误触", seconds))
@@ -230,6 +240,20 @@ public final class VoiceSession: VoiceActionHandler {
     }
 
     // MARK: - 内置转写
+
+    /// 开始说话后开实时预览，先把预录的声音送进去，之后录到的声音在 received 里接着送。
+    private func startPreview() {
+        let new = TranscriberFactory.makePreview(settings.transcriber, locale: Locale(identifier: settings.localeID)) { [weak self] text in
+            DispatchQueue.main.async { self?.onPartial?(text) }
+        }
+        guard let new else { return }
+        lock.lock()
+        for buffer in sessionBuffers { new.append(buffer) }
+        let old = preview
+        preview = new
+        lock.unlock()
+        old?.stop()
+    }
 
     private func transcribe(_ buffers: [AVAudioPCMBuffer], sendReturn: Bool, target: TextTarget?) {
         let settings = settings
@@ -320,6 +344,7 @@ public final class VoiceSession: VoiceActionHandler {
         defer { lock.unlock() }
         if collecting {
             sessionBuffers.append(buffer)
+            preview?.append(buffer)
         } else if settings.keepMicWarm {
             ring.append(buffer)
             var total = AudioConversion.duration(ring)
@@ -328,6 +353,42 @@ public final class VoiceSession: VoiceActionHandler {
                 ring.removeFirst()
             }
         }
+    }
+
+    // MARK: - 调试音频
+
+    /// 按真实时间一段段送调试音频，和真麦克风一样：音量会跳，实时预览能看到字一点点出来。
+    private func startDebugFeed(_ file: URL) {
+        stopDebugFeed()
+        do {
+            debugQueue = try AudioConversion.read(file)[...]
+        } catch {
+            onMessage?("读调试音频失败：\(error.localizedDescription)")
+            return
+        }
+        let started = Date()
+        debugFed = 0
+        debugTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let elapsed = Date().timeIntervalSince(started)
+            while self.debugFed <= elapsed, let next = self.debugQueue.popFirst() {
+                self.debugFed += Double(next.frameLength) / next.format.sampleRate
+                self.received(next)
+            }
+        }
+    }
+
+    /// 松手了：剩下的一次送完（调试时不用按满整段音频那么久）
+    private func flushDebugFeed() {
+        debugTimer?.invalidate()
+        debugTimer = nil
+        while let next = debugQueue.popFirst() { received(next) }
+    }
+
+    private func stopDebugFeed() {
+        debugTimer?.invalidate()
+        debugTimer = nil
+        debugQueue = []
     }
 
     private func startCaptureIfNeeded() {

@@ -34,6 +34,8 @@ final class AppModel {
     /// 这次说话从什么时候开始（按下的瞬间），浮窗和面板的计时用
     private(set) var talkStartedAt: Date?
     private(set) var lastTranscriptAt: Date?
+    /// 说话时的实时预览：这次到目前为止转出来的字（还会变、标点不全；whisper.cpp 没有预览，一直是空的）
+    private(set) var liveTranscript = ""
     /// 正在学的键属于哪个流程（引导里学说话键时是 "onboarding"）
     private(set) var learnPurpose: String?
     /// 最近出的字（最多 3 条，只记在这次运行里，退出就清）
@@ -127,7 +129,7 @@ final class AppModel {
             guard let self else { return }
             self.voiceState = state
             switch state {
-            case .armed: self.talkStartedAt = Date()
+            case .armed: self.talkStartedAt = Date(); self.liveTranscript = ""
             case .listening: if self.talkStartedAt == nil { self.talkStartedAt = Date() }
             case .idle: self.talkStartedAt = nil; self.micLevel = 0
             case .transcribing: self.micLevel = 0
@@ -153,6 +155,10 @@ final class AppModel {
             guard let self else { return }
             // 平滑一点，免得竖条抖得太厉害
             self.micLevel = self.micLevel * 0.4 + level * 0.6
+        }
+        voice.onPartial = { [weak self] text in
+            guard let self, self.voiceState == .listening || self.voiceState == .transcribing else { return }
+            self.liveTranscript = text
         }
         voice.onMessage = { [weak self] text in
             self?.message = text
