@@ -2,10 +2,19 @@ import AVFoundation
 import Foundation
 import Speech
 
-/// 内置转写。整段说完再转（按住说话一般就几秒，整段转更稳）。
+/// 内置转写，整段说完再转（按住说话一般就几秒，整段转标点最全）。说话时的实时预览见 `LivePreview`。
 public protocol Transcriber {
     var name: String { get }
     func transcribe(_ buffers: [AVAudioPCMBuffer], locale: Locale) async throws -> String
+}
+
+/// 边说边转的预览：说话时把声音一段段送进去，随时报「到目前为止」的字，给浮窗和面板显示。
+/// 只管显示，松手后出的字还是整段转的：预览要快，用的是系统的快速模式，标点几乎都会丢（2026-10-19 实测）。
+public protocol LivePreview: AnyObject {
+    /// 送一段声音，任何线程都能调
+    func append(_ buffer: AVAudioPCMBuffer)
+    /// 不看了（松手、按得太短、取消）
+    func stop()
 }
 
 public enum TranscriberError: Error, CustomStringConvertible {
@@ -56,6 +65,14 @@ public enum TranscriberFactory {
         case .whisper:
             return try WhisperCLITranscriber(configuration: whisper)
         }
+    }
+
+    /// 能边说边转就开一个实时预览（macOS 26 以上的系统转写）；whisper.cpp 没有，返回 nil。
+    /// onPartial 在后台线程回调，参数是到目前为止的字。
+    public static func makePreview(_ choice: TranscriberChoice, locale: Locale, onPartial: @escaping (String) -> Void) -> LivePreview? {
+        guard choice != .whisper else { return nil }
+        if #available(macOS 26, *) { return SpeechAnalyzerPreview(locale: locale, onPartial: onPartial) }
+        return nil
     }
 }
 
@@ -128,6 +145,77 @@ public struct SpeechAnalyzerTranscriber: Transcriber {
     }
 }
 
+/// 系统转写的实时预览：开着一个 SpeechAnalyzer，声音一来就送进去，临时结果（volatile）随时报出来。
+/// 模型没装好、格式还没定的时候先送来的声音排在队里，不会丢。
+@available(macOS 26, *)
+final class SpeechAnalyzerPreview: LivePreview, @unchecked Sendable {
+    private let input: AsyncStream<AVAudioPCMBuffer>.Continuation
+    private let work: Task<Void, Never>
+
+    init(locale: Locale, onPartial: @escaping (String) -> Void) {
+        let (raw, input) = AsyncStream<AVAudioPCMBuffer>.makeStream()
+        self.input = input
+        work = Task {
+            // 用系统的 progressive 预设（带 fastResults）：大约每秒出一次字。不带 fastResults 的话，
+            // 临时结果要憋到声音送完才一起出来，说话时看不到字（2026-10-19 实测）。
+            if let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
+                let module = SpeechTranscriber(locale: supported, preset: .progressiveTranscription)
+                let texts = module.results.map { (text: String($0.text.characters), isFinal: $0.isFinal) }
+                await Self.run(module, texts: texts, raw: raw, onPartial: onPartial)
+            } else if let supported = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
+                let module = DictationTranscriber(locale: supported, preset: .progressiveShortDictation)
+                let texts = module.results.map { (text: String($0.text.characters), isFinal: $0.isFinal) }
+                await Self.run(module, texts: texts, raw: raw, onPartial: onPartial)
+            }
+        }
+    }
+
+    func append(_ buffer: AVAudioPCMBuffer) {
+        input.yield(buffer)
+    }
+
+    func stop() {
+        input.finish()
+    }
+
+    /// 出错（模型装不上、格式转不了）就不显示预览，整段转那边会照常报错。
+    private static func run<Texts: AsyncSequence>(
+        _ module: any SpeechModule,
+        texts: Texts,
+        raw: AsyncStream<AVAudioPCMBuffer>,
+        onPartial: @escaping (String) -> Void
+    ) async where Texts.Element == (text: String, isFinal: Bool) {
+        let analyzer = SpeechAnalyzer(modules: [module])
+        // 定稿的字一段段接起来；没定稿的那段会被后面的结果换掉。
+        let collector = Task {
+            var settled = ""
+            for try await item in texts {
+                if item.isFinal { settled += item.text }
+                onPartial(TranscriptCleaner.clean(item.isFinal ? settled : settled + item.text))
+            }
+        }
+        let (stream, feed) = AsyncStream<AnalyzerInput>.makeStream()
+        do {
+            try await SpeechAnalyzerTranscriber.ensureAssets(module)
+            try await analyzer.start(inputSequence: stream)
+            var converter: AudioConversion.StreamConverter?
+            for await buffer in raw {
+                if converter == nil {
+                    let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module], considering: buffer.format) ?? buffer.format
+                    converter = try AudioConversion.StreamConverter(from: buffer.format, to: format)
+                }
+                for piece in try converter?.convert(buffer) ?? [] { feed.yield(AnalyzerInput(buffer: piece)) }
+            }
+        } catch {
+            // 预览出错不打扰用户，等着松手（raw 结束）再收拾
+            for await _ in raw {}
+        }
+        feed.finish()
+        await analyzer.cancelAndFinishNow()
+        collector.cancel()
+    }
+}
+
 /// 转写结果的收尾：系统转写把几段结果拼起来时，中文之间、中文标点前后会多出空格。
 public enum TranscriptCleaner {
     public static func clean(_ text: String) -> String {
@@ -142,10 +230,15 @@ public enum TranscriptCleaner {
                 let nearPunctuation = [previous, next].contains { $0.map(isWidePunctuation) ?? false }
                 if bothWide || nearPunctuation { continue }
             }
+            // 系统转写在段和段的接缝处偶尔会多出一个标点（「下个月的计划。。」）
+            if collapsible.contains(char), result.last == char { continue }
             result.append(char)
         }
         return result
     }
+
+    /// 连着出现只留一个的标点（「〇〇」「——」这类本来就成对的不算）
+    static let collapsible: Set<Character> = ["。", "，", "、", "；", "："]
 
     static func isWidePunctuation(_ char: Character) -> Bool {
         char.unicodeScalars.contains { (0x3000...0x303F).contains($0.value) || (0xFF00...0xFF0F).contains($0.value) || (0xFF1A...0xFF20).contains($0.value) }

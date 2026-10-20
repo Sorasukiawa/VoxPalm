@@ -35,6 +35,21 @@ private func sine(seconds: Double, rate: Double, channels: AVAudioChannelCount) 
     #expect(converted.first?.format.sampleRate == 16_000)
 }
 
+@Test func 边录边转格式时长不变() throws {
+    // 麦克风每次只给十几毫秒，一段段送进同一个转换器，最后倒干净，总时长要和整段转一样
+    let target = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)!
+    let converter = try AudioConversion.StreamConverter(from: sine(seconds: 0.01, rate: 48_000, channels: 2).format, to: target)
+    var converted: [AVAudioPCMBuffer] = []
+    for _ in 0..<100 { converted += try converter.convert(sine(seconds: 0.01, rate: 48_000, channels: 2)) }
+    converted += try converter.flush()
+    #expect(abs(AudioConversion.duration(converted) - 1.0) < 0.02)
+    #expect(converted.allSatisfy { $0.format.sampleRate == 16_000 })
+    // 格式一样就原样交出去
+    let same = try AudioConversion.StreamConverter(from: target, to: target)
+    let piece = sine(seconds: 0.1, rate: 16_000, channels: 1)
+    #expect(try same.convert(piece).first === piece)
+}
+
 @Test func 写出whisper用的WAV() throws {
     let url = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-test-\(UUID().uuidString).wav")
     defer { try? FileManager.default.removeItem(at: url) }
@@ -50,4 +65,6 @@ private func sine(seconds: Double, rate: Double, channels: AVAudioChannelCount) 
     #expect(TranscriptCleaner.clean("用 Claude Code 写代码") == "用 Claude Code 写代码")
     #expect(TranscriptCleaner.clean("按住 说话") == "按住说话")
     #expect(TranscriptCleaner.clean("hello world") == "hello world")
+    #expect(TranscriptCleaner.clean("吃个晚饭 ，顺便聊聊下个月的计划。。") == "吃个晚饭，顺便聊聊下个月的计划。")
+    #expect(TranscriptCleaner.clean("二〇〇六年") == "二〇〇六年")
 }

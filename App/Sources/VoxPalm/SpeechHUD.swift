@@ -66,6 +66,8 @@ enum HUDColors {
 final class HUDModel {
     var state: HUDState = .hidden
     var level: Float = 0
+    /// 实时预览的字：「正在听」「转写中」下面那行换成它，太长只留最后一截
+    var live = ""
     /// 收起前先缩回只剩 ●
     var collapsed = false
     /// 每加一就摇一下（按得太短、出错）
@@ -105,6 +107,7 @@ final class SpeechHUDController {
             DispatchQueue.main.async { self?.outcome(outcome) }
         }
         observeLevel()
+        observeLive()
     }
 
     private func observeLevel() {
@@ -113,6 +116,16 @@ final class SpeechHUDController {
                 guard let self else { return }
                 self.hud.level = self.model.micLevel
                 self.observeLevel()
+            }
+        }
+    }
+
+    private func observeLive() {
+        withObservationTracking { _ = model.liveTranscript } onChange: { [weak self] in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.hud.live = self.model.liveTranscript
+                self.observeLive()
             }
         }
     }
@@ -259,7 +272,8 @@ struct SpeechHUDView: View {
                         Text(title).font(.system(size: 13.5, weight: .semibold)).foregroundStyle(HUDColors.fg).lineLimit(1)
                         if let subtitle {
                             Text(subtitle).font(.system(size: 11)).foregroundStyle(HUDColors.fg2).lineLimit(1)
-                                .frame(maxWidth: 260, alignment: .leading)
+                                .truncationMode(showsLive ? .head : .tail)
+                                .frame(width: Self.subtitleWidth(subtitle), alignment: .leading)
                         }
                     }
                     .fixedSize(horizontal: true, vertical: false)
@@ -303,15 +317,30 @@ struct SpeechHUDView: View {
         }
     }
 
+    /// 实时预览出了字：副标题换成说到现在的字（松手后转写中也留着，等整段转完换成「已输入」）
+    private var showsLive: Bool {
+        switch hud.state {
+        case .listening, .transcribing: return !hud.live.isEmpty
+        default: return false
+        }
+    }
+
     private var subtitle: String? {
         switch hud.state {
         case .hidden, .armed: return nil
-        case let .listening(_, subtitle), let .inputMethod(_, subtitle): return subtitle
-        case .transcribing: return "在这台 Mac 上"
+        case let .listening(_, subtitle): return showsLive ? hud.live : subtitle
+        case let .inputMethod(_, subtitle): return subtitle
+        case .transcribing: return showsLive ? hud.live : "在这台 Mac 上"
         case let .done(_, _, snippet): return snippet
         case .handedOff: return "字由输入法放进去"
         case let .message(_, subtitle, _): return subtitle
         }
+    }
+
+    /// 副标题最宽 260 点。浮窗整体按内容定宽（fixedSize），只写 maxWidth 时字会撑出去被胶囊切掉，
+    /// 量出字宽给一个确定的宽度，太长才会省略（实时预览省略前面，留最新的一截）。
+    static func subtitleWidth(_ text: String) -> CGFloat {
+        min(260, ceil((text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 11)]).width) + 1)
     }
 
     static func clock(_ seconds: Double) -> String {
