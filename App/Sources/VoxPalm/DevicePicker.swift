@@ -55,11 +55,11 @@ struct PickerMic: Identifiable, Equatable {
 }
 
 extension AppModel {
-    /// 认识的型号：没连上也列出来
+    /// 认识的型号：没连上也列出来（闭源适配目前都是无线麦）
     private static let knownModels: [(DeviceDiagram, PickerDevice.Category, String)] = [
         (.xiaomiRemote2, .remote, "小米遥控器 2"),
         (.siriRemote, .remote, "Siri Remote"),
-    ]
+    ] + PrivateModules.knownModels().map { ($0.diagram, .mic, $0.shortName) }
 
     static func shortName(for device: ControlDevice, art: DeviceDiagram) -> String {
         if let known = knownModels.first(where: { $0.0.id == art.id }) { return known.2 }
@@ -670,7 +670,8 @@ struct ControlDevicePicker: View {
                     Text("·")
                     Text(item.detail).lineLimit(1)
                 } else {
-                    Text("没连上 · 在系统设置 › 蓝牙 里配对，再按一下它的键").lineLimit(1)
+                    // 无线麦作为蓝牙收音设备连上就会出现，不用按键认
+                    Text(item?.category == .mic ? "没连上 · 打开它，在系统设置 › 蓝牙 里连上" : "没连上 · 在系统设置 › 蓝牙 里配对，再按一下它的键").lineLimit(1)
                 }
             }
             .font(.caption)
