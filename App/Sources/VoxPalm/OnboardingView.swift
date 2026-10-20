@@ -612,7 +612,7 @@ private struct OtherKeysStep: View {
 
     private func diagram(_ resolved: AppModel.ResolvedDiagram) -> some View {
         let callouts = DiagramCallout.make(diagram: resolved.diagram, buttons: resolved.buttons, keyMap: model.config.keyMap,
-                                           reportsRelease: resolved.reportsRelease, learning: nil)
+                                           reportsRelease: resolved.reportsRelease, allowsDouble: resolved.allowsDouble, learning: nil)
             .filter { $0.isBound && $0.lines != ["点一下设置"] }
         var highlighted: [String: DeviceArt.Highlight] = [:]
         for (id, button) in resolved.buttons where model.pressedButtons.contains(button) { highlighted[id] = .pressed }
@@ -688,7 +688,7 @@ private struct OtherKeysStep: View {
         var spots: [String] = []
         for item in AIPreset.items where resolved.diagram.spots.contains(where: { $0.id == item.spot }) && !spots.contains(item.spot) {
             if resolved.diagram.id != DeviceDiagram.footPedal.id && ["left", "right"].contains(item.spot) { continue }
-            if !resolved.reportsRelease && AIPreset.items.filter({ $0.spot == item.spot }).allSatisfy({ $0.gesture == .long }) { continue }
+            if AIPreset.items.filter({ $0.spot == item.spot }).allSatisfy({ !resolved.allows($0.gesture) }) { continue }
             spots.append(item.spot)
         }
         return spots

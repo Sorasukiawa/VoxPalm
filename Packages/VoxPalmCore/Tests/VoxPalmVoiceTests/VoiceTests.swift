@@ -1,6 +1,8 @@
 import AVFoundation
 import Foundation
 import Testing
+import CoreAudio
+@testable import VoxPalmDevices
 @testable import VoxPalmVoice
 
 @Test func whisper参数带语言和简体提示() {
@@ -67,4 +69,28 @@ private func sine(seconds: Double, rate: Double, channels: AVAudioChannelCount) 
     #expect(TranscriptCleaner.clean("hello world") == "hello world")
     #expect(TranscriptCleaner.clean("吃个晚饭 ，顺便聊聊下个月的计划。。") == "吃个晚饭，顺便聊聊下个月的计划。")
     #expect(TranscriptCleaner.clean("二〇〇六年") == "二〇〇六年")
+}
+
+private func mic(_ id: AudioObjectID, _ uid: String, _ transport: String, isDefault: Bool = false) -> AudioDeviceInfo {
+    AudioDeviceInfo(id: id, uid: uid, name: uid, manufacturer: nil, transport: transport, inputChannels: 1, outputChannels: 0,
+                    nominalSampleRate: 16_000, availableSampleRates: [], inputStreamFormat: nil, isDefaultInput: isDefault,
+                    isDefaultOutput: false, isDefaultSystemOutput: false, isRunningSomewhere: false)
+}
+
+@Test func 收音会被静音时改用Mac麦() {
+    let dji = mic(1, "DJI", "Bluetooth", isDefault: true)
+    let airpods = mic(2, "AirPods", "Bluetooth")
+    let builtIn = mic(3, "BuiltIn", "Built-in")
+    let virtual = mic(4, "Virtual", "Virtual")
+    // 没有要避开的：跟随系统默认还是交给系统，选了就用选的
+    #expect(MicRouting.resolve(selectedUID: nil, inputs: [dji, builtIn], muted: []) == .init(device: nil, avoided: nil))
+    #expect(MicRouting.resolve(selectedUID: "AirPods", inputs: [dji, airpods], muted: ["DJI"]) == .init(device: airpods, avoided: nil))
+    // 选的就是会静音的那支、或者跟随系统默认而默认正好是它：先换 Mac 自带的麦
+    #expect(MicRouting.resolve(selectedUID: "DJI", inputs: [dji, airpods, builtIn], muted: ["DJI"]) == .init(device: builtIn, avoided: dji))
+    #expect(MicRouting.resolve(selectedUID: nil, inputs: [dji, airpods, builtIn], muted: ["DJI"]) == .init(device: builtIn, avoided: dji))
+    // 选的麦没连上、录音会落到默认输入上：一样要避开
+    #expect(MicRouting.resolve(selectedUID: "USB", inputs: [dji, builtIn], muted: ["DJI"]) == .init(device: builtIn, avoided: dji))
+    // 没有 Mac 自带的麦（合盖接外接显示器）：换下一个能用的，不用虚拟声卡
+    #expect(MicRouting.resolve(selectedUID: nil, inputs: [virtual, dji, airpods], muted: ["DJI"]) == .init(device: airpods, avoided: dji))
+    #expect(MicRouting.resolve(selectedUID: nil, inputs: [dji, virtual], muted: ["DJI"]) == .init(device: nil, avoided: dji))
 }

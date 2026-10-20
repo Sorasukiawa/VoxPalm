@@ -292,3 +292,42 @@ final class RecordingHIDSource: ControlSource {
     #expect(KeyCodeNames.label(keyCode: 76, characters: "\u{3}") == "按键 76")
     #expect(KeyCodeNames.label(keyCode: 0, characters: nil) == "按键 0")
 }
+
+/// 接管后连按只报一下的设备（一次性触发），会让自己的麦静音
+final class SingleTapSource: ControlSource {
+    let sourceID = "single-tap"
+    var onEvent: ((ButtonEvent) -> Void)?
+    var onDevicesChanged: (() -> Void)?
+    var isMapped: ((ButtonID) -> Bool)?
+    var status = "测试"
+    private var active: Set<String> = []
+    func devices() -> [ControlDevice] { [ControlDevice(id: "mic:1", sourceID: sourceID, name: "测试无线麦", detail: "", reportsRelease: false)] }
+    func activate(_ deviceIDs: Set<String>) { active = deviceIDs.filter { $0.hasPrefix("mic:") } }
+    func reportsDoubleTap(_ deviceID: String) -> Bool { !deviceID.hasPrefix("mic:") }
+    func mutedInputs(for deviceID: String) -> Set<String> { active.contains(deviceID) ? ["MIC-UID"] : [] }
+}
+
+@Test func 报不出双击的设备设了双击也不等() {
+    let scheduler = ManualScheduler()
+    let engine = ButtonEngine(sources: [FakeSource(), SingleTapSource()], scheduler: scheduler)
+    let key = ButtonID("mic:key:2")
+    engine.keyMap.set(KeyBinding(button: key, buttonLabel: "录制键", gesture: .single, action: .toggleDictation))
+    engine.keyMap.set(KeyBinding(button: key, buttonLabel: "录制键", gesture: .double, action: .sendReturn))
+    let voice = FakeVoice()
+    engine.voice = voice
+    engine.activate(["mic:1"])
+    #expect(!engine.reportsDoubleTap("mic:1"))
+    #expect(engine.reportsDoubleTap("fake:1"))
+    engine.handle(ButtonEvent(deviceID: "mic:1", button: key, label: "录制键", phase: .trigger, time: 0))
+    // 不等双击窗口，单击马上生效
+    #expect(voice.log == ["begin"])
+}
+
+@Test func 启用的控制设备报出会静音的麦() {
+    let engine = ButtonEngine(sources: [FakeSource(), SingleTapSource()])
+    #expect(engine.mutedInputs().isEmpty)
+    engine.activate(["mic:1"])
+    #expect(engine.mutedInputs() == ["MIC-UID"])
+    engine.activate(["fake:1"])
+    #expect(engine.mutedInputs().isEmpty)
+}

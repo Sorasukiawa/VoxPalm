@@ -85,7 +85,12 @@ public final class ButtonEngine {
         self.keyMap = keyMap
         self.gate = gate
         recognizer = GestureRecognizer(scheduler: scheduler)
-        recognizer.hasBinding = { [weak self] button, gesture in self?.keyMap.hasBinding(button, gesture) ?? false }
+        recognizer.hasBinding = { [weak self] event, gesture in
+            guard let self else { return false }
+            // 报不出双击的设备：设了双击也不等，单击立刻生效
+            if gesture == .double, !self.reportsDoubleTap(event.deviceID) { return false }
+            return self.keyMap.hasBinding(event.button, gesture)
+        }
         recognizer.onGesture = { [weak self] event, gesture in self?.handle(gesture, event: event) }
         for source in sources {
             source.onEvent = { [weak self] in self?.handle($0) }
@@ -151,6 +156,20 @@ public final class ButtonEngine {
 
     public func retry(_ deviceID: String) {
         source(of: deviceID)?.retry(deviceID)
+    }
+
+    /// 这台设备能不能做双击（适配模块说了算，默认能）
+    public func reportsDoubleTap(_ deviceID: String) -> Bool {
+        sources.allSatisfy { $0.reportsDoubleTap(deviceID) }
+    }
+
+    /// 现在启用的控制设备接管按键时会被静音的收音设备（音频设备 UID）
+    public func mutedInputs() -> Set<String> {
+        var result = Set<String>()
+        for id in activeDeviceIDs {
+            for source in sources { result.formUnion(source.mutedInputs(for: id)) }
+        }
+        return result
     }
 
     private func source(of deviceID: String) -> ControlSource? {

@@ -21,12 +21,20 @@ public protocol ControlSource: AnyObject {
     func problem(for deviceID: String) -> String?
     /// 用户点了「重试」：重新接管这台设备
     func retry(_ deviceID: String)
+    /// 这台设备快速连按两下能不能报成两次。报不出来的（比如有的无线麦接管后连按只报一下）做不了双击，
+    /// 编辑器里不提供，已经设了的双击也不等。
+    func reportsDoubleTap(_ deviceID: String) -> Bool
+    /// 接管这台设备的按键时会被静音的收音设备（音频设备 UID）。有的无线麦，收按键用的控制通道一打开，它自己的麦就没声音了；
+    /// 录音会避开这些麦（见 VoxPalmVoice 的 MicRouting）。
+    func mutedInputs(for deviceID: String) -> Set<String>
 }
 
 public extension ControlSource {
     func diagram(for device: ControlDevice) -> DeviceDiagram? { nil }
     func problem(for deviceID: String) -> String? { nil }
     func retry(_ deviceID: String) {}
+    func reportsDoubleTap(_ deviceID: String) -> Bool { true }
+    func mutedInputs(for deviceID: String) -> Set<String> { [] }
 
     func shutdown(completion: @escaping () -> Void) {
         activate([])

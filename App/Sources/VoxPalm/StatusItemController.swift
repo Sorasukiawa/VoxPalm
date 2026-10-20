@@ -42,7 +42,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         case .transcribing: return .transcribing
         case .idle:
             if model.isPaused { return .paused }
-            return model.attentions.isEmpty ? .idle : .attention
+            return model.needsAttention ? .attention : .idle
         }
     }
 

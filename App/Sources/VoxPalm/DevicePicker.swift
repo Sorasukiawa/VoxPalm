@@ -51,7 +51,13 @@ struct PickerMic: Identifiable, Equatable {
     let group: String
     let art: DeviceDiagram
     let detail: String
+    /// 转盘下面的黄色提醒（通话音质、当按键用时没声音）
     let warning: String?
+    /// 列表里跟在说明后面的一小句
+    let rowNote: String?
+
+    /// 列表里的说明：设备类型 · 采样率，再加一句提醒
+    var rowDetail: String { detail + (rowNote.map { " · " + $0 } ?? "") }
 }
 
 extension AppModel {
@@ -142,17 +148,30 @@ extension AppModel {
             if mic.transport == "Virtual" { return ("其他", PickerArt.system) }
             return ("外接", PickerArt.receiver)
         }
+        /// 控制设备接管按键时会被静音的麦，录音换成哪支（见 MicRouting）
+        func fallback(for mic: AudioDeviceInfo) -> String {
+            MicRouting.resolve(selectedUID: mic.uid, inputs: micDevices, muted: mutedMicUIDs).device.map(micShortName) ?? "别的麦"
+        }
         let systemDefault = micDevices.first(where: \.isDefaultInput)
+        let defaultMuted = systemDefault.map { mutedMicUIDs.contains($0.uid) } ?? false
         // 「跟随系统默认」画现在的默认麦克风长什么样
         var items = [PickerMic(id: "default", uid: nil, name: "跟随系统默认输入", shortName: "系统默认", group: "系统",
                                art: systemDefault.map { kind($0).1 } ?? PickerArt.system,
-                               detail: "现在是 \(systemDefault?.name ?? "系统默认输入")", warning: nil)]
+                               detail: "现在是 \(systemDefault?.name ?? "系统默认输入")",
+                               warning: defaultMuted ? systemDefault.map { "它当按键用时没声音 · 录音改用 \(fallback(for: $0))" } : nil,
+                               rowNote: defaultMuted ? systemDefault.map { "录音改用 \(fallback(for: $0))" } : nil)]
         for mic in micDevices {
             let (group, art) = kind(mic)
-            let short = PrivateModules.micModel(named: mic.name)?.shortName ?? (mic.transport == "Built-in" ? "Mac 麦克风" : mic.name)
-            items.append(PickerMic(id: mic.uid, uid: mic.uid, name: mic.name, shortName: short, group: group, art: art,
-                                   detail: "\(DevicesPane.transportName(mic)) · \(Int(mic.nominalSampleRate / 1000)) kHz",
-                                   warning: mic.isLowRateBluetoothInput ? "通话音质，转写会差一些" : nil))
+            let detail = "\(DevicesPane.transportName(mic)) · \(Int(mic.nominalSampleRate / 1000)) kHz"
+            if mutedMicUIDs.contains(mic.uid) {
+                // 当按键用时（比如 DJI 接管了它的按键）它自己的麦没声音
+                items.append(PickerMic(id: mic.uid, uid: mic.uid, name: mic.name, shortName: micShortName(mic), group: group, art: art, detail: detail,
+                                       warning: "当按键用时没声音 · 录音改用 \(fallback(for: mic))", rowNote: "当按键用时没声音"))
+            } else {
+                items.append(PickerMic(id: mic.uid, uid: mic.uid, name: mic.name, shortName: micShortName(mic), group: group, art: art, detail: detail,
+                                       warning: mic.isLowRateBluetoothInput ? "通话音质，转写会差一些" : nil,
+                                       rowNote: mic.isLowRateBluetoothInput ? "通话音质" : nil))
+            }
         }
         let order = ["系统", "这台 Mac", "无线麦", "外接", "蓝牙", "iPhone", "其他"]
         return items.sorted { (order.firstIndex(of: $0.group) ?? 9) < (order.firstIndex(of: $1.group) ?? 9) }
@@ -166,6 +185,21 @@ extension AppModel {
 
     /// 浮窗副标题、面板磁贴用的设备短名
     var activeShortName: String? { activePickerDevice?.shortName ?? activeDeviceName }
+
+    /// 收音设备的短名：认识的无线麦用型号（「DJI Mic 2」），Mac 自带的叫「Mac 麦克风」
+    func micShortName(_ mic: AudioDeviceInfo) -> String {
+        PrivateModules.micModel(named: mic.name)?.shortName ?? (mic.transport == "Built-in" ? "Mac 麦克风" : mic.name)
+    }
+
+    /// 这次录音避开了被控制设备静音的麦时，给人看的一句话；没避开就是 nil
+    var micAvoidNote: String? {
+        let route = micRoute
+        guard let avoided = route.avoided else { return nil }
+        guard let device = route.device else {
+            return "\(micShortName(avoided)) 当按键用时，它的麦会被静音，又没有别的麦可用：接一支麦，或者换个控制设备。"
+        }
+        return "\(micShortName(avoided)) 当按键用时，它的麦会被静音，这次用 \(micShortName(device)) 收音。"
+    }
 }
 
 /// 收音设备、耳机、键盘这些没有按键示意图的东西，只画外形（毫米，和设备示意图同一套画法）。
@@ -764,7 +798,7 @@ struct MicPicker: View {
 
             GroupedPickerList(items: items, group: \.group, selection: $focusID) { item, selected in
                 // 音量看左边转盘上的光圈，列表里不再放像信号格的小竖条
-                PickerRow(art: item.art, title: item.name, detail: item.detail + (item.warning == nil ? "" : " · 通话音质"), selected: selected)
+                PickerRow(art: item.art, title: item.name, detail: item.rowDetail, selected: selected)
             }
         }
         .onAppear {

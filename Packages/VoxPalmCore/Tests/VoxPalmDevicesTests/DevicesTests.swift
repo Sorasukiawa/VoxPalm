@@ -26,3 +26,15 @@ import Testing
     #expect(!device(rate: 48_000, transport: "USB").isLowRateBluetoothInput)
     #expect(device(rate: 48_000, inputs: 0).bluetoothProfileGuess?.contains("A2DP") == true)
 }
+
+@Test func 开着麦的程序名字() {
+    // 系统设置的「声音」页是单独的扩展进程，一直在量输入音量
+    #expect(AudioDevices.clientName(path: "/System/Library/ExtensionKit/Extensions/Sound.appex/Contents/MacOS/Sound", appName: nil,
+                                    bundleID: "com.apple.Sound-Settings.extension", pid: 1) == "系统设置 › 声音")
+    // App 里带的辅助程序用外层 App 的名字
+    #expect(AudioDevices.clientName(path: "/Applications/ChatGPT.app/Contents/Resources/native/system-audio-spectrum", appName: nil,
+                                    bundleID: nil, pid: 2) == "ChatGPT")
+    #expect(AudioDevices.clientName(path: "/Applications/Zoom.app/Contents/MacOS/zoom.us", appName: "zoom.us", bundleID: nil, pid: 3) == "zoom.us")
+    #expect(AudioDevices.clientName(path: "/usr/local/bin/sox", appName: nil, bundleID: nil, pid: 4) == "sox")
+    #expect(AudioDevices.clientName(path: "", appName: nil, bundleID: nil, pid: 5) == "进程 5")
+}

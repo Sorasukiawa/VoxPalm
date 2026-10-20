@@ -60,7 +60,8 @@ public final class MainQueueScheduler: GestureScheduler {
 /// 某个键没绑双击时，单击在松开时立刻触发，不用等双击窗口。
 public final class GestureRecognizer {
     public var timing: GestureTiming
-    public var hasBinding: (ButtonID, GestureKind) -> Bool = { _, _ in true }
+    /// 这个键（哪台设备的哪个键）这个手势有没有设动作
+    public var hasBinding: (ButtonEvent, GestureKind) -> Bool = { _, _ in true }
     public var onGesture: ((ButtonEvent, RecognizedGesture) -> Void)?
 
     private enum State {
@@ -98,7 +99,7 @@ public final class GestureRecognizer {
         case .none:
             emit(event, .pressBegan)
             var timer: AnyObject?
-            if hasBinding(event.button, .long) {
+            if hasBinding(event, .long) {
                 timer = scheduler.schedule(after: timing.longPressThreshold) { [weak self] in self?.longFired(key) }
             }
             states[key] = .pressed(longTimer: timer, longFired: false)
@@ -120,7 +121,7 @@ public final class GestureRecognizer {
             if longFired {
                 states[key] = nil
                 emit(event, .longEnded)
-            } else if hasBinding(event.button, .double) {
+            } else if hasBinding(event, .double) {
                 let timer = scheduler.schedule(after: timing.doubleTapWindow) { [weak self] in self?.doubleWindowExpired(key) }
                 states[key] = .waitingSecond(timer: timer)
             } else {
@@ -143,7 +144,7 @@ public final class GestureRecognizer {
             states[key] = nil
             emit(event, .double)
         default:
-            if hasBinding(event.button, .double) {
+            if hasBinding(event, .double) {
                 let timer = scheduler.schedule(after: timing.doubleTapWindow) { [weak self] in self?.doubleWindowExpired(key) }
                 states[key] = .waitingSecond(timer: timer)
             } else {
