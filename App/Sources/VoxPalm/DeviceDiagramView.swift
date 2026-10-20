@@ -46,14 +46,15 @@ struct DiagramCallout: Identifiable {
         return 26 + body + notes
     }
 
-    static func make(diagram: DeviceDiagram, buttons: [String: ButtonID], keyMap: KeyMap, reportsRelease: Bool, learning: String?) -> [DiagramCallout] {
+    static func make(diagram: DeviceDiagram, buttons: [String: ButtonID], keyMap: KeyMap, reportsRelease: Bool, allowsDouble: Bool = true,
+                     learning: String?) -> [DiagramCallout] {
         diagram.spots.map { spot in
             let button = buttons[spot.id]
             var lines: [String] = []
             if spot.id == learning {
                 lines = ["请按一下设备上的这个键……"]
             } else if let button {
-                for gesture in GestureKind.allCases where reportsRelease || gesture != .long {
+                for gesture in GestureKind.allCases where (reportsRelease || gesture != .long) && (allowsDouble || gesture != .double) {
                     if let binding = keyMap.binding(for: button, gesture: gesture), binding.action != .none {
                         lines.append("\(gesture.title)  \(binding.summary)")
                     }

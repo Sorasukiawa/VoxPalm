@@ -111,7 +111,7 @@ struct KeysPane: View {
             ZStack(alignment: .top) {
                 if showsTable {
                     KeyTable(rows: rows(resolved: resolved, device: device), reportsRelease: resolved.reportsRelease,
-                             selectedSpot: $selectedSpot)
+                             allowsDouble: resolved.allowsDouble, selectedSpot: $selectedSpot)
                         .transition(.opacity)
                 } else {
                     diagram(resolved: resolved)
@@ -120,7 +120,7 @@ struct KeysPane: View {
             }
             RowDivider()
             Hint((resolved.diagram.note.map { $0 + "。" } ?? "") + (resolved.isFixed
-                 ? "按实物上的键，图上对应的键会亮。" : "按实物上的键，图上对应的键会亮；还没对上的键，点一下再按设备上的同一个键。") + tableNote)
+                 ? "按实物上的键，图上对应的键会亮。" : "按实物上的键，图上对应的键会亮；还没对上的键，点一下再按设备上的同一个键。") + tableNote(resolved))
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -131,7 +131,7 @@ struct KeysPane: View {
         DeviceDiagramView(
             diagram: resolved.diagram,
             callouts: DiagramCallout.make(diagram: resolved.diagram, buttons: resolved.buttons, keyMap: model.config.keyMap,
-                                          reportsRelease: resolved.reportsRelease, learning: model.learningSpot),
+                                          reportsRelease: resolved.reportsRelease, allowsDouble: resolved.allowsDouble, learning: model.learningSpot),
             pressed: model.pressedButtons,
             buttons: resolved.buttons,
             selected: selectedSpot,
@@ -144,8 +144,9 @@ struct KeysPane: View {
                 guard let button = resolved.buttons[spot], let name = resolved.diagram.spots.first(where: { $0.id == spot })?.name else {
                     return AnyView(EmptyView())
                 }
-                let initial = [GestureKind.long, .single, .double].first { model.binding(for: button, gesture: $0) != nil }
-                return AnyView(SpotEditor(button: button, name: name, reportsRelease: resolved.reportsRelease, initial: initial).environment(model))
+                let initial = [GestureKind.long, .single, .double].first { resolved.allows($0) && model.binding(for: button, gesture: $0) != nil }
+                return AnyView(SpotEditor(button: button, name: name, reportsRelease: resolved.reportsRelease, allowsDouble: resolved.allowsDouble,
+                                          initial: initial).environment(model))
             }
         )
     }
@@ -198,7 +199,9 @@ struct KeysPane: View {
         }
     }
 
-    private var tableNote: String {
+    private func tableNote(_ resolved: AppModel.ResolvedDiagram) -> String {
+        // 做不了双击的设备：设过的双击也不等，单击都立刻生效
+        guard resolved.allowsDouble else { return "这台设备快速连按两下只报一下，做不了双击，单击都立刻生效。" }
         let doubles = model.config.keyMap.bindings.filter { $0.gesture == .double && $0.action != .none }.map(\.buttonLabel)
         if let first = doubles.first {
             return "「\(first)」设了双击，所以它的单击要等双击间隔过去才生效；没设双击的键，单击立刻生效。"
@@ -259,6 +262,7 @@ struct KeyTable: View {
     @Environment(AppModel.self) private var model
     let rows: [Row]
     let reportsRelease: Bool
+    var allowsDouble = true
     @Binding var selectedSpot: String?
     @State private var editing: String?
 
@@ -300,6 +304,9 @@ struct KeyTable: View {
         if gesture == .long && !reportsRelease {
             KeyCellBox(style: .disabled) { Text("读不到松开").foregroundStyle(.tertiary) }
                 .help("这台设备只有短按、没有松开，做不了长按")
+        } else if gesture == .double && !allowsDouble {
+            KeyCellBox(style: .disabled) { Text("连按只报一下").foregroundStyle(.tertiary) }
+                .help("这台设备快速连按两下只报一下，做不了双击" + (binding == nil ? "" : "；以前设的双击不会生效"))
         } else if binding == nil, let reserved {
             KeyCellBox(style: .reserved) {
                 Label("固件占用", systemImage: "lock").foregroundStyle(.secondary)
@@ -325,7 +332,7 @@ struct KeyTable: View {
             .buttonStyle(.plain)
             .popover(isPresented: Binding(get: { editing == key }, set: { if !$0 { editing = nil } }), arrowEdge: .bottom) {
                 // 和图上点键是同一个编辑小窗，先停在这一列的手势上
-                SpotEditor(button: row.button, name: row.name, reportsRelease: reportsRelease, initial: gesture)
+                SpotEditor(button: row.button, name: row.name, reportsRelease: reportsRelease, allowsDouble: allowsDouble, initial: gesture)
                     .environment(model)
             }
         }
@@ -509,7 +516,7 @@ enum AIPreset {
         return items.filter { isPedal || !["left", "right"].contains($0.spot) }.compactMap { item in
             guard let button = resolved.buttons[item.spot],
                   let spot = resolved.diagram.spots.first(where: { $0.id == item.spot }),
-                  resolved.reportsRelease || item.gesture != .long else { return nil }
+                  resolved.allows(item.gesture) else { return nil }
             return KeyBinding(button: button, buttonLabel: spot.name, gesture: item.gesture, action: item.action,
                               talkAfter: item.talkAfter ? true : nil, sendAfterTalk: item.send ? true : nil)
         }

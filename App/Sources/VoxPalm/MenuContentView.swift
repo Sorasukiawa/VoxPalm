@@ -38,6 +38,9 @@ struct MenuContentView: View {
                     .transition(.scale(scale: 0.96, anchor: .top).combined(with: .opacity))
                 case nil:
                     tiles.transition(.opacity)
+                    if let note = model.micAvoidNote {
+                        MicAvoidNote(text: note).transition(.opacity)
+                    }
                     outputRow.transition(.opacity)
                 }
             }
@@ -84,18 +87,22 @@ struct MenuContentView: View {
             .buttonStyle(TileButtonStyle())
             .help("点开换控制设备")
             Button { expanded = .mic } label: {
-                let mic = model.pickerMics.first { $0.uid == model.config.voice.micUID } ?? model.pickerMics.first
+                // 选的麦会被控制设备静音时，磁贴直接画这次换上的那支（下面一行说明为什么）
+                let route = model.micRoute
+                let mic = route.avoided != nil
+                    ? model.pickerMics.first { $0.uid != nil && $0.uid == route.device?.uid }
+                    : model.pickerMics.first { $0.uid == model.config.voice.micUID } ?? model.pickerMics.first
                 DeviceTile(label: "收音", name: mic?.shortName ?? "系统默认输入", art: mic?.art ?? PickerArt.system) {
                     HStack(spacing: 6) {
                         // 说话时显示跳动的声波；平时写是哪种麦（不放像信号格的图标）
                         if model.voiceState == .listening || model.voiceState == .armed {
                             LevelWave(level: model.micLevel).frame(width: 44, height: 12)
-                        } else if let selected = model.selectedMic {
-                            Text(DevicesPane.transportName(selected)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        } else if let recording = model.recordingMic {
+                            Text(DevicesPane.transportName(recording)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
                         Spacer(minLength: 0)
-                        if let selected = model.selectedMic {
-                            Chip(text: "\(Int(selected.nominalSampleRate / 1000)) kHz", warn: selected.isLowRateBluetoothInput)
+                        if let recording = model.recordingMic {
+                            Chip(text: "\(Int(recording.nominalSampleRate / 1000)) kHz", warn: recording.isLowRateBluetoothInput)
                         }
                     }
                 }
@@ -142,6 +149,20 @@ struct MenuContentView: View {
         }
         .font(.callout)
         .padding(.top, 2)
+    }
+}
+
+/// 收音避开了被控制设备静音的麦时，磁贴下面的一句说明
+private struct MicAvoidNote: View {
+    let text: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            Image(systemName: "mic.slash.fill").font(.caption).foregroundStyle(Color.tileOrange)
+            Text(text).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -238,7 +259,7 @@ struct MicSwitcher: View {
                     model.update { $0.voice.micUID = mic.uid }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.45, execute: close)
                 } label: {
-                    PickerRow(art: mic.art, title: mic.name, detail: mic.detail + (mic.warning == nil ? "" : " · 通话音质"), selected: selected)
+                    PickerRow(art: mic.art, title: mic.name, detail: mic.rowDetail, selected: selected)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 4)
                         .contentShape(Rectangle())
@@ -372,7 +393,7 @@ struct StatePill: View {
         case .transcribing: return "转写中"
         case .idle:
             if model.isPaused { return "已暂停" }
-            return model.attentions.isEmpty ? "待命" : "要处理"
+            return model.needsAttention ? "要处理" : "待命"
         }
     }
 
@@ -382,7 +403,7 @@ struct StatePill: View {
         case .transcribing: return Brand.lavender
         case .idle:
             if model.isPaused { return .secondary }
-            return model.attentions.isEmpty ? .secondary : .orange
+            return model.needsAttention ? .orange : .secondary
         }
     }
 }
@@ -697,17 +718,22 @@ struct AttentionBanner: View {
 
     var body: some View {
         HStack(alignment: .center, spacing: 10) {
-            IconTile(symbol: attention.permission?.symbol ?? "exclamationmark", color: attention.permission?.tileColor ?? .tileOrange, size: 26)
+            IconTile(symbol: attention.permission?.symbol ?? (attention.informational ? "mic.fill" : "exclamationmark"),
+                     color: attention.permission?.tileColor ?? (attention.informational ? .tileBlue : .tileOrange), size: 26)
             VStack(alignment: .leading, spacing: 2) {
                 Text(attention.title).font(.callout.weight(.semibold))
-                Text(attention.detail).font(.caption).foregroundStyle(.secondary)
+                Text(attention.detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 4)
-            Button(attention.permission != nil ? "开启" : attention.retry ? "重试" : "去看看", action: fix)
-                .prominentButton()
-                .controlSize(.small)
+            // 只是告诉一声的不放按钮
+            if !attention.informational {
+                Button(attention.permission != nil ? "开启" : attention.retry ? "重试" : "去看看", action: fix)
+                    .prominentButton()
+                    .controlSize(.small)
+            }
         }
         .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.tileOrange.opacity(0.12)))
+        .background(RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill((attention.informational ? Color.tileBlue : Color.tileOrange).opacity(0.12)))
     }
 }

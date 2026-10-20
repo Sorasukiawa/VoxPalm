@@ -18,6 +18,10 @@ final class AppModel {
     private(set) var micDevices: [AudioDeviceInfo] = []
     /// 控制设备连着但用不了的原因（适配模块报的，比如 DJI 接管按键失败）；面板顶上显示成提醒
     private(set) var controlProblem: String?
+    /// 控制设备接管按键时会被静音的收音设备（音频设备 UID）：录音避开它们，改用 Mac 麦
+    private(set) var mutedMicUIDs: Set<String> = []
+    /// 别的程序正开着被静音的那支麦（比如系统设置的「声音」页）：面板提醒是哪个程序
+    private(set) var micHolders: [AudioInputClient] = []
     private(set) var voiceState: VoiceSession.State = .idle
     private(set) var lastButton: String?
     private(set) var lastGesture: String?
@@ -83,7 +87,7 @@ final class AppModel {
         wireCallbacks()
         refreshDevices()
         refreshPermissions()
-        engine.activate(config.controlDeviceIDs)
+        activateEngine(config.controlDeviceIDs)
         audioWatcher.onEvent = { [weak self] _, event in
             switch event {
             case .deviceAdded, .deviceRemoved, .defaultInputChanged: self?.refreshDevices()
@@ -97,12 +101,15 @@ final class AppModel {
                 self?.refreshPermissions()
                 // 选设备时新连上的蓝牙设备要及时出现在列表里
                 if self?.isIdentifying == true { self?.refreshDevices() }
+                self?.refreshMicHolders()
             }
         }
         log.info("掌声启动：\(PrivateModules.buildFlavor, privacy: .public)，控制设备 \(config.controlDeviceIDs.count) 台")
     }
 
     private func wireCallbacks() {
+        let debug = self.debugMutedMic
+        voice.mutedInputs = { [weak engine = self.engine] in engine.map { Self.mutedInputs($0, debug: debug) } ?? [] }
         for source in engine.sources {
             source.onDevicesChanged = { [weak self] in self?.refreshDevices() }
         }
@@ -193,7 +200,7 @@ final class AppModel {
             voice.settings = new.voice
             engine.textMethod = new.voice.textMethod
         }
-        if new.controlDeviceIDs != old.controlDeviceIDs, !isPaused { engine.activate(new.controlDeviceIDs) }
+        if new.controlDeviceIDs != old.controlDeviceIDs, !isPaused { activateEngine(new.controlDeviceIDs) }
         scheduleSave()
     }
 
@@ -230,6 +237,41 @@ final class AppModel {
             controlProblem = problem
             if let problem { log.notice("控制设备出问题：\(problem, privacy: .public)") }
         }
+        refreshMuted()
+    }
+
+    /// 启用控制设备，顺便更新它会静音哪些麦
+    private func activateEngine(_ ids: [String]) {
+        engine.activate(ids)
+        refreshMuted()
+    }
+
+    /// 调试：把这支麦当成会被控制设备静音（环境变量 VOXPALM_DEBUG_MUTED_MIC=音频设备 UID），没有那种无线麦也能测换麦和提醒
+    @ObservationIgnored private let debugMutedMic = ProcessInfo.processInfo.environment["VOXPALM_DEBUG_MUTED_MIC"].flatMap { $0.isEmpty ? nil : $0 }
+
+    /// 启用着的控制设备会静音的麦（录音和界面用同一份）
+    nonisolated private static func mutedInputs(_ engine: ButtonEngine, debug: String?) -> Set<String> {
+        var muted = engine.mutedInputs()
+        if let debug, !engine.activeDeviceIDs.isEmpty { muted.insert(debug) }
+        return muted
+    }
+
+    private func refreshMuted() {
+        let muted = Self.mutedInputs(engine, debug: debugMutedMic)
+        guard muted != mutedMicUIDs else { return }
+        mutedMicUIDs = muted
+        refreshMicHolders()
+    }
+
+    /// 看看有没有别的程序开着被静音的那支麦（每 2 秒一次，只在有要避开的麦时查）
+    private func refreshMicHolders() {
+        let holders = micDevices.filter { mutedMicUIDs.contains($0.uid) }.flatMap { AudioDevices.inputClients(of: $0.id) }
+        guard holders != micHolders else { return }
+        micHolders = holders
+        if !holders.isEmpty {
+            let names = holders.map { "\($0.name)（\($0.bundleID ?? "?")，进程 \($0.pid)）" }.joined(separator: "、")
+            log.notice("被控制设备静音的麦正被别的程序开着：\(names, privacy: .public)")
+        }
     }
 
     /// 提醒条上的「重试」：让适配模块重新接管控制设备
@@ -251,6 +293,16 @@ final class AppModel {
         return micDevices.first(where: \.isDefaultInput)
     }
 
+    /// 录音实际用哪支麦：选的那支（或跟随的系统默认输入）会被控制设备静音时，换成 Mac 麦（见 MicRouting）
+    var micRoute: MicRouting.Route {
+        MicRouting.resolve(selectedUID: config.voice.micUID, inputs: micDevices, muted: mutedMicUIDs)
+    }
+
+    /// 这次录音真正用的麦
+    var recordingMic: AudioDeviceInfo? {
+        micRoute.device ?? selectedMic
+    }
+
     func selectControlDevice(_ id: String?) {
         update { $0.controlDeviceIDs = id.map { [$0] } ?? [] }
     }
@@ -264,6 +316,17 @@ final class AppModel {
         /// 外形是适配模块给的（比如 DJI），不能改
         var isFixed: Bool
         var reportsRelease: Bool
+        /// 快速连按两下能不能分别报出来（有的无线麦接管后连按只报一下，做不了双击）
+        var allowsDouble = true
+
+        /// 这台设备能不能做这个手势
+        func allows(_ gesture: GestureKind) -> Bool {
+            switch gesture {
+            case .single: return true
+            case .double: return allowsDouble
+            case .long: return reportsRelease
+            }
+        }
     }
 
     func diagram(for device: ControlDevice) -> ResolvedDiagram {
@@ -271,7 +334,8 @@ final class AppModel {
         if let fixed = engine.diagram(for: device) {
             var buttons: [String: ButtonID] = [:]
             for spot in fixed.spots { if let button = layout.spotButtons[spot.id] ?? spot.button { buttons[spot.id] = button } }
-            return ResolvedDiagram(diagram: fixed, buttons: buttons, isFixed: true, reportsRelease: device.reportsRelease && fixed.reportsRelease)
+            return ResolvedDiagram(diagram: fixed, buttons: buttons, isFixed: true, reportsRelease: device.reportsRelease && fixed.reportsRelease,
+                                   allowsDouble: engine.reportsDoubleTap(device.id))
         }
         let base = layout.diagramID.flatMap(DeviceDiagram.choice(id:)) ?? DeviceDiagram.guess(for: device)
         let diagram = base.id == "generic"
@@ -279,7 +343,8 @@ final class AppModel {
             : base
         var buttons: [String: ButtonID] = [:]
         for spot in diagram.spots { if let button = spot.button ?? layout.spotButtons[spot.id] { buttons[spot.id] = button } }
-        return ResolvedDiagram(diagram: diagram, buttons: buttons, isFixed: false, reportsRelease: device.reportsRelease)
+        return ResolvedDiagram(diagram: diagram, buttons: buttons, isFixed: false, reportsRelease: device.reportsRelease,
+                               allowsDouble: engine.reportsDoubleTap(device.id))
     }
 
     func setDiagram(_ diagramID: String?, for deviceID: String) {
@@ -400,7 +465,7 @@ final class AppModel {
 
     func setPaused(_ paused: Bool) {
         isPaused = paused
-        engine.activate(paused ? [] : config.controlDeviceIDs)
+        activateEngine(paused ? [] : config.controlDeviceIDs)
     }
 
     /// 打开设置时直接定位到要改的那一项：按键页弹出某个键的编辑小窗、设备页切到收音设备。
@@ -480,6 +545,8 @@ final class AppModel {
         var permission: Permission?
         /// 控制设备接管失败的提醒：点「重试」重新接管
         var retry = false
+        /// 只是告诉一声、不用处理（不带按钮，菜单栏图标也不变成「要处理」）
+        var informational = false
     }
 
     var attentions: [Attention] {
@@ -494,8 +561,17 @@ final class AppModel {
         } else if let controlProblem, !isPaused {
             items.append(Attention(id: "control-problem", title: "\(activeShortName ?? "控制设备")的按键没接上", detail: controlProblem, fix: .devices, retry: true))
         }
+        if !isPaused, let holder = micHolders.first, let mic = micDevices.first(where: { mutedMicUIDs.contains($0.uid) }) {
+            let fallback = MicRouting.resolve(selectedUID: mic.uid, inputs: micDevices, muted: mutedMicUIDs).device.map(micShortName) ?? "别的麦"
+            items.append(Attention(id: "mic-held", title: "「\(holder.name)」开着 \(micShortName(mic)) 的麦",
+                                   detail: "现在收音用 \(fallback)，不影响说话。以后要同时用它的按键和麦，得先关掉这个程序。",
+                                   fix: .devices, informational: true))
+        }
         return items
     }
+
+    /// 有要用户动手处理的事（只是告诉一声的不算）：菜单栏图标和面板状态写「要处理」
+    var needsAttention: Bool { attentions.contains { !$0.informational } }
 
     // MARK: - 调试（渲染界面预览用）
 
@@ -526,7 +602,7 @@ final class AppModel {
         let gainedAccessibility = current[.accessibility] == true && permissions[.accessibility] == false
         permissions = current
         if gainedInput || gainedAccessibility, !isPaused {
-            engine.activate(config.controlDeviceIDs)
+            activateEngine(config.controlDeviceIDs)
         }
     }
 

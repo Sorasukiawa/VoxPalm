@@ -111,18 +111,21 @@ struct SpotEditor: View {
     let button: ButtonID
     let name: String
     let reportsRelease: Bool
+    let allowsDouble: Bool
     @State private var gesture: GestureKind
     /// 点了要再填东西的动作、还没填好：先亮着这个按钮，填好才真的设上
     @State private var pending: ActionChoice?
     @State private var text = ""
     @FocusState private var textFocused: Bool
 
-    init(button: ButtonID, name: String, reportsRelease: Bool, initial: GestureKind? = nil) {
+    init(button: ButtonID, name: String, reportsRelease: Bool, allowsDouble: Bool = true, initial: GestureKind? = nil) {
         self.button = button
         self.name = name
         self.reportsRelease = reportsRelease
+        self.allowsDouble = allowsDouble
         let fallback: GestureKind = reportsRelease ? .long : .single
-        _gesture = State(initialValue: initial.map { reportsRelease || $0 != .long ? $0 : fallback } ?? fallback)
+        let usable = { (gesture: GestureKind) in (reportsRelease || gesture != .long) && (allowsDouble || gesture != .double) }
+        _gesture = State(initialValue: initial.map { usable($0) ? $0 : fallback } ?? fallback)
     }
 
     private var binding: KeyBinding? { model.binding(for: button, gesture: gesture) }
@@ -145,7 +148,7 @@ struct SpotEditor: View {
                     .controlSize(.small)
                     .keyboardShortcut(.defaultAction)
             }
-            GestureTabs(selection: $gesture, reportsRelease: reportsRelease)
+            GestureTabs(selection: $gesture, reportsRelease: reportsRelease, allowsDouble: allowsDouble)
             VStack(alignment: .leading, spacing: 9) {
                 ForEach(ActionChoice.groups, id: \.0) { group in
                     VStack(alignment: .leading, spacing: 4) {
@@ -340,17 +343,18 @@ struct SpotEditor: View {
     }
 }
 
-/// 单击 / 双击 / 长按分段：选中的底色用弹簧滑过去。读不到松开的设备，长按灰着。
+/// 单击 / 双击 / 长按分段：选中的底色用弹簧滑过去。读不到松开的设备，长按灰着；连按只报一下的设备，双击灰着。
 struct GestureTabs: View {
     @Binding var selection: GestureKind
     let reportsRelease: Bool
+    var allowsDouble = true
     @Namespace private var thumb
 
     var body: some View {
         HStack(spacing: 2) {
             ForEach(GestureKind.allCases, id: \.self) { gesture in
                 let on = gesture == selection
-                let unavailable = gesture == .long && !reportsRelease
+                let unavailable = (gesture == .long && !reportsRelease) || (gesture == .double && !allowsDouble)
                 Button {
                     withAnimation(Motion.pick(Motion.bounce)) { selection = gesture }
                 } label: {
@@ -374,7 +378,7 @@ struct GestureTabs: View {
                 .buttonStyle(.plain)
                 .disabled(unavailable)
                 .opacity(unavailable ? 0.4 : 1)
-                .help(unavailable ? "这台设备读不到松开，做不了长按" : "")
+                .help(!unavailable ? "" : gesture == .long ? "这台设备读不到松开，做不了长按" : "这台设备快速连按两下只报一下，做不了双击")
             }
         }
         .padding(2)

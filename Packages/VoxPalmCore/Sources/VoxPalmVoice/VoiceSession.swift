@@ -139,9 +139,18 @@ public final class VoiceSession: VoiceActionHandler {
         applyWarm()
     }
 
-    public var micDeviceID: AudioObjectID? {
-        settings.micUID.flatMap { AudioDevices.device(uid: $0)?.id }
+    /// 现在会被控制设备静音的收音设备（音频设备 UID），录音避开它们。App 接上按键引擎。
+    public var mutedInputs: () -> Set<String> = { [] }
+
+    /// 这次录音用哪支麦（选的那支被控制设备静音了就换一支，见 MicRouting）
+    public func micRoute() -> MicRouting.Route {
+        let muted = mutedInputs()
+        guard !muted.isEmpty else { return MicRouting.Route(device: settings.micUID.flatMap { AudioDevices.device(uid: $0) }, avoided: nil) }
+        return MicRouting.resolve(selectedUID: settings.micUID, inputs: AudioDevices.inputs(), muted: muted)
     }
+
+    /// 录音用的设备；nil = 系统默认输入
+    public var micDeviceID: AudioObjectID? { micRoute().device?.id }
 
     // MARK: - VoiceActionHandler
 
@@ -414,11 +423,16 @@ public final class VoiceSession: VoiceActionHandler {
     }
 
     private func startCaptureIfNeeded() {
-        guard debugAudioFile == nil, !capture.isRunning || capture.deviceID != (micDeviceID ?? AudioDevices.defaultInputID) else { return }
+        guard debugAudioFile == nil else { return }
+        let route = micRoute()
+        guard !capture.isRunning || capture.deviceID != (route.device?.id ?? AudioDevices.defaultInputID) else { return }
         switch MicrophoneAccess.status {
         case .authorized:
             do {
-                try capture.start(deviceID: micDeviceID)
+                if let avoided = route.avoided {
+                    logger.notice("收音避开 \(avoided.name, privacy: .public)：控制设备接管按键时它会被静音，改用 \(route.device?.name ?? "系统默认输入", privacy: .public)")
+                }
+                try capture.start(deviceID: route.device?.id)
                 let device = capture.deviceID.flatMap { AudioDevices.device(id: $0) }
                 logger.notice("开麦 \(device?.name ?? "?", privacy: .public) \(Int(self.capture.format?.sampleRate ?? 0)) Hz \(self.capture.format?.channelCount ?? 0) 声道")
             } catch {
@@ -463,7 +477,12 @@ public final class VoiceSession: VoiceActionHandler {
     private func switchDefaultInput() {
         restoreWork?.cancel()
         restoreWork = nil
-        guard let target = micDeviceID else { return }
+        // 跟随系统默认、而默认输入会被控制设备静音时，也临时切到换上的那支
+        let route = micRoute()
+        guard let target = route.device?.id else { return }
+        if let avoided = route.avoided {
+            logger.notice("外部输入法收音避开 \(avoided.name, privacy: .public)，临时切到 \(route.device?.name ?? "?", privacy: .public)")
+        }
         let current = AudioDevices.defaultInputID
         guard current != target else { return }
         if savedDefaultInput == nil { savedDefaultInput = current }

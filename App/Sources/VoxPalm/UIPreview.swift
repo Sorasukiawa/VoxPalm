@@ -170,6 +170,14 @@ extension UIPreview {
             liveShot(SettingsView().environment(model).environment(keys).frame(width: 900, height: 680), titled: true, dark: dark,
                      to: directory.appendingPathComponent("live-settings-keys-editing-\(suffix).png"),
                      popover: directory.appendingPathComponent("live-popover-\(suffix).png"))
+            // 读不到松开、连按只报一下的设备：长按、双击都灰着
+            liveShot(SpotEditor(button: .remote("togglePlayPause"), name: "播放 / 暂停", reportsRelease: false, allowsDouble: false, initial: .double)
+                .environment(model)
+                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(nsColor: .windowBackgroundColor))
+                    .shadow(color: .black.opacity(0.18), radius: 14, y: 6))
+                .padding(18)
+                .background(dark ? Color(white: 0.2) : Color(white: 0.85)),
+                     titled: true, dark: dark, to: directory.appendingPathComponent("live-editor-single-only-\(suffix).png"))
             // 三个手势各画一张（不靠弹出框，单独放进窗口）
             for gesture in GestureKind.allCases {
                 liveShot(SpotEditor(button: .media(16), name: "播放 / 暂停（F8）", reportsRelease: true, initial: gesture)
@@ -315,6 +323,8 @@ extension UIPreview {
             // 说话浮窗的每个状态
             let hudStates: [(String, HUDState)] = [
                 ("armed", .armed(since: Date().addingTimeInterval(-0.3), threshold: 0.5)), ("listening", .listening(since: Date().addingTimeInterval(-4), subtitle: "小米遥控器 2")),
+                // 选的无线麦当按键用时会被静音、这次换了 Mac 麦（见 SpeechHUDController.subtitle）
+                ("avoided", .listening(since: Date().addingTimeInterval(-1), subtitle: "DJI Mic 2 当按键时麦会静音 · 这次用 Mac 麦克风")),
                 ("ime", .inputMethod(since: Date().addingTimeInterval(-2), subtitle: "小米遥控器 2")),
                 ("transcribing", .transcribing), ("done", .done(characters: 15, app: "备忘录", snippet: "「下午三点的会改到四点，地…」")),
                 ("short", .message(title: "按住超过 0.5 秒才算", subtitle: nil, tone: .muted)),

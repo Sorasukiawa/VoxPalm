@@ -147,9 +147,15 @@ final class SpeechHUDController {
     }
 
     /// 副标题只写设备名；收音是蓝牙通话音质时才多一句提醒（2026-10-19 本人定）。
+    /// 选的麦会被控制设备静音、这次换了一支时，说清楚换成了哪支。
     private var subtitle: String {
         let device = model.activeShortName ?? "按键"
-        if let mic = model.selectedMic, mic.isLowRateBluetoothInput { return "\(device) · \(mic.name) 通话音质" }
+        let route = model.micRoute
+        if let avoided = route.avoided {
+            let short = model.micShortName(avoided)
+            return route.device.map { "\(short) 当按键时麦会静音 · 这次用 \(model.micShortName($0))" } ?? "\(short) 当按键时麦会静音，没有别的麦"
+        }
+        if let mic = model.recordingMic, mic.isLowRateBluetoothInput { return "\(device) · \(mic.name) 通话音质" }
         return device
     }
 
