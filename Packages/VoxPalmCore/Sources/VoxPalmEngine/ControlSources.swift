@@ -17,10 +17,16 @@ public protocol ControlSource: AnyObject {
     func shutdown(completion: @escaping () -> Void)
     /// 这台设备的示意图（知道按键位置和键值时给出）；nil 表示让用户选一个外形再学键。
     func diagram(for device: ControlDevice) -> DeviceDiagram?
+    /// 这台设备现在用不了的原因（比如接管按键失败了）；nil 表示正常。界面上显示成提醒，带「重试」。
+    func problem(for deviceID: String) -> String?
+    /// 用户点了「重试」：重新接管这台设备
+    func retry(_ deviceID: String)
 }
 
 public extension ControlSource {
     func diagram(for device: ControlDevice) -> DeviceDiagram? { nil }
+    func problem(for deviceID: String) -> String? { nil }
+    func retry(_ deviceID: String) {}
 
     func shutdown(completion: @escaping () -> Void) {
         activate([])

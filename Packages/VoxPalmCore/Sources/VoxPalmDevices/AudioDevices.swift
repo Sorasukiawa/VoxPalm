@@ -56,7 +56,10 @@ public enum AudioDevices {
         }
     }
 
-    public static func inputs() -> [AudioDeviceInfo] { all().filter(\.hasInput) }
+    /// 收音设备。系统给 AVAudioEngine 临时建的聚合设备（CADefaultDeviceAggregate-进程号-0）不是真麦，不列。
+    public static func inputs() -> [AudioDeviceInfo] {
+        all().filter { $0.hasInput && !$0.uid.hasPrefix("CADefaultDeviceAggregate") && !$0.name.hasPrefix("CADefaultDeviceAggregate") }
+    }
 
     public static func device(id: AudioObjectID) -> AudioDeviceInfo? {
         info(for: id,

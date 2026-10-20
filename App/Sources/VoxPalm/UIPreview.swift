@@ -320,6 +320,8 @@ extension UIPreview {
                 ("short", .message(title: "按住超过 0.5 秒才算", subtitle: nil, tone: .muted)),
                 ("error", .message(title: "没听到声音", subtitle: "看看麦克风开了没有，或者在面板里换一个", tone: .muted)),
                 ("copied", .message(title: "字在剪贴板里，按 ⌘V", subtitle: "缺「辅助功能」权限，贴不到光标处", tone: .warn)),
+                ("key", .key(KeyFlash(diagram: .xiaomiRemote2, spot: "ok", title: "确认键 · 单击", detail: "→ 发送（回车）", bound: true))),
+                ("key-media", .key(KeyFlash(diagram: .mediaKeys, spot: "next", title: "下一首 · 双击", detail: "这个手势还没设动作，点菜单栏图标去设置", bound: false))),
             ]
             let board = VStack(alignment: .leading, spacing: 0) {
                 ForEach(hudStates, id: \.0) { item in

@@ -20,6 +20,8 @@ struct MenuContentView: View {
                     if let permission = attention.permission {
                         model.closePanel()
                         permission.request()
+                    } else if attention.retry {
+                        model.retryControlDevice()
                     } else {
                         model.openSettings(attention.fix)
                     }
@@ -701,7 +703,7 @@ struct AttentionBanner: View {
                 Text(attention.detail).font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 4)
-            Button(attention.permission == nil ? "去看看" : "开启", action: fix)
+            Button(attention.permission != nil ? "开启" : attention.retry ? "重试" : "去看看", action: fix)
                 .prominentButton()
                 .controlSize(.small)
         }

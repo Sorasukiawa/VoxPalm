@@ -141,7 +141,20 @@ public final class ButtonEngine {
     }
 
     public func status(of deviceID: String) -> String? {
-        sources.first { source in source.devices().contains { $0.id == deviceID } }?.status
+        source(of: deviceID)?.status
+    }
+
+    /// 设备现在用不了的原因（适配模块报的，比如接管按键失败）；nil 表示正常
+    public func problem(of deviceID: String) -> String? {
+        source(of: deviceID)?.problem(for: deviceID)
+    }
+
+    public func retry(_ deviceID: String) {
+        source(of: deviceID)?.retry(deviceID)
+    }
+
+    private func source(of deviceID: String) -> ControlSource? {
+        sources.first { source in source.devices().contains { $0.id == deviceID } }
     }
 
     /// 测试和调试入口：直接喂一个按键事件。
