@@ -3,6 +3,7 @@ import AppKit
 import AVFoundation
 import CoreAudio
 import Foundation
+import os
 import VoxPalmDevices
 import VoxPalmEngine
 
@@ -108,6 +109,8 @@ public final class VoiceSession: VoiceActionHandler {
     }
 
     private let capture = AudioCapture()
+    /// 诊断日志：录音用的哪个设备、每半秒的音量（只记数字，不记内容），查「声音录不进来」用
+    private let logger = Logger(subsystem: "com.sorasukiawa.VoxPalm", category: "voice")
     private let lock = NSLock()
     private var collecting = false
     private var sessionBuffers: [AVAudioPCMBuffer] = []
@@ -228,6 +231,7 @@ public final class VoiceSession: VoiceActionHandler {
             preview?.stop()
             stopCaptureUnlessWarm()
             let seconds = AudioConversion.duration(buffers)
+            logLevels(buffers)
             guard seconds >= settings.minimumSeconds else {
                 onMessage?(buffers.isEmpty ? "没录到声音：检查收音设备和麦克风权限" : String(format: "录音太短（%.1f 秒），当成误触", seconds))
                 onOutcome?(buffers.isEmpty ? .noAudio : .tooShort(threshold: settings.minimumSeconds))
@@ -355,6 +359,24 @@ public final class VoiceSession: VoiceActionHandler {
         }
     }
 
+    /// 这次录音每半秒的最大音量（0–99），写进诊断日志：一眼看出声音是从第几秒开始没了。
+    private func logLevels(_ buffers: [AVAudioPCMBuffer]) {
+        var curve: [Int] = []
+        var window = 0.0
+        var peak: Float = 0
+        for buffer in buffers {
+            peak = max(peak, Self.level(of: buffer))
+            window += Double(buffer.frameLength) / buffer.format.sampleRate
+            if window >= 0.5 {
+                curve.append(Int(peak * 99))
+                window = 0
+                peak = 0
+            }
+        }
+        if window > 0 { curve.append(Int(peak * 99)) }
+        logger.notice("录音 \(String(format: "%.1f", AudioConversion.duration(buffers))) 秒，音量每半秒：\(curve.map(String.init).joined(separator: " "), privacy: .public)")
+    }
+
     // MARK: - 调试音频
 
     /// 按真实时间一段段送调试音频，和真麦克风一样：音量会跳，实时预览能看到字一点点出来。
@@ -397,6 +419,8 @@ public final class VoiceSession: VoiceActionHandler {
         case .authorized:
             do {
                 try capture.start(deviceID: micDeviceID)
+                let device = capture.deviceID.flatMap { AudioDevices.device(id: $0) }
+                logger.notice("开麦 \(device?.name ?? "?", privacy: .public) \(Int(self.capture.format?.sampleRate ?? 0)) Hz \(self.capture.format?.channelCount ?? 0) 声道")
             } catch {
                 onMessage?("开麦失败：\(error)")
             }
