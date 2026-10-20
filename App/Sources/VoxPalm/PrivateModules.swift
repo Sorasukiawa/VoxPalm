@@ -21,6 +21,15 @@ enum PrivateModules {
         #endif
     }
 
+    /// 闭源模块认识的型号（示意图、短名字）：没连上时也在选设备列表里灰着列出来，告诉用户还支持什么。
+    static func knownModels() -> [(diagram: DeviceDiagram, shortName: String)] {
+        #if VOXPALM_PRIVATE
+        return DJIModule.knownModels()
+        #else
+        return []
+        #endif
+    }
+
     /// 闭源模块自带的设备示意图（调试渲染用）。
     static func previewDiagrams() -> [DeviceDiagram] {
         #if VOXPALM_PRIVATE

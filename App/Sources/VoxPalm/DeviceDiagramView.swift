@@ -479,7 +479,10 @@ struct DeviceArt: View {
             context.fill(path, with: .color(.white.opacity(0.92)))
         case .caption:
             if let text {
-                context.draw(Text(text).font(.system(size: 10.5)).foregroundStyle(.secondary), at: CGPoint(x: rect.midX, y: rect.midY))
+                // 字号固定 10.5；图缩得比字还窄（选设备的转盘里）就按宽度把字缩小，免得两头被切掉
+                let full = context.resolve(Text(text).font(.system(size: 10.5))).measure(in: CGSize(width: CGFloat.infinity, height: .infinity)).width
+                let size = full > rect.width ? max(7, 10.5 * rect.width / full) : 10.5
+                context.draw(Text(text).font(.system(size: size)).foregroundStyle(.secondary), at: CGPoint(x: rect.midX, y: rect.midY))
             }
         case .zone:
             if let symbol { drawSymbol(symbol, in: rect, color: Self.symbolOnDark, context: &context) }
