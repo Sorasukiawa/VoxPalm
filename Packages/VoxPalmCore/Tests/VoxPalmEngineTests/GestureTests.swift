@@ -293,7 +293,7 @@ final class RecordingHIDSource: ControlSource {
     #expect(KeyCodeNames.label(keyCode: 0, characters: nil) == "按键 0")
 }
 
-/// 接管后连按只报一下的设备（一次性触发），会让自己的麦静音
+/// 接管后报不出双击的设备（一次性触发），会让自己的麦静音
 final class SingleTapSource: ControlSource {
     let sourceID = "single-tap"
     var onEvent: ((ButtonEvent) -> Void)?

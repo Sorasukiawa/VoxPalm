@@ -343,7 +343,7 @@ struct SpotEditor: View {
     }
 }
 
-/// 单击 / 双击 / 长按分段：选中的底色用弹簧滑过去。读不到松开的设备，长按灰着；连按只报一下的设备，双击灰着。
+/// 单击 / 双击 / 长按分段：选中的底色用弹簧滑过去。读不到松开的设备，长按灰着；报不出双击的设备，双击灰着。
 struct GestureTabs: View {
     @Binding var selection: GestureKind
     let reportsRelease: Bool
@@ -378,7 +378,7 @@ struct GestureTabs: View {
                 .buttonStyle(.plain)
                 .disabled(unavailable)
                 .opacity(unavailable ? 0.4 : 1)
-                .help(!unavailable ? "" : gesture == .long ? "这台设备读不到松开，做不了长按" : "这台设备快速连按两下只报一下，做不了双击")
+                .help(!unavailable ? "" : gesture == .long ? "这台设备读不到松开，做不了长按" : "这台设备报不出快速连按两下，做不了双击")
             }
         }
         .padding(2)

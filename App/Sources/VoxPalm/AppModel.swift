@@ -316,7 +316,7 @@ final class AppModel {
         /// 外形是适配模块给的（比如 DJI），不能改
         var isFixed: Bool
         var reportsRelease: Bool
-        /// 快速连按两下能不能分别报出来（有的无线麦接管后连按只报一下，做不了双击）
+        /// 快速连按两下能不能分别报出来（有的无线麦接管后快速连按两下报不出来，做不了双击）
         var allowsDouble = true
 
         /// 这台设备能不能做这个手势
