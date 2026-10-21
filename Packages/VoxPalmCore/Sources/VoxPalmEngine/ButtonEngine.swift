@@ -282,7 +282,7 @@ public final class ButtonEngine {
         case let .shortcut(combo):
             KeyPoster.post(combo)
         case let .text(text):
-            if case let .copied(block) = TextDelivery.insert(text, method: textMethod, since: nil) {
+            if case let .copied(block) = TextDelivery.insert(text, method: textMethod, since: nil).result {
                 onMessage?("字放进了剪贴板：\(block.pasteMessage)")
             }
         case let .mediaKey(key):
