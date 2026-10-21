@@ -170,7 +170,7 @@ extension UIPreview {
             liveShot(SettingsView().environment(model).environment(keys).frame(width: 900, height: 680), titled: true, dark: dark,
                      to: directory.appendingPathComponent("live-settings-keys-editing-\(suffix).png"),
                      popover: directory.appendingPathComponent("live-popover-\(suffix).png"))
-            // 读不到松开、连按只报一下的设备：长按、双击都灰着
+            // 读不到松开、报不出双击的设备：长按、双击都灰着
             liveShot(SpotEditor(button: .remote("togglePlayPause"), name: "播放 / 暂停", reportsRelease: false, allowsDouble: false, initial: .double)
                 .environment(model)
                 .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color(nsColor: .windowBackgroundColor))

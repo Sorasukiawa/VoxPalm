@@ -201,7 +201,7 @@ struct KeysPane: View {
 
     private func tableNote(_ resolved: AppModel.ResolvedDiagram) -> String {
         // 做不了双击的设备：设过的双击也不等，单击都立刻生效
-        guard resolved.allowsDouble else { return "这台设备快速连按两下只报一下，做不了双击，单击都立刻生效。" }
+        guard resolved.allowsDouble else { return "这台设备报不出快速连按两下，做不了双击，单击都立刻生效。" }
         let doubles = model.config.keyMap.bindings.filter { $0.gesture == .double && $0.action != .none }.map(\.buttonLabel)
         if let first = doubles.first {
             return "「\(first)」设了双击，所以它的单击要等双击间隔过去才生效；没设双击的键，单击立刻生效。"
@@ -305,8 +305,8 @@ struct KeyTable: View {
             KeyCellBox(style: .disabled) { Text("读不到松开").foregroundStyle(.tertiary) }
                 .help("这台设备只有短按、没有松开，做不了长按")
         } else if gesture == .double && !allowsDouble {
-            KeyCellBox(style: .disabled) { Text("连按只报一下").foregroundStyle(.tertiary) }
-                .help("这台设备快速连按两下只报一下，做不了双击" + (binding == nil ? "" : "；以前设的双击不会生效"))
+            KeyCellBox(style: .disabled) { Text("做不了双击").foregroundStyle(.tertiary) }
+                .help("这台设备报不出快速连按两下，做不了双击" + (binding == nil ? "" : "；以前设的双击不会生效"))
         } else if binding == nil, let reserved {
             KeyCellBox(style: .reserved) {
                 Label("固件占用", systemImage: "lock").foregroundStyle(.secondary)
