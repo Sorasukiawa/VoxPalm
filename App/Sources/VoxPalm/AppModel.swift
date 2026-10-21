@@ -101,9 +101,11 @@ final class AppModel {
                 self?.refreshPermissions()
                 // 选设备时新连上的蓝牙设备要及时出现在列表里
                 if self?.isIdentifying == true { self?.refreshDevices() }
-                self?.refreshMicHolders()
+                if self?.panelVisible == true { self?.refreshMicHolders() }
             }
         }
+        // 晚一点没关系：让系统把这次唤醒和别的合在一起
+        permissionTimer?.tolerance = 0.5
         log.info("掌声启动：\(PrivateModules.buildFlavor, privacy: .public)，控制设备 \(config.controlDeviceIDs.count) 台")
     }
 
@@ -164,7 +166,8 @@ final class AppModel {
             self.onVoiceOutcome?(outcome)
         }
         voice.onLevel = { [weak self] level in
-            guard let self else { return }
+            // 只有说话时有地方画音量；「一直开着麦」时平常也每秒报 20 次，不用去刷界面
+            guard let self, self.voiceState == .armed || self.voiceState == .listening else { return }
             // 平滑一点，免得竖条抖得太厉害
             self.micLevel = self.micLevel * 0.4 + level * 0.6
         }
@@ -263,7 +266,13 @@ final class AppModel {
         refreshMicHolders()
     }
 
-    /// 看看有没有别的程序开着被静音的那支麦（每 2 秒一次，只在有要避开的麦时查）
+    /// 菜单栏面板开着没有（StatusItemController 设）。占麦的提醒只在面板上显示，面板开着时才去查
+    @ObservationIgnored var panelVisible = false {
+        didSet { if panelVisible && !oldValue { refreshMicHolders() } }
+    }
+
+    /// 看看有没有别的程序开着被静音的那支麦（只在有要避开的麦时查）。要翻 Core Audio 的整张进程表，
+    /// 一次 7 毫秒左右，以前每 2 秒在主线程查一次；现在只在面板打开时和开着时每 2 秒查一次，要避开的麦变了也查一次
     private func refreshMicHolders() {
         let holders = micDevices.filter { mutedMicUIDs.contains($0.uid) }.flatMap { AudioDevices.inputClients(of: $0.id) }
         guard holders != micHolders else { return }

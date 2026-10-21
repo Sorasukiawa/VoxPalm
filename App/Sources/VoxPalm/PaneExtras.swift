@@ -53,9 +53,11 @@ struct VoiceModeCards: View {
 /// 一条往前走的虚线
 private struct MarchingLine: View {
     let running: Bool
+    /// 窗口不在前台时不走（见 ProFeatureCard.activeState）
+    @Environment(\.controlActiveState) private var activeState
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !running || Motion.reduceMotion)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !running || Motion.reduceMotion || activeState == .inactive)) { context in
             let phase = running ? -context.date.timeIntervalSinceReferenceDate * 10 : 0
             Canvas { canvas, size in
                 var line = Path()
@@ -74,14 +76,15 @@ struct ProFeatureCard: View {
     enum Kind: CaseIterable { case devices, perApp, daw, combo, words, phone }
 
     let kind: Kind
+    /// 设置窗口不在前台（切到了别的 App）时都停下：SwiftUI 每画一帧都要把整个设置窗口重新排一遍版，
+    /// 换样子时的弹簧动画也一样（「组合动作」每 0.6 秒换一步，弹簧几乎一直在动）
+    @Environment(\.controlActiveState) private var activeState
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: Motion.reduceMotion)) { context in
-                viz(t: context.date.timeIntervalSinceReferenceDate)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .frame(height: 58)
+            animated
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(height: 58)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color.primary.opacity(0.05)))
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             Text(title).font(.callout.weight(.semibold))
@@ -90,6 +93,28 @@ struct ProFeatureCard: View {
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .cardBackground(cornerRadius: 16)
+    }
+
+    /// 隔一阵子才换一下样子的几张卡（轮流亮、换 App、换步骤、亮格子）：一段里看四次够了，切换本身交给 .animation；
+    /// 一直在动的（播放头、下划线）才每秒画 30 帧。以前 6 张卡都每秒 30 帧，设置开在 Pro 页时掌声要占一半 CPU
+    private var step: Double? {
+        switch kind {
+        case .devices: return 1.2
+        case .perApp, .phone: return 2
+        case .combo: return 0.6
+        case .daw, .words: return nil
+        }
+    }
+
+    @ViewBuilder
+    private var animated: some View {
+        if Motion.reduceMotion {
+            viz(t: 0)
+        } else {
+            TimelineView(.animation(minimumInterval: step.map { $0 / 4 } ?? 1.0 / 30, paused: activeState == .inactive)) { context in
+                viz(t: context.date.timeIntervalSinceReferenceDate)
+            }
+        }
     }
 
     private var title: String {
