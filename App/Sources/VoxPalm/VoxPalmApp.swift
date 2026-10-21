@@ -117,6 +117,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             window.setContentSize(NSSize(width: 900, height: 680))
             window.isReleasedWhenClosed = false
             window.isRestorable = false
+            window.delegate = self
             Self.centerOnActiveScreen(window)
             settingsWindow = window
         }
@@ -165,6 +166,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                       y: visible.midY - size.height / 2 + (visible.height - size.height) / 6))
     }
 
+    /// 关掉设置窗口就连里面的内容一起扔掉，下次打开重新建（还停在关掉时那一页）。
+    /// SwiftUI 的循环动画（Pro 页的小动画、授权页的拖拽示意）在关掉、收起来的窗口里也照样每秒画几十帧。
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow, window === settingsWindow else { return }
+        settingsWindow = nil
+        DispatchQueue.main.async { window.contentViewController = nil }
+    }
+
+    /// 引导收进菜单栏以后扔掉窗口和里面的内容（理由同上），下次「重新打开引导」重新建。
+    private func releaseOnboarding(_ window: NSWindow) {
+        window.orderOut(nil)
+        window.contentViewController = nil
+        if onboardingWindow === window { onboardingWindow = nil }
+    }
+
     /// 关掉引导窗口也一样收进菜单栏。
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard sender == onboardingWindow else { return true }
@@ -190,7 +206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         guard let target = status?.iconFrameOnScreen, let content = window.contentView,
               let snapshot = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
-            window.orderOut(nil)
+            releaseOnboarding(window)
             arrive()
             return
         }
@@ -210,7 +226,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         imageView.layer?.masksToBounds = true
         flyer.contentView = imageView
         flyer.orderFront(nil)
-        window.orderOut(nil)
+        releaseOnboarding(window)
         let end = NSRect(x: target.midX - 18, y: target.midY - 13, width: 36, height: 26)
         NSAnimationContext.runAnimationGroup({ context in
             context.duration = Motion.reduceMotion ? 0.15 : 0.62

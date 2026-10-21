@@ -33,14 +33,24 @@ final class PermissionGuide {
         timer = Timer.scheduledTimer(withTimeInterval: 0.2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.tick() }
         }
+        timer?.tolerance = 0.05
     }
 
     func stop() {
         timer?.invalidate()
         timer = nil
-        guard let panel, panel.isVisible else { return }
+        // 收起后连小窗一起扔掉，下次再建：图标上下浮动的动画在收起来的窗口里也照样一直在画
+        guard let panel else { return }
+        self.panel = nil
+        guard panel.isVisible else {
+            panel.contentView = nil
+            return
+        }
         NSAnimationContext.runAnimationGroup({ $0.duration = 0.2; panel.animator().alphaValue = 0 }) {
-            MainActor.assumeIsolated { panel.orderOut(nil) }
+            MainActor.assumeIsolated {
+                panel.orderOut(nil)
+                panel.contentView = nil
+            }
         }
     }
 
@@ -72,7 +82,18 @@ final class PermissionGuide {
             return
         }
 
+        // 系统设置一直开在后台、迟迟没人去开权限：不用一直盯着（权限打开后 AppModel 自己也会发现）
+        if Date().timeIntervalSince(startedAt) > 600 {
+            stop()
+            return
+        }
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        // 系统设置不在前台时小窗藏起来，也不用每次去读窗口列表
+        if front != Self.settingsBundleID, panel.isVisible == false,
+           !NSRunningApplication.runningApplications(withBundleIdentifier: Self.settingsBundleID).isEmpty {
+            lastSeenSettings = Date()
+            return
+        }
         guard let frame = Self.settingsWindowFrame() else {
             // 系统设置还没出来就再等等；出来过又关掉了，小窗跟着收起。
             if Date().timeIntervalSince(lastSeenSettings) > (panel.isVisible ? 1 : 8) { stop() }

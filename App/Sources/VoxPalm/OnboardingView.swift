@@ -315,8 +315,11 @@ struct PermissionCard: View {
 
 /// 小动画：掌声的图标从下面飞进系统设置的列表，列表里多一行打开的开关。
 private struct DragIllustration: View {
+    /// 窗口不在前台时不动（见 ProFeatureCard.activeState）
+    @Environment(\.controlActiveState) private var activeState
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: activeState == .inactive)) { context in
             let p = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 2.6) / 2.6
             let move = min(1, max(0, (p - 0.15) / 0.4))
             let eased = 1 - pow(1 - move, 3)
@@ -357,8 +360,10 @@ private struct DragIllustration: View {
 
 /// 小动画：系统弹框问麦克风，「允许」一闪一闪。
 private struct MicPromptIllustration: View {
+    @Environment(\.controlActiveState) private var activeState
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 20, paused: activeState == .inactive)) { context in
             let glow = 0.6 + 0.4 * sin(context.date.timeIntervalSinceReferenceDate * 3)
             VStack(spacing: 4) {
                 AppIconImage(size: 18)

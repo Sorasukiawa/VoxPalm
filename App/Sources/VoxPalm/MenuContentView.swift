@@ -70,7 +70,7 @@ struct MenuContentView: View {
     }
 
     private var tiles: some View {
-        HStack(spacing: 8) {
+        HStack(alignment: .top, spacing: 8) {
             Button { expanded = .control } label: {
                 DeviceTile(label: "控制", name: model.activeShortName ?? "还没选", art: model.activePickerDevice?.art ?? PickerArt.box) {
                     if model.isPaused {
@@ -89,14 +89,19 @@ struct MenuContentView: View {
             Button { expanded = .mic } label: {
                 // 选的麦会被控制设备静音时，磁贴直接画这次换上的那支（下面一行说明为什么）
                 let route = model.micRoute
+                // 选的麦没连上：和控制磁贴一样写「没连上」，不画成系统默认那支（录音这时落到系统默认输入上）
+                let missing = route.avoided == nil && model.selectedMicMissing
                 let mic = route.avoided != nil
                     ? model.pickerMics.first { $0.uid != nil && $0.uid == route.device?.uid }
                     : model.pickerMics.first { $0.uid == model.config.voice.micUID } ?? model.pickerMics.first
-                DeviceTile(label: "收音", name: mic?.shortName ?? "系统默认输入", art: mic?.art ?? PickerArt.system) {
+                DeviceTile(label: "收音", name: missing ? "已选的麦" : mic?.shortName ?? "系统默认输入",
+                           art: missing ? PickerArt.system : mic?.art ?? PickerArt.system) {
                     HStack(spacing: 6) {
                         // 说话时显示跳动的声波；平时写是哪种麦（不放像信号格的图标）
                         if model.voiceState == .listening || model.voiceState == .armed {
                             LevelWave(level: model.micLevel).frame(width: 44, height: 12)
+                        } else if missing {
+                            StatusPill(text: "没连上", color: .orange)
                         } else if let recording = model.recordingMic {
                             Text(DevicesPane.transportName(recording)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
@@ -108,8 +113,10 @@ struct MenuContentView: View {
                 }
             }
             .buttonStyle(TileButtonStyle())
-            .help("点开换收音设备")
+            .help(model.selectedMicMissing ? "选的麦没连上，先用系统默认输入收音。点开换收音设备" : "点开换收音设备")
         }
+        // 两块一样高：哪块多一行、少一行（没连上、没有采样率）都按高的那块拉齐
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private var outputRow: some View {
@@ -195,10 +202,11 @@ struct DeviceTile<Status: View>: View {
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
             }
-            status()
+            // 状态行固定高度（状态胶囊的高度）：胶囊、采样率小标签、声波、空着都占一样高，两块磁贴的状态行对齐
+            status().frame(height: 22, alignment: .leading)
         }
         .padding(11)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(hovering ? 0.075 : 0.045)))
         .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
