@@ -106,3 +106,9 @@ private func mic(_ id: AudioObjectID, _ uid: String, _ transport: String, isDefa
     let decoded = try JSONDecoder().decode(InputMethodKey.self, from: Data(#"{"key":"leftOption","style":"tap"}"#.utf8))
     #expect(decoded.key == .leftOption && decoded.style == .tap)
 }
+
+@Test func 认得不跟着切麦的输入法() {
+    #expect(InputMethodMic.name(ignoringDefaultInput: "com.tencent.inputmethod.wetype.pinyin") == "微信输入法")
+    #expect(InputMethodMic.name(ignoringDefaultInput: "com.bytedance.inputmethod.doubaoime.pinyin") == nil)
+    #expect(InputMethodMic.name(ignoringDefaultInput: "com.apple.inputmethod.SCIM.ITABC") == nil)
+}

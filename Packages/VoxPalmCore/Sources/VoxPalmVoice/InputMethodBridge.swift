@@ -1,3 +1,4 @@
+import Carbon
 import CoreGraphics
 import Foundation
 import VoxPalmEngine
@@ -105,5 +106,30 @@ public enum InputMethodBridge {
             // 自定义快捷键没法「按住」，按下时按一次。
             KeyPoster.post(combo)
         }
+    }
+}
+
+/// 系统里的输入法收音跟不跟系统默认输入走。外部输入法模式靠说话时临时切系统默认输入来换麦，不跟着走的输入法换不了。
+public enum InputMethodMic {
+    /// 实测不跟着切麦的输入法：输入法 ID 前缀 → 名字。
+    /// 微信输入法 3.0：说话时系统默认输入已经切到别的麦，它照样录 Mac 自带麦（2026-10-21 实测）
+    static let ignoringDefaultInput = ["com.tencent.inputmethod.wetype": "微信输入法"]
+
+    /// 系统启用的输入法变了时发的通知（分布式通知）
+    public static let enabledChangedNotification = Notification.Name(kTISNotifyEnabledKeyboardInputSourcesChanged as String)
+
+    /// 系统启用的输入法里有不跟着切麦的，返回它的名字。
+    /// 看「启用了」而不是「当前选中」：微信输入法的语音快捷键是全局的，当前输入法是 ABC 时照样响应（2026-10-21 实测）
+    public static func enabledIgnoringDefaultInput() -> String? {
+        guard let sources = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource] else { return nil }
+        for source in sources {
+            guard let pointer = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { continue }
+            if let name = name(ignoringDefaultInput: Unmanaged<CFString>.fromOpaque(pointer).takeUnretainedValue() as String) { return name }
+        }
+        return nil
+    }
+
+    static func name(ignoringDefaultInput sourceID: String) -> String? {
+        ignoringDefaultInput.first { sourceID.hasPrefix($0.key) }?.value
     }
 }
