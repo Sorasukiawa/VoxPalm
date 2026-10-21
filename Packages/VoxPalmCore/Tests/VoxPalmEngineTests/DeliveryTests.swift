@@ -62,3 +62,19 @@ private let password = FieldFacts(role: "AXTextField", subrole: "AXSecureTextFie
     #expect(DeliveryRule.sendReturn(trusted: true, field: FieldFacts(role: "AXTextArea", valueSettable: true, text: nil), changed: false) == nil)
     #expect(DeliveryRule.sendReturn(trusted: true, field: FieldFacts(role: "AXButton", valueSettable: false, text: "确定"), changed: false) == .notEditable)
 }
+
+@Test func 焦点那一块里只有一个输入框才放光标进去() {
+    let region = FieldFacts(role: "AXGroup", subrole: "AXLandmarkRegion", valueSettable: false)
+    let composer = FieldFacts(role: "AXTextArea", valueSettable: true)
+    let search = FieldFacts(role: "AXTextField", valueSettable: true)
+    let readOnly = FieldFacts(role: "AXTextField", valueSettable: false)
+    // 聊天 App：焦点在对话区，里面只有一个输入框
+    #expect(DeliveryRule.soleEditable([composer]) == 0)
+    #expect(DeliveryRule.soleEditable([readOnly, composer]) == 1)
+    // 不止一个能打字的、一个都没有：不猜
+    #expect(DeliveryRule.soleEditable([composer, search]) == nil)
+    #expect(DeliveryRule.soleEditable([readOnly, region]) == nil)
+    #expect(DeliveryRule.soleEditable([]) == nil)
+    // 有密码框（像登录表单）：不猜
+    #expect(DeliveryRule.soleEditable([search, password]) == nil)
+}

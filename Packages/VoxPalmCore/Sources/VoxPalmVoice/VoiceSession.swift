@@ -291,21 +291,25 @@ public final class VoiceSession: VoiceActionHandler {
                     if let file = self.debugTranscriptFile {
                         Self.append(sendReturn ? text + "⏎" : text, to: file)
                         // 调试时不贴，只把出字目标检查的结果写进日志：不碰前台 App 也能看这条路。
-                        let (block, now) = TextDelivery.checkPaste(since: target)
+                        let (block, now) = TextDelivery.checkPaste(since: target, refocus: false)
                         self.onMessage?("调试：出字目标检查 → " + (block.map { "不贴（\($0.pasteMessage)）" } ?? "会贴到「\(now?.appName ?? "前台 App")」"))
                         self.onOutcome?(.inserted(characters: text.count, appName: "调试文件"))
                     } else {
-                        switch TextDelivery.insert(text, method: settings.textMethod, since: target) {
+                        let (result, pasted) = TextDelivery.insert(text, method: settings.textMethod, since: target)
+                        switch result {
                         case let .copied(block):
-                            // 贴不进去：字不丢，留在剪贴板里，浮窗告诉用户为什么、怎么补救。
+                            // 贴不进去：字不丢，留在剪贴板里，浮窗告诉用户为什么、怎么补救。诊断日志记下当时的目标（不记字）。
+                            self.logger.notice("没贴（\(block.pasteMessage, privacy: .public)）：\(pasted?.diagnostics ?? "没读到前台 App", privacy: .public)")
                             self.onOutcome?(.copied(characters: text.count, reason: block))
                         case let .inserted(appName):
+                            if let pasted, pasted.refocused { self.logger.notice("贴字：\(pasted.diagnostics, privacy: .public)") }
                             self.onOutcome?(.inserted(characters: text.count, appName: appName))
                             if sendReturn {
-                                // 等粘贴落进输入框，再确认还是按键时那个输入框、里面有字，才按回车。
+                                // 等粘贴落进输入框，再确认还是贴字时那个输入框、里面有字，才按回车。
+                                let baseline = pasted ?? target
                                 Task { @MainActor [weak self] in
                                     try? await Task.sleep(nanoseconds: 350_000_000)
-                                    self?.onMessage?(TextDelivery.sendReturn(since: target))
+                                    self?.onMessage?(TextDelivery.sendReturn(since: baseline))
                                 }
                             }
                         }
