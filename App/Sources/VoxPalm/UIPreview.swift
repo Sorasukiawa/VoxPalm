@@ -74,6 +74,9 @@ enum UIPreview {
 extension UIPreview {
     /// 把一个视图放进屏幕外的窗口画成 PNG（这样系统控件也能画出来）。
     static func snapshot<V: View>(_ view: V, size: NSSize? = nil, dark: Bool, to url: URL) {
+        // 调试用：VOXPALM_RENDER_ONLY=panel-tiles 时只画文件名里带这些字的
+        if let only = ProcessInfo.processInfo.environment["VOXPALM_RENDER_ONLY"], !only.isEmpty,
+           !only.split(separator: ",").contains(where: { url.lastPathComponent.contains($0) }) { return }
         // 屏幕外画图时窗口底色画不进去，自己垫一层底色，并把深浅色传给 SwiftUI。
         let host = NSHostingView(rootView: view
             .background(dark ? Color(white: 0.16) : Color(white: 0.96))
@@ -320,6 +323,15 @@ extension UIPreview {
             model.simulate(voiceState: .listening, level: 0.6)
             snapshot(MenuContentView().environment(model), dark: dark, to: directory.appendingPathComponent("panel-listening-\(suffix).png"))
             model.simulate(voiceState: .idle)
+            // 控制、收音两块磁贴：各自连着或没连上（选的设备不在列表里）
+            let chosen = (model.config.controlDeviceIDs, model.config.voice.micUID)
+            let gone = (["hid:demo-disconnected"], "demo-disconnected-mic")
+            for (name, control, mic) in [("both", chosen.0, chosen.1), ("control-off", gone.0, chosen.1),
+                                         ("mic-off", chosen.0, gone.1), ("none", gone.0, gone.1)] {
+                model.update { $0.controlDeviceIDs = control; $0.voice.micUID = mic }
+                snapshot(MenuContentView().environment(model), dark: dark, to: directory.appendingPathComponent("panel-tiles-\(name)-\(suffix).png"))
+            }
+            model.update { $0.controlDeviceIDs = chosen.0; $0.voice.micUID = chosen.1 }
             // 说话浮窗的每个状态
             let hudStates: [(String, HUDState)] = [
                 ("armed", .armed(since: Date().addingTimeInterval(-0.3), threshold: 0.5)), ("listening", .listening(since: Date().addingTimeInterval(-4), subtitle: "小米遥控器 2")),

@@ -191,6 +191,11 @@ extension AppModel {
         PrivateModules.micModel(named: mic.name)?.shortName ?? (mic.transport == "Built-in" ? "Mac 麦克风" : mic.name)
     }
 
+    /// 选了某支麦、它现在没连上（录音落到系统默认输入上）
+    var selectedMicMissing: Bool {
+        config.voice.micUID != nil && selectedMic == nil
+    }
+
     /// 这次录音避开了被控制设备静音的麦时，给人看的一句话；没避开就是 nil
     var micAvoidNote: String? {
         let route = micRoute
