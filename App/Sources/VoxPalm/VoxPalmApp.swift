@@ -8,6 +8,10 @@ import VoxPalmVoice
 enum VoxPalmMain {
     @MainActor
     static func main() {
+        // Objective-C 异常默认被 AppKit 的事件循环接住、程序接着跑。异常一旦穿过 Swift 代码（尤其是 MainActor 的 Task），
+        // 并发运行时记的「当前任务、当前执行器」就停在作废的栈上，之后在不相干的 MainActor.assumeIsolated 里崩
+        // （2026-10-20 测试包：装收音 tap 时格式对不上抛了异常，43 秒后崩在权限定时器里）。改成在抛出的地方直接崩，崩溃报告里就是真正的原因。
+        UserDefaults.standard.register(defaults: ["NSApplicationCrashOnExceptions": true])
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
