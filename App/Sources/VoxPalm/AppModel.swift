@@ -22,6 +22,8 @@ final class AppModel {
     private(set) var mutedMicUIDs: Set<String> = []
     /// 别的程序正开着被静音的那支麦（比如系统设置的「声音」页）：面板提醒是哪个程序
     private(set) var micHolders: [AudioInputClient] = []
+    /// 系统启用了不跟着切麦的输入法时它的名字（比如微信输入法）：外部输入法模式下选的麦它用不上
+    private(set) var inputMethodIgnoringMic: String?
     private(set) var voiceState: VoiceSession.State = .idle
     private(set) var lastButton: String?
     private(set) var lastGesture: String?
@@ -73,6 +75,7 @@ final class AppModel {
     @ObservationIgnored private let audioWatcher = AudioWatcher()
     @ObservationIgnored private var saveWork: DispatchWorkItem?
     @ObservationIgnored private var permissionTimer: Timer?
+    @ObservationIgnored private var inputSourceObserver: NSObjectProtocol?
 
     init() {
         PrivateModules.setUp()
@@ -95,6 +98,10 @@ final class AppModel {
             }
         }
         audioWatcher.start()
+        refreshInputMethod()
+        inputSourceObserver = DistributedNotificationCenter.default().addObserver(forName: InputMethodMic.enabledChangedNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshInputMethod() }
+        }
         // 用户在系统设置里打开权限后，自动重新启用监听。
         permissionTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -310,6 +317,18 @@ final class AppModel {
     /// 这次录音真正用的麦
     var recordingMic: AudioDeviceInfo? {
         micRoute.device ?? selectedMic
+    }
+
+    /// 外部输入法模式下，系统启用了不跟着切麦的输入法，而这次该用的麦又不是 Mac 自带麦：用那家输入法出字时这支麦用不上
+    var inputMethodMicWarning: (ime: String, mic: String)? {
+        guard config.voice.mode == .inputMethod, let ime = inputMethodIgnoringMic,
+              let mic = recordingMic, mic.transport != "Built-in" else { return nil }
+        return (ime, micShortName(mic))
+    }
+
+    private func refreshInputMethod() {
+        let name = InputMethodMic.enabledIgnoringDefaultInput()
+        if name != inputMethodIgnoringMic { inputMethodIgnoringMic = name }
     }
 
     func selectControlDevice(_ id: String?) {
@@ -575,6 +594,11 @@ final class AppModel {
             items.append(Attention(id: "mic-held", title: "「\(holder.name)」开着 \(micShortName(mic)) 的麦",
                                    detail: "现在收音用 \(fallback)，不影响说话。以后要同时用它的按键和麦，得先关掉这个程序。",
                                    fix: .devices, informational: true))
+        }
+        if !isPaused, let warning = inputMethodMicWarning {
+            items.append(Attention(id: "ime-mic", title: "\(warning.ime)不跟着切麦",
+                                   detail: "用它出字时它一直录 Mac 自带麦，\(warning.mic) 用不上。要用 \(warning.mic) 收音，在设置 › 语音换成「内置转写」。",
+                                   fix: .voice, informational: true))
         }
         return items
     }

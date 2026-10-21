@@ -175,7 +175,8 @@ final class SpeechHUDController {
             armedWork?.cancel()
             let since = model.talkStartedAt ?? Date()
             if model.config.voice.mode == .inputMethod {
-                show(.inputMethod(since: since, subtitle: subtitle))
+                // 输入法不跟着切麦时，说清楚它录的其实是 Mac 自带麦
+                show(.inputMethod(since: since, subtitle: model.inputMethodMicWarning.map { "\($0.ime)只录 Mac 自带麦" } ?? subtitle))
             } else {
                 show(.listening(since: since, subtitle: subtitle))
             }
