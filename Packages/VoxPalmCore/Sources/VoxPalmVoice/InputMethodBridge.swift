@@ -6,6 +6,8 @@ import VoxPalmEngine
 public struct InputMethodKey: Codable, Hashable, Sendable {
     public enum Key: String, Codable, CaseIterable, Sendable {
         case fn
+        /// 输入法里把语音键录成左 Option 时只认左边（2026-10-21 微信输入法实测，右 Option 叫不起）
+        case leftOption
         case rightOption
         case rightCommand
         case rightControl
@@ -15,6 +17,7 @@ public struct InputMethodKey: Codable, Hashable, Sendable {
         public var title: String {
             switch self {
             case .fn: return "Fn（🌐）"
+            case .leftOption: return "左 Option"
             case .rightOption: return "右 Option"
             case .rightCommand: return "右 Command"
             case .rightControl: return "右 Control"
@@ -27,6 +30,7 @@ public struct InputMethodKey: Codable, Hashable, Sendable {
         var modifier: (keyCode: UInt16, flags: UInt64)? {
             switch self {
             case .fn: return (63, CGEventFlags.maskSecondaryFn.rawValue)
+            case .leftOption: return (58, CGEventFlags.maskAlternate.rawValue | 0x20)
             case .rightOption: return (61, CGEventFlags.maskAlternate.rawValue | 0x40)
             case .rightCommand: return (54, CGEventFlags.maskCommand.rawValue | 0x10)
             case .rightControl: return (62, CGEventFlags.maskControl.rawValue | 0x2000)

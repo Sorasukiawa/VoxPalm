@@ -404,10 +404,11 @@ struct VoicePane: View {
         SettingsCard("外部输入法", subtitle: "说话期间临时把系统默认输入切到你选的收音设备，结束后切回。", symbol: "globe", color: .tileIndigo) {
             VStack(alignment: .leading, spacing: 0) {
                 InputMethodFlow(mic: model.pickerMics.first { $0.uid == model.config.voice.micUID }?.shortName ?? "你选的麦",
-                                key: model.config.voice.inputMethodKey.key.title)
+                                key: model.config.voice.inputMethodKey.key.title,
+                                style: model.config.voice.inputMethodKey.style)
                     .padding(.bottom, 12)
                 RowDivider()
-                SettingRow("输入法的语音键", detail: "要和输入法里设的一样。系统听写默认是「连按两下 Fn」") {
+                SettingRow("输入法的语音键", detail: "要和输入法里设的一样。微信输入法默认「按住 Fn」；系统听写默认是「连按两下 Fn」") {
                     Picker("输入法的语音键", selection: model.binding(\.voice.inputMethodKey.key)) {
                         ForEach(InputMethodKey.Key.allCases.filter { $0 != .custom }, id: \.self) { Text($0.title).tag($0) }
                     }
@@ -421,7 +422,7 @@ struct VoicePane: View {
                     .labelsHidden().fixedSize()
                 }
                 RowDivider()
-                SettingRow("松手后多久切回麦克风") {
+                SettingRow("松手后多久切回麦克风", detail: "微信输入法不跟着切，实测一直用 Mac 自带的麦") {
                     SnapSlider(value: model.binding(\.voice.restoreInputDelay), in: 0...5, step: 0.5).frame(width: 180)
                     ValueChip(text: String(format: "%.1f 秒", model.config.voice.restoreInputDelay))
                 }
@@ -504,11 +505,17 @@ struct PrebufferTimeline: View {
 struct InputMethodFlow: View {
     let mic: String
     let key: String
+    let style: InputMethodKey.Style
 
     var body: some View {
+        let press = switch style {
+        case .hold: "按住"
+        case .tap: "按一下"
+        case .doubleTap: "连按两下"
+        }
         let steps: [(String, String, Color)] = [
             ("hand.point.up.left.fill", "按住遥控器", Brand.coralBottom), ("mic.fill", "切到\(mic)", .tileBlue),
-            ("keyboard.fill", "替你按住 \(key)", .tileIndigo), ("text.alignleft", "输入法出字", .tileGreen),
+            ("keyboard.fill", "替你\(press) \(key)", .tileIndigo), ("text.alignleft", "输入法出字", .tileGreen),
             ("arrow.uturn.backward", "切回原来的麦", .tileGray),
         ]
         ViewThatFits(in: .horizontal) {

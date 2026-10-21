@@ -94,3 +94,15 @@ private func mic(_ id: AudioObjectID, _ uid: String, _ transport: String, isDefa
     #expect(MicRouting.resolve(selectedUID: nil, inputs: [virtual, dji, airpods], muted: ["DJI"]) == .init(device: airpods, avoided: dji))
     #expect(MicRouting.resolve(selectedUID: nil, inputs: [dji, virtual], muted: ["DJI"]) == .init(device: nil, avoided: dji))
 }
+
+@Test func 左右Option分开发键() throws {
+    // 输入法里录成左 Option 的语音键只认左边，键码和区分左右的设备位都要对
+    let left = try #require(InputMethodKey.Key.leftOption.modifier)
+    #expect(left.keyCode == 58)
+    #expect(left.flags == CGEventFlags.maskAlternate.rawValue | 0x20)
+    let right = try #require(InputMethodKey.Key.rightOption.modifier)
+    #expect(right.keyCode == 61)
+    #expect(right.flags == CGEventFlags.maskAlternate.rawValue | 0x40)
+    let decoded = try JSONDecoder().decode(InputMethodKey.self, from: Data(#"{"key":"leftOption","style":"tap"}"#.utf8))
+    #expect(decoded.key == .leftOption && decoded.style == .tap)
+}
