@@ -9,7 +9,7 @@ scripts/build-app.sh
 open build/VoxPalm.app
 ```
 
-`scripts/build-app.sh` 会编译、打包成 `build/VoxPalm.app` 并签名：钥匙串里有 Developer ID 或 Apple Development 证书就用它（重新编译后系统权限不会失效），没有就临时签名（每次重新编译后要重新授权）。`CONFIG=debug` 打调试版；`OUTPUT_DIR=<目录>` 打到别的目录，不动 `build/` 里正在用的那份。
+`scripts/build-app.sh` 会编译、打包成 `build/VoxPalm.app` 并签名：钥匙串里有 Developer ID 或 Apple Development 证书就用它（重新编译后系统权限不会失效），没有就临时签名（每次重新编译后要重新授权）。`CONFIG=debug` 打调试版；`OUTPUT_DIR=<目录>` 打到别的目录，不动 `build/` 里正在用的那份；`UNIVERSAL=1` 打 Apple 芯片和 Intel 通用版（发布包用）。
 
 第一次编译时 SwiftPM 会从 GitHub 下载 whisper.cpp 官方预编译的 xcframework（约 66 MB，版本和校验和写在 `Packages/VoxPalmCore/Package.swift`）。打包脚本把其中 macOS 的框架放进 `VoxPalm.app/Contents/Frameworks` 并一起签名，许可证放进 `Contents/Resources/THIRD-PARTY-NOTICES.md`。
 
