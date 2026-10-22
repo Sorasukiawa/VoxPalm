@@ -337,7 +337,6 @@ extension UIPreview {
                 ("armed", .armed(since: Date().addingTimeInterval(-0.3), threshold: 0.5)), ("listening", .listening(since: Date().addingTimeInterval(-4), subtitle: "小米遥控器 2")),
                 // 选的无线麦当按键用时会被静音、这次换了 Mac 麦（见 SpeechHUDController.subtitle）
                 ("avoided", .listening(since: Date().addingTimeInterval(-1), subtitle: "DJI Mic 2 当按键时麦会静音 · 这次用 Mac 麦克风")),
-                ("ime", .inputMethod(since: Date().addingTimeInterval(-2), subtitle: "小米遥控器 2")),
                 ("transcribing", .transcribing), ("done", .done(characters: 15, app: "备忘录", snippet: "「下午三点的会改到四点，地…」")),
                 ("short", .message(title: "按住超过 0.5 秒才算", subtitle: nil, tone: .muted)),
                 ("error", .message(title: "没听到声音", subtitle: "看看麦克风开了没有，或者在面板里换一个", tone: .muted)),

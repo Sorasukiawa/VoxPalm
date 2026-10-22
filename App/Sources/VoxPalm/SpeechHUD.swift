@@ -11,11 +11,8 @@ enum HUDState: Equatable {
     /// 按下了，还没满长按时间：只有 ●，外圈按长按时间走满
     case armed(since: Date, threshold: Double)
     case listening(since: Date, subtitle: String)
-    /// 外部输入法模式：替用户按住了输入法的语音键
-    case inputMethod(since: Date, subtitle: String)
     case transcribing
     case done(characters: Int, app: String?, snippet: String?)
-    case handedOff
     /// 一句提示：按得太短、没听到声音、贴不进去、出错。会就地摇一下。
     case message(title: String, subtitle: String?, tone: Tone)
     /// 按键提示：设备图上点亮刚按的键
@@ -25,9 +22,9 @@ enum HUDState: Equatable {
 
     var dotColor: Color {
         switch self {
-        case .hidden, .armed, .listening, .inputMethod, .key: return Brand.coralTop
+        case .hidden, .armed, .listening, .key: return Brand.coralTop
         case .transcribing: return HUDColors.lavender
-        case .done, .handedOff: return HUDColors.ok
+        case .done: return HUDColors.ok
         case let .message(_, _, tone):
             switch tone {
             case .muted: return HUDColors.fg2
@@ -39,14 +36,14 @@ enum HUDState: Equatable {
 
     var since: Date? {
         switch self {
-        case let .listening(since, _), let .inputMethod(since, _): return since
+        case let .listening(since, _): return since
         default: return nil
         }
     }
 
     var isCoral: Bool {
         switch self {
-        case .armed, .listening, .inputMethod: return true
+        case .armed, .listening: return true
         default: return false
         }
     }
@@ -160,6 +157,12 @@ final class SpeechHUDController {
     }
 
     private func voiceStateChanged(_ state: VoiceSession.State) {
+        // 外部输入法模式：输入法自己有在听的界面（微信输入法的语音条也在屏幕下方正中），掌声不再弹一个（2026-10-21 本人定）；
+        // 还开着的按键提示也收掉，免得压在语音条上。
+        if model.config.voice.mode == .inputMethod, state == .armed || state == .listening {
+            if case .key = hud.state { hide(after: 0) }
+            return
+        }
         switch state {
         case .armed:
             // 短按（单击）会马上放弃预录，晚 0.15 秒再出浮窗，免得一闪而过。
@@ -173,13 +176,7 @@ final class SpeechHUDController {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15, execute: work)
         case .listening:
             armedWork?.cancel()
-            let since = model.talkStartedAt ?? Date()
-            if model.config.voice.mode == .inputMethod {
-                // 输入法不跟着切麦时，说清楚它录的其实是 Mac 自带麦
-                show(.inputMethod(since: since, subtitle: model.inputMethodMicWarning.map { "\($0.ime)只录 Mac 自带麦" } ?? subtitle))
-            } else {
-                show(.listening(since: since, subtitle: subtitle))
-            }
+            show(.listening(since: model.talkStartedAt ?? Date(), subtitle: subtitle))
         case .transcribing:
             show(.transcribing)
         case .idle:
@@ -196,7 +193,7 @@ final class SpeechHUDController {
             let snippet = model.lastTranscript.map { text in "「\(text.count > 12 ? String(text.prefix(12)) + "…" : text)」" }
             show(.done(characters: count, app: app, snippet: snippet), hideAfter: 1.8)
         case .handedToInputMethod:
-            show(.handedOff, hideAfter: 1.5)
+            break
         case let .copied(_, reason):
             show(.message(title: "字在剪贴板里，按 ⌘V", subtitle: reason.pasteMessage, tone: .warn), hideAfter: 4)
         case let .tooShort(threshold):
@@ -211,9 +208,11 @@ final class SpeechHUDController {
     }
 
     /// 按键提示：正在说话、转写、有提示要看时不打断；出完字的提示、上一张按键提示可以被换掉。
+    /// 外部输入法在听时浮窗不出来，也不弹，免得压在输入法的语音条上。
     private func flash(_ flash: KeyFlash) {
+        if model.config.voice.mode == .inputMethod, model.voiceState == .listening { return }
         switch hud.state {
-        case .armed, .listening, .inputMethod, .transcribing, .message: return
+        case .armed, .listening, .transcribing, .message: return
         default: break
         }
         show(.key(flash), hideAfter: 1.6)
@@ -378,10 +377,8 @@ struct SpeechHUDView: View {
         case .hidden, .armed: return ""
         case let .key(flash): return flash.title
         case .listening: return "正在听"
-        case .inputMethod: return "输入法在听"
         case .transcribing: return "转写中"
         case let .done(count, app, _): return app.map { "已输入 \(count) 字 · \($0)" } ?? "已输入 \(count) 字"
-        case .handedOff: return "交给输入法了"
         case let .message(title, _, _): return title
         }
     }
@@ -399,10 +396,8 @@ struct SpeechHUDView: View {
         case .hidden, .armed: return nil
         case let .key(flash): return flash.detail
         case let .listening(_, subtitle): return showsLive ? hud.live : subtitle
-        case let .inputMethod(_, subtitle): return subtitle
         case .transcribing: return showsLive ? hud.live : "在这台 Mac 上"
         case let .done(_, _, snippet): return snippet
-        case .handedOff: return "字由输入法放进去"
         case let .message(_, subtitle, _): return subtitle
         }
     }
@@ -451,7 +446,6 @@ struct HUDDot: View {
                         .frame(width: 30, height: 30)
                 }
                 if case .listening = state { ring(t) }
-                if case .inputMethod = state { ring(t) }
                 Circle()
                     .fill(state.isCoral ? AnyShapeStyle(Brand.coral) : AnyShapeStyle(state.dotColor))
                     .shadow(color: state.isCoral ? HUDColors.coralDeep : .clear, radius: 0, y: 2)
@@ -486,7 +480,7 @@ struct HUDSignal: View {
             let t = context.date.timeIntervalSinceReferenceDate
             Canvas { canvas, size in
                 switch state {
-                case .armed, .listening, .inputMethod:
+                case .armed, .listening:
                     let count = Self.shape.count
                     let width = 3.5
                     let gap = (size.width - width * Double(count)) / Double(count - 1)
@@ -500,7 +494,7 @@ struct HUDSignal: View {
                                     with: .linearGradient(Gradient(colors: [Brand.coralTop, Brand.coralBottom]),
                                                           startPoint: CGPoint(x: 0, y: rect.minY), endPoint: CGPoint(x: 0, y: rect.maxY)))
                     }
-                case .transcribing, .done, .handedOff:
+                case .transcribing, .done:
                     let widths = [1.0, 0.76, 0.44]
                     let lineHeight = 3.5
                     let top = (size.height - (3 * lineHeight + 2 * 4.5)) / 2
