@@ -2,8 +2,8 @@ import Testing
 @testable import VoxPalmDevices
 
 @Test func 遮蔽蓝牙地址只留前三段() {
-    #expect(Redaction.maskBluetoothAddresses("E4-7A-2C-42-63-DB:input") == "E4-7A-2C-xx-xx-xx:input")
-    #expect(Redaction.maskBluetoothAddresses("e4:7a:2c:42:63:db") == "e4:7a:2c:xx:xx:xx")
+    #expect(Redaction.maskBluetoothAddresses("A1-B2-C3-12-34-56:input") == "A1-B2-C3-xx-xx-xx:input")
+    #expect(Redaction.maskBluetoothAddresses("a1:b2:c3:12:34:56") == "a1:b2:c3:xx:xx:xx")
     #expect(Redaction.maskBluetoothAddresses("BuiltInMicrophoneDevice") == "BuiltInMicrophoneDevice")
 }
 
