@@ -239,6 +239,22 @@ public enum TranscriptCleaner {
         return result
     }
 
+    /// whisper.cpp 转中文时常在汉字后面用半角的逗号、问号（「改到四点,地点不变」），换成全角。
+    /// 只换紧跟在汉字后面的，「Claude, 你好」「1.5」这种不动。日语不用：日语的逗号是「、」。
+    public static func widenChinesePunctuation(_ text: String) -> String {
+        var result = ""
+        for char in text {
+            if let wide = widePunctuation[char], let previous = result.last, isWide(previous), !isWidePunctuation(previous) {
+                result.append(wide)
+            } else {
+                result.append(char)
+            }
+        }
+        return result
+    }
+
+    static let widePunctuation: [Character: Character] = [",": "，", "?": "？", "!": "！", ":": "：", ";": "；"]
+
     /// 连着出现只留一个的标点（「〇〇」「——」这类本来就成对的不算）
     static let collapsible: Set<Character> = ["。", "，", "、", "；", "："]
 

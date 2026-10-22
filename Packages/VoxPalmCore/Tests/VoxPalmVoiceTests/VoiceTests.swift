@@ -87,6 +87,7 @@ func whisper真模型转中文() async throws {
     let transcriber = try WhisperTranscriber(settings: WhisperSettings(modelID: WhisperSettings.customID, modelPath: model))
     let text = try await transcriber.transcribe(try AudioConversion.read(audio), locale: Locale(identifier: "zh-CN"))
     #expect(text.contains("公园"))
+    #expect(!text.contains(","))
 }
 
 private func sine(seconds: Double, rate: Double, channels: AVAudioChannelCount) -> AVAudioPCMBuffer {
@@ -130,6 +131,12 @@ private func sine(seconds: Double, rate: Double, channels: AVAudioChannelCount) 
     // 不到 1 秒的补静音，whisper.cpp 才肯转
     #expect(WhisperTranscriber.padded([Float](repeating: 0.2, count: 8_000)).count == 17_600)
     #expect(WhisperTranscriber.padded(samples + samples).count == samples.count * 2)
+}
+
+@Test func whisper中文的半角标点换成全角() {
+    #expect(TranscriptCleaner.widenChinesePunctuation("下午三点的会改到四点,地点不变,对吗?") == "下午三点的会改到四点，地点不变，对吗？")
+    #expect(TranscriptCleaner.widenChinesePunctuation("用 Claude, 版本 1.5, 好的") == "用 Claude, 版本 1.5, 好的")
+    #expect(TranscriptCleaner.widenChinesePunctuation("好的。,") == "好的。,")
 }
 
 @Test func 中文转写去掉多余空格() {

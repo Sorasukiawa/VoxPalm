@@ -125,7 +125,8 @@ public struct WhisperTranscriber: Transcriber {
         guard !buffers.isEmpty else { return "" }
         let samples = Self.padded(try AudioConversion.whisperSamples(buffers))
         let text = try await WhisperEngine.shared.transcribe(samples, model: model, locale: locale)
-        return TranscriptCleaner.clean(text)
+        let chinese = ["zh", "yue"].contains(locale.language.languageCode?.identifier ?? "")
+        return TranscriptCleaner.clean(chinese ? TranscriptCleaner.widenChinesePunctuation(text) : text)
     }
 
     /// whisper.cpp 不转不到 1 秒的声音（直接返回空），「好的」这种短句后面补一点静音。
@@ -161,6 +162,7 @@ final class WhisperEngine: @unchecked Sendable {
     private var context: OpaquePointer?
     private var loadedPath: String?
     private var releaseWork: DispatchWorkItem?
+    private var exitHookInstalled = false
 
     private init() {
         // whisper.cpp 默认把加载过程一行行打到标准错误；只留出错的，记进系统日志。
@@ -207,7 +209,23 @@ final class WhisperEngine: @unchecked Sendable {
         whisperLog.info("whisper.cpp 读入模型 \(model.lastPathComponent, privacy: .public)，用时 \(Date().timeIntervalSince(started), format: .fixed(precision: 2)) 秒")
         context = loaded
         loadedPath = model.path
+        if !exitHookInstalled {
+            exitHookInstalled = true
+            // ggml 在进程退出时检查 Metal 显存都还回去了没有，没还就 abort：用完 5 分钟内退出掌声会崩一下（2026-10-22 实测）。
+            // 退出前先放掉上下文。要在第一次读模型之后登记：退出时后登记的先跑，才排在 ggml 自己的清理前面。
+            atexit { WhisperEngine.shared.freeBeforeExit() }
+        }
         return loaded
+    }
+
+    /// 退出时调：在队列上放掉上下文，最多等 2 秒（正在转写的话等它转完）。
+    private func freeBeforeExit() {
+        let done = DispatchSemaphore(value: 0)
+        queue.async {
+            self.free()
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 2)
     }
 
     private func run(_ samples: [Float], model: URL, locale: Locale) throws -> String {

@@ -79,6 +79,9 @@ final class WhisperModels {
         case nil:
             status[model.id] = nil
             log.info("whisper.cpp 模型 \(model.id, privacy: .public) 下载好了")
+            // 下好就先读一遍：第一次读要现编显卡程序，「均衡」要 9 秒左右，之后系统记住了不到 1 秒（2026-10-22 实测）。
+            // 用户下完多半马上试一句，别让第一句等这么久。
+            WhisperTranscriber.prepare(settings: WhisperSettings(modelID: model.id))
         case is CancellationError:
             status[model.id] = nil
         case let error?:
