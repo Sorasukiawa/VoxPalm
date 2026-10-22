@@ -57,10 +57,10 @@ private func hid(_ t: Double, _ phase: ProbeEvent.Phase, control: String = "Cons
 
 @Test func 报告能导出并遮掉蓝牙地址() throws {
     var report = ProbeReport(device: .init(name: "测试设备"))
-    report.notes = ["UID E4-7A-2C-42-63-DB:input"]
+    report.notes = ["UID A1-B2-C3-12-34-56:input"]
     let text = String(decoding: try report.jsonData(), as: UTF8.self)
-    #expect(text.contains("E4-7A-2C-xx-xx-xx"))
-    #expect(!text.contains("42-63-DB"))
+    #expect(text.contains("A1-B2-C3-xx-xx-xx"))
+    #expect(!text.contains("12-34-56"))
     let markdown = MarkdownRenderer.render(report)
     #expect(markdown.contains("# 设备探针报告：测试设备"))
 }
