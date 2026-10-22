@@ -27,3 +27,4 @@ Mac 起步的「多设备按键控制 + 语音输入」App：用遥控器、无�
 ## 写作和提交
 
 - 文档和注释用简体中文；提交说明格式 `类型: 描述`。
+- README 例外，有四个语言版本：`README.md`（简体中文，以它为准）、`README.zh-TW.md`、`README.en.md`、`README.ja.md`。改其中一个时同步改其余几个。首页截图在 `docs/screenshots/`，重新截的方法见那里的 README。
