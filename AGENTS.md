@@ -4,7 +4,7 @@ Mac 起步的「多设备按键控制 + 语音输入」App：用遥控器、无�
 
 ## 仓库分工
 
-- 本仓库（`Sorasukiawa/VoxPalm`）：GPL-3.0-only 开源部分，范围见 `docs/开源范围与许可.md`。目前是私有仓库，1.0 前转公开。
+- 本仓库（`Sorasukiawa/VoxPalm`）：GPL-3.0-only 开源主仓库，范围见 `docs/开源范围与许可.md`。源码、文档和历史提交都按对外公开范围维护。
 - 私有仓库（`Sorasukiawa/VoxPalm-private`，本地在 `../VoxPalm-private`）：DJI 等闭源设备适配、Pro 功能、定价、调研、逆向笔记，以及进度文档 `docs/进度.md`。动手前先看进度文档。
 
 ## 开源边界（硬规则）
