@@ -19,7 +19,7 @@ Turn remotes and wireless mics into a voice button for your Mac
 </div>
 
 > [!NOTE]
-> VoxPalm is under development and there is no release to download yet. You can [build it from source](#build-from-source) in the meantime. The app's interface is currently in Simplified Chinese only.
+> VoxPalm is under development. You can download the [public beta](https://github.com/Sorasukiawa/VoxPalm/releases) to try it: it is not notarized by Apple yet, so the first time you open it you need to click "Open Anyway" in System Settings › Privacy & Security (see the release notes). You can also [build it from source](#build-from-source). The app's interface is currently in Simplified Chinese only.
 
 <p align="center">
   <picture>
