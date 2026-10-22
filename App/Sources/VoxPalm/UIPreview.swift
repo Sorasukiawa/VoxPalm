@@ -276,12 +276,15 @@ extension UIPreview {
     }
 
     private static func registerIconIfNeeded() {
-        // 用 swift run 直接跑时没有 App 包，图标从仓库里拿，登记成同名图片
+        // 用 swift run 直接跑时没有 App 包，图标从仓库里拿，登记成同名图片。
+        // 只编进调试版：#filePath 会把本机的源码路径原样写进程序，发布包里不要。
+        #if DEBUG
         if NSImage(named: "VoxPalm") == nil {
             let icon = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
                 .appendingPathComponent("../../../brand/icon/VoxPalm.icns").standardized
             NSImage(contentsOf: icon)?.setName("VoxPalm")
         }
+        #endif
     }
 
     /// 用调试配置文件跑时，先选上媒体键、设好说话键，引导后几步和面板才有东西可画（不碰真正的设置）。
