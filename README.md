@@ -6,6 +6,8 @@
 
 > 开发中，还没有可以下载的版本。
 
+本仓库提供 macOS 主程序、按键与语音引擎、设备适配框架和设备探针的源码，按 GPL-3.0-only 授权。可以不带私有模块构建；DJI 适配和 Pro 扩展单独维护，不包含在本仓库中。手机、平板和手表端仍在规划中。
+
 ## 它做什么
 
 手里拿着遥控器或别在衣服上的无线麦，按一下就开始说话，松手文字就出现在光标所在的地方。也可以给每个按键设置单击、双击、长按的动作，用来控制录音和剪辑软件。
@@ -32,6 +34,21 @@
 ## 从源码编译
 
 开发中的内测版本可以自己编译：见 [App/README.md](App/README.md)。设备探针（实测一台设备的按键和收音能力）见 [tools/probe/README.md](tools/probe/README.md)。
+
+需要 macOS 14 以上及完整 Xcode（当前验证使用 Xcode 27）。从仓库根目录运行：
+
+```sh
+env -u VOXPALM_PRIVATE_DIR bash scripts/build-app.sh
+```
+
+产物在 `build/VoxPalm.app`。核心与设备探针的测试分别运行：
+
+```sh
+swift test --package-path Packages/VoxPalmCore
+swift test --package-path tools/probe
+```
+
+测试通过只覆盖代码中的用例；设备兼容性以逐台实测记录为准。
 
 ## 免费版和 Pro
 
