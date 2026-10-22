@@ -192,15 +192,14 @@ public enum AudioConversion {
         return result
     }
 
-    /// 写 16 kHz 单声道 16 位 WAV（whisper.cpp 要这个格式）。
-    public static func writeWhisperWAV(_ buffers: [AVAudioPCMBuffer], to url: URL) throws {
-        guard let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false) else { return }
-        let converted = try convert(buffers, to: mono)
-        let settings: [String: Any] = [
-            AVFormatIDKey: kAudioFormatLinearPCM, AVSampleRateKey: 16_000, AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16, AVLinearPCMIsFloatKey: false, AVLinearPCMIsBigEndianKey: false,
-        ]
-        let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-        for buffer in converted { try file.write(from: buffer) }
+    /// 转成 16 kHz 单声道的浮点样本（whisper.cpp 要这个格式）。
+    public static func whisperSamples(_ buffers: [AVAudioPCMBuffer]) throws -> [Float] {
+        guard let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false) else { return [] }
+        var samples: [Float] = []
+        for buffer in try convert(buffers, to: mono) {
+            guard let channel = buffer.floatChannelData?[0] else { continue }
+            samples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
+        }
+        return samples
     }
 }

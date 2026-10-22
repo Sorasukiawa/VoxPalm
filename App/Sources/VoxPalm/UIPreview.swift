@@ -160,6 +160,17 @@ extension UIPreview {
             liveShot(SettingsView().environment(model).environment(voice).frame(width: 900, height: 680), titled: true, dark: dark,
                      to: directory.appendingPathComponent("live-settings-voice-ime-full-\(suffix).png"))
             model.update { $0.voice.mode = mode }
+            // whisper.cpp 卡片下载中、下载失败两种样子（整页高，卡片在最下面）
+            let recommended = WhisperModel.recommended
+            for (name, status) in [("downloading", WhisperModels.Status.downloading(received: recommended.bytes * 2 / 5, total: recommended.bytes, host: "huggingface.co")),
+                                   ("failed", .failed("连 huggingface.co 超时"))] {
+                model.whisperModels.simulate(status, for: recommended)
+                let page = SettingsNavigation()
+                page.pane = .voice
+                liveShot(SettingsView().environment(model).environment(page).frame(width: 900, height: 1240), titled: true, dark: dark,
+                         to: directory.appendingPathComponent("live-settings-voice-whisper-\(name)-\(suffix).png"))
+            }
+            model.whisperModels.simulate(nil, for: recommended)
             // 设置文件晚半秒才写，等它写回去再往下截
             RunLoop.main.run(until: Date().addingTimeInterval(0.8))
             let navigation = SettingsNavigation()
