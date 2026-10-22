@@ -251,6 +251,10 @@ extension UIPreview {
                 for other in others() { capture(other, to: after) }
             }
             others().forEach { $0.orderOut(nil) }
+        } else if let hold = Double(ProcessInfo.processInfo.environment["VOXPALM_RENDER_HOLD"] ?? "") {
+            // 没有弹出框的窗口也一样：多停一会儿给辅助功能脚本点（比如设置里 whisper.cpp 的「下载」），停完再截一张
+            RunLoop.main.run(until: Date().addingTimeInterval(hold))
+            capture(window, to: url.deletingPathExtension().appendingPathExtension("after.png"))
         }
         window.orderOut(nil)
     }
