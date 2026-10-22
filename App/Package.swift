@@ -29,7 +29,13 @@ let package = Package(
     products: [.executable(name: "VoxPalm", targets: ["VoxPalm"])],
     dependencies: dependencies,
     targets: [
-        .executableTarget(name: "VoxPalm", dependencies: appDependencies, swiftSettings: swiftSettings),
+        .executableTarget(
+            name: "VoxPalm",
+            dependencies: appDependencies,
+            swiftSettings: swiftSettings,
+            // 打包时 whisper.cpp 的框架放在 VoxPalm.app/Contents/Frameworks（scripts/build-app.sh）
+            linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
+        ),
     ],
     swiftLanguageModes: [.v5]
 )

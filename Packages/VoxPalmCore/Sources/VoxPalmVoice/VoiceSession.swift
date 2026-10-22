@@ -37,7 +37,7 @@ public final class VoiceSession: VoiceActionHandler {
         public var micUID: String?
         public var localeID = "zh-CN"
         public var transcriber: TranscriberChoice = .automatic
-        public var whisper = WhisperCLITranscriber.Configuration()
+        public var whisper = WhisperSettings()
         public var inputMethodKey = InputMethodKey()
         /// 外部输入法模式下，松手后等多久再把系统默认输入切回去（输入法可能还在收尾）
         public var restoreInputDelay: Double = 1.5
@@ -60,7 +60,7 @@ public final class VoiceSession: VoiceActionHandler {
             micUID = try c.decodeIfPresent(String.self, forKey: .micUID)
             localeID = try c.decodeIfPresent(String.self, forKey: .localeID) ?? d.localeID
             transcriber = try c.decodeIfPresent(TranscriberChoice.self, forKey: .transcriber) ?? d.transcriber
-            whisper = try c.decodeIfPresent(WhisperCLITranscriber.Configuration.self, forKey: .whisper) ?? d.whisper
+            whisper = try c.decodeIfPresent(WhisperSettings.self, forKey: .whisper) ?? d.whisper
             inputMethodKey = try c.decodeIfPresent(InputMethodKey.self, forKey: .inputMethodKey) ?? d.inputMethodKey
             restoreInputDelay = try c.decodeIfPresent(Double.self, forKey: .restoreInputDelay) ?? d.restoreInputDelay
             inputMethodSendDelay = try c.decodeIfPresent(Double.self, forKey: .inputMethodSendDelay) ?? d.inputMethodSendDelay
@@ -172,6 +172,7 @@ public final class VoiceSession: VoiceActionHandler {
             lock.unlock()
             startCaptureIfNeeded()
             if let file = debugAudioFile { startDebugFeed(file) }
+            if TranscriberFactory.usesWhisper(settings.transcriber) { WhisperTranscriber.prepare(settings: settings.whisper) }
         case .inputMethod:
             switchDefaultInput()
         }

@@ -5,17 +5,88 @@ import CoreAudio
 @testable import VoxPalmDevices
 @testable import VoxPalmVoice
 
-@Test func whisper参数带语言和简体提示() {
-    let args = WhisperCLITranscriber.arguments(model: "/m.bin", audio: "/a.wav", locale: Locale(identifier: "zh-CN"))
-    #expect(args.starts(with: ["-m", "/m.bin", "-f", "/a.wav", "-l", "zh", "-nt", "-np"]))
-    #expect(args.contains("--prompt"))
-    #expect(!WhisperCLITranscriber.arguments(model: "m", audio: "a", locale: Locale(identifier: "en-US")).contains("--prompt"))
+@Test func whisper按语言给开头提示() {
+    #expect(WhisperTranscriber.decoding(for: Locale(identifier: "zh-CN"), knowsCantonese: true) == ("zh", "以下是普通话的句子。"))
+    #expect(WhisperTranscriber.decoding(for: Locale(identifier: "zh-TW"), knowsCantonese: true) == ("zh", "以下是國語的句子。"))
+    #expect(WhisperTranscriber.decoding(for: Locale(identifier: "yue-CN"), knowsCantonese: true).language == "yue")
+    #expect(WhisperTranscriber.decoding(for: Locale(identifier: "yue-CN"), knowsCantonese: false).language == "zh")
+    #expect(WhisperTranscriber.decoding(for: Locale(identifier: "en-US"), knowsCantonese: true) == ("en", nil))
 }
 
-@Test func 没配置whisper会报错() {
-    #expect(throws: TranscriberError.self) {
-        _ = try WhisperCLITranscriber(configuration: .init(executablePath: "/nope", modelPath: "/nope.bin"))
+@Test func whisper模型清单() {
+    #expect(Set(WhisperModel.catalog.map(\.id)).count == WhisperModel.catalog.count)
+    #expect(WhisperModel.catalog.contains(WhisperModel.recommended))
+    for model in WhisperModel.catalog {
+        #expect(model.sha256.count == 64 && model.sha256.allSatisfy(\.isHexDigit))
+        #expect(model.sources.map(\.host) == ["huggingface.co", "hf-mirror.com"])
+        #expect(model.sources.allSatisfy { $0.lastPathComponent == "ggml-\(model.id).bin" })
     }
+}
+
+@Test func whisper设置读旧配置() throws {
+    // 旧版存的是 whisper-cli 的路径和自己选的模型文件：文件接着用，没选过的用推荐模型
+    let old = try JSONDecoder().decode(WhisperSettings.self, from: Data(#"{"executablePath":"/opt/homebrew/bin/whisper-cli","modelPath":"/m/ggml-small.bin"}"#.utf8))
+    #expect(old.usesCustomFile && old.modelPath == "/m/ggml-small.bin")
+    let empty = try JSONDecoder().decode(WhisperSettings.self, from: Data("{}".utf8))
+    #expect(empty.modelID == WhisperModel.recommended.id && empty.modelPath == nil)
+    let unknown = WhisperSettings(modelID: "以后删掉的模型")
+    #expect(unknown.model == WhisperModel.recommended)
+}
+
+@Test func whisper没下载或没选文件会报错() throws {
+    let saved = WhisperModel.directory
+    defer { WhisperModel.directory = saved }
+    WhisperModel.directory = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-models-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: WhisperModel.directory) }
+    #expect(throws: TranscriberError.self) { _ = try WhisperTranscriber(settings: WhisperSettings(modelID: WhisperSettings.customID)) }
+    #expect(throws: TranscriberError.self) { _ = try WhisperTranscriber(settings: WhisperSettings(modelID: WhisperSettings.customID, modelPath: "/nope.bin")) }
+    #expect(throws: TranscriberError.self) { _ = try WhisperTranscriber(settings: WhisperSettings()) }
+    // 模型目录里有了就算下好了
+    try FileManager.default.createDirectory(at: WhisperModel.directory, withIntermediateDirectories: true)
+    FileManager.default.createFile(atPath: WhisperModel.recommended.fileURL.path, contents: Data())
+    #expect(WhisperModel.recommended.isDownloaded)
+    #expect(try WhisperSettings().resolvedModelURL() == WhisperModel.recommended.fileURL)
+}
+
+@Test func 内置的whisper库能用() async throws {
+    #expect(!WhisperTranscriber.version.isEmpty)
+    // 坏模型文件：读不进来要报错，不能崩
+    let bad = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-bad-\(UUID().uuidString).bin")
+    try Data("不是模型".utf8).write(to: bad)
+    defer { try? FileManager.default.removeItem(at: bad) }
+    let transcriber = try WhisperTranscriber(settings: WhisperSettings(modelID: WhisperSettings.customID, modelPath: bad.path))
+    await #expect(throws: TranscriberError.self) {
+        _ = try await transcriber.transcribe([sine(seconds: 1, rate: 16_000, channels: 1)], locale: Locale(identifier: "zh-CN"))
+    }
+}
+
+@Test func 下载的模型按SHA256核对() throws {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-sha-\(UUID().uuidString)")
+    try Data("abc".utf8).write(to: file)
+    defer { try? FileManager.default.removeItem(at: file) }
+    #expect(try WhisperDownload.sha256(of: file) == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    let right = WhisperModel(id: "t", title: "t", summary: "", bytes: 3, sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    let wrongSize = WhisperModel(id: "t", title: "t", summary: "", bytes: 4, sha256: right.sha256)
+    let wrongHash = WhisperModel(id: "t", title: "t", summary: "", bytes: 3, sha256: String(repeating: "0", count: 64))
+    #expect(try WhisperDownload.matches(file, right))
+    #expect(try !WhisperDownload.matches(file, wrongSize))
+    #expect(try !WhisperDownload.matches(file, wrongHash))
+}
+
+/// 真模型端到端：设了 VOXPALM_TEST_WHISPER_MODEL（ggml 模型文件）才跑，用 say 合成一句中文转回来。
+@Test(.enabled(if: ProcessInfo.processInfo.environment["VOXPALM_TEST_WHISPER_MODEL"] != nil))
+func whisper真模型转中文() async throws {
+    let model = ProcessInfo.processInfo.environment["VOXPALM_TEST_WHISPER_MODEL"]!
+    let audio = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-say-\(UUID().uuidString).aiff")
+    defer { try? FileManager.default.removeItem(at: audio) }
+    let say = Process()
+    say.executableURL = URL(fileURLWithPath: "/usr/bin/say")
+    say.arguments = ["-v", "Tingting", "-o", audio.path, "今天天气很好，我们去公园散步吧。"]
+    try say.run()
+    say.waitUntilExit()
+    let transcriber = try WhisperTranscriber(settings: WhisperSettings(modelID: WhisperSettings.customID, modelPath: model))
+    let text = try await transcriber.transcribe(try AudioConversion.read(audio), locale: Locale(identifier: "zh-CN"))
+    #expect(text.contains("公园"))
 }
 
 private func sine(seconds: Double, rate: Double, channels: AVAudioChannelCount) -> AVAudioPCMBuffer {
@@ -52,14 +123,13 @@ private func sine(seconds: Double, rate: Double, channels: AVAudioChannelCount) 
     #expect(try same.convert(piece).first === piece)
 }
 
-@Test func 写出whisper用的WAV() throws {
-    let url = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-test-\(UUID().uuidString).wav")
-    defer { try? FileManager.default.removeItem(at: url) }
-    try AudioConversion.writeWhisperWAV([sine(seconds: 1, rate: 44_100, channels: 1)], to: url)
-    let file = try AVAudioFile(forReading: url)
-    #expect(file.fileFormat.sampleRate == 16_000)
-    #expect(file.fileFormat.channelCount == 1)
-    #expect(abs(Double(file.length) / 16_000 - 1.0) < 0.02)
+@Test func 转成whisper用的样本() throws {
+    let samples = try AudioConversion.whisperSamples([sine(seconds: 1, rate: 44_100, channels: 2)])
+    #expect(abs(samples.count - 16_000) < 320)
+    #expect(samples.contains { abs($0) > 0.1 })
+    // 不到 1 秒的补静音，whisper.cpp 才肯转
+    #expect(WhisperTranscriber.padded([Float](repeating: 0.2, count: 8_000)).count == 17_600)
+    #expect(WhisperTranscriber.padded(samples + samples).count == samples.count * 2)
 }
 
 @Test func 中文转写去掉多余空格() {

@@ -72,6 +72,8 @@ final class AppModel {
 
     @ObservationIgnored let engine: ButtonEngine
     @ObservationIgnored let voice: VoiceSession
+    /// whisper.cpp 模型的下载状态（设置页的 whisper.cpp 卡片、面板的提醒用）
+    let whisperModels = WhisperModels()
     @ObservationIgnored private let audioWatcher = AudioWatcher()
     @ObservationIgnored private var saveWork: DispatchWorkItem?
     @ObservationIgnored private var permissionTimer: Timer?
@@ -81,6 +83,9 @@ final class AppModel {
         PrivateModules.setUp()
         let config = AppConfig.load()
         self.config = config
+        // 下载的 whisper.cpp 模型放在配置文件旁边：用 VOXPALM_CONFIG 调试时跟着测试配置走
+        WhisperModel.directory = AppConfig.fileURL.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true)
+        whisperModels.refresh()
         let sources: [ControlSource] = [HIDControlSource(), SystemKeysControlSource(), NowPlayingControlSource()] + PrivateModules.controlSources()
         engine = ButtonEngine(sources: sources, keyMap: config.keyMap)
         engine.timing = config.timing
@@ -588,6 +593,13 @@ final class AppModel {
             items.append(Attention(id: "disconnected", title: "控制设备没连上", detail: "先在系统的蓝牙设置里连上它。", fix: .devices))
         } else if let controlProblem, !isPaused {
             items.append(Attention(id: "control-problem", title: "\(activeShortName ?? "控制设备")的按键没接上", detail: controlProblem, fix: .devices, retry: true))
+        }
+        if config.voice.mode == .builtIn, TranscriberFactory.usesWhisper(config.voice.transcriber), !whisperModels.isReady(config.voice.whisper) {
+            let whisper = config.voice.whisper
+            items.append(Attention(id: "whisper-model", title: whisper.usesCustomFile ? "还没选语音模型文件" : "还没下载语音模型",
+                                   detail: whisper.usesCustomFile ? "内置转写用 whisper.cpp，在设置 › 语音里选一个 ggml 模型文件。"
+                                       : "内置转写用 whisper.cpp，先在设置 › 语音里下载「\(whisper.model.title)」模型（\(whisper.model.sizeText)）才能出字。",
+                                   fix: .voice))
         }
         if !isPaused, let holder = micHolders.first, let mic = micDevices.first(where: { mutedMicUIDs.contains($0.uid) }) {
             let fallback = MicRouting.resolve(selectedUID: mic.uid, inputs: micDevices, muted: mutedMicUIDs).device.map(micShortName) ?? "别的麦"

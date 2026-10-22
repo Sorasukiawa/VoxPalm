@@ -19,14 +19,18 @@ public protocol LivePreview: AnyObject {
 
 public enum TranscriberError: Error, CustomStringConvertible {
     case unsupportedLocale(String)
+    /// 选了「自己的模型文件」但没选、或者文件不在了
     case whisperNotConfigured
+    /// 清单里的模型还没下载（参数是模型的短名字）
+    case whisperModelMissing(String)
     case whisperFailed(String)
     case unavailable(String)
 
     public var description: String {
         switch self {
         case let .unsupportedLocale(id): return "系统转写不支持这种语言：\(id)"
-        case .whisperNotConfigured: return "还没设置 whisper.cpp：需要 whisper-cli 程序和一个 ggml 模型文件"
+        case .whisperNotConfigured: return "还没选 whisper.cpp 的模型文件，在设置 › 语音里选"
+        case let .whisperModelMissing(title): return "还没下载语音模型「\(title)」，在设置 › 语音里点下载"
         case let .whisperFailed(message): return "whisper.cpp 转写失败：\(message)"
         case let .unavailable(message): return message
         }
@@ -54,17 +58,15 @@ public enum TranscriberFactory {
         return false
     }
 
-    public static func make(_ choice: TranscriberChoice, whisper: WhisperCLITranscriber.Configuration) throws -> Transcriber {
-        switch choice {
-        case .automatic:
-            if #available(macOS 26, *) { return SpeechAnalyzerTranscriber() }
-            return try WhisperCLITranscriber(configuration: whisper)
-        case .appleSpeech:
-            if #available(macOS 26, *) { return SpeechAnalyzerTranscriber() }
-            throw TranscriberError.unavailable("系统转写要 macOS 26 以上")
-        case .whisper:
-            return try WhisperCLITranscriber(configuration: whisper)
-        }
+    /// 这台 Mac 上这个选择实际用不用 whisper.cpp
+    public static func usesWhisper(_ choice: TranscriberChoice) -> Bool {
+        choice == .whisper || (choice == .automatic && !appleSpeechAvailable)
+    }
+
+    public static func make(_ choice: TranscriberChoice, whisper: WhisperSettings) throws -> Transcriber {
+        if usesWhisper(choice) { return try WhisperTranscriber(settings: whisper) }
+        if #available(macOS 26, *) { return SpeechAnalyzerTranscriber() }
+        throw TranscriberError.unavailable("系统转写要 macOS 26 以上")
     }
 
     /// 能边说边转就开一个实时预览（macOS 26 以上的系统转写）；whisper.cpp 没有，返回 nil。
@@ -251,75 +253,5 @@ public enum TranscriptCleaner {
             default: return false
             }
         }
-    }
-}
-
-// MARK: - whisper.cpp
-
-/// 老系统的兜底：调用本机的 whisper.cpp 命令行（whisper-cli）。模型文件由用户自己选。
-public struct WhisperCLITranscriber: Transcriber {
-    public struct Configuration: Codable, Hashable, Sendable {
-        public var executablePath: String?
-        public var modelPath: String?
-
-        public init(executablePath: String? = nil, modelPath: String? = nil) {
-            self.executablePath = executablePath
-            self.modelPath = modelPath
-        }
-
-        /// 没指定程序路径时，到 Homebrew 的常见位置找。
-        public var resolvedExecutable: String? {
-            if let executablePath, FileManager.default.isExecutableFile(atPath: executablePath) { return executablePath }
-            return ["/opt/homebrew/bin/whisper-cli", "/usr/local/bin/whisper-cli"].first { FileManager.default.isExecutableFile(atPath: $0) }
-        }
-    }
-
-    public var name: String { "whisper.cpp" }
-    private let executable: String
-    private let model: String
-
-    public init(configuration: Configuration) throws {
-        guard let executable = configuration.resolvedExecutable,
-              let model = configuration.modelPath, FileManager.default.fileExists(atPath: model) else {
-            throw TranscriberError.whisperNotConfigured
-        }
-        self.executable = executable
-        self.model = model
-    }
-
-    public static func arguments(model: String, audio: String, locale: Locale) -> [String] {
-        let language = locale.language.languageCode?.identifier ?? "auto"
-        var args = ["-m", model, "-f", audio, "-l", language, "-nt", "-np"]
-        // 给一句简体的开头提示，减少输出繁体。
-        if language == "zh" { args += ["--prompt", "以下是普通话的句子。"] }
-        return args
-    }
-
-    public func transcribe(_ buffers: [AVAudioPCMBuffer], locale: Locale) async throws -> String {
-        let wav = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-\(UUID().uuidString).wav")
-        defer { try? FileManager.default.removeItem(at: wav) }
-        try AudioConversion.writeWhisperWAV(buffers, to: wav)
-        let log = wav.deletingPathExtension().appendingPathExtension("log")
-        defer { try? FileManager.default.removeItem(at: log) }
-        FileManager.default.createFile(atPath: log.path, contents: nil)
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: executable)
-        process.arguments = Self.arguments(model: model, audio: wav.path, locale: locale)
-        let output = Pipe()
-        process.standardOutput = output
-        // 日志写到临时文件，不用管道，免得日志太多把管道塞满卡住。
-        process.standardError = try FileHandle(forWritingTo: log)
-        do {
-            try process.run()
-        } catch {
-            throw TranscriberError.whisperFailed(error.localizedDescription)
-        }
-        let data = await Task.detached { output.fileHandleForReading.readDataToEndOfFile() }.value
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            let message = (try? String(contentsOf: log, encoding: .utf8)) ?? "退出码 \(process.terminationStatus)"
-            throw TranscriberError.whisperFailed(String(message.suffix(300)))
-        }
-        return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

@@ -300,6 +300,9 @@ struct VoicePane: View {
     @Environment(AppModel.self) private var model
     @State private var modelStatus: String?
     @State private var checking = false
+    /// 正在确认要不要删的 whisper.cpp 模型
+    @State private var deletingModel: WhisperModel?
+    @State private var deleteError: String?
 
     private let locales: [(String, String)] = [
         ("zh-CN", "普通话（简体）"), ("zh-TW", "国语（繁体）"), ("yue-CN", "粤语"), ("en-US", "英语"), ("ja-JP", "日语"),
@@ -380,24 +383,84 @@ struct VoicePane: View {
     }
 
     private var whisperCard: some View {
-        let executable = model.config.voice.whisper.resolvedExecutable
-        return SettingsCard("whisper.cpp", subtitle: "老系统兜底：macOS 26 以下没有系统转写时用它。", symbol: "terminal.fill", color: .tileGray) {
+        let whisper = model.config.voice.whisper
+        return SettingsCard("whisper.cpp", subtitle: "老系统兜底：macOS 26 以下没有系统转写时用它。whisper.cpp \(WhisperTranscriber.version) 已内置，下载一个模型就能用。",
+                            symbol: "waveform", color: .tileGray) {
             VStack(spacing: 0) {
-                SettingRow("程序", detail: executable ?? "先装好 whisper-cli，比如 brew install whisper-cpp") {
-                    if executable != nil {
-                        StatusPill(text: "找到了", color: .tileGreen, symbol: "checkmark")
-                    } else {
-                        StatusPill(text: "没找到", color: .secondary)
+                SettingRow("模型", detail: whisper.usesCustomFile ? "用你自己的 whisper.cpp 模型文件（ggml 格式）" : whisper.model.summary) {
+                    Picker("模型", selection: model.binding(\.voice.whisper.modelID)) {
+                        ForEach(WhisperModel.catalog) { item in
+                            Text("\(item.title) · \(item.sizeText)\(item == WhisperModel.recommended ? "（推荐）" : "")").tag(item.id)
+                        }
+                        Divider()
+                        Text("自己的模型文件").tag(WhisperSettings.customID)
                     }
+                    .labelsHidden().fixedSize()
                 }
                 RowDivider()
-                SettingRow("模型", detail: model.config.voice.whisper.modelPath.map { ($0 as NSString).lastPathComponent } ?? "还没选，选一个 ggml 模型文件") {
-                    Button("选择模型文件…") { chooseWhisperModel() }
+                if whisper.usesCustomFile {
+                    SettingRow("模型文件", detail: whisper.modelPath.map { ($0 as NSString).lastPathComponent } ?? "还没选，选一个 ggml 模型文件") {
+                        Button("选择模型文件…") { chooseWhisperModel() }
+                            .secondaryButton()
+                            .controlSize(.small)
+                    }
+                } else {
+                    whisperDownloadRow(whisper.model)
+                }
+            }
+        }
+        .onAppear { model.whisperModels.refresh() }
+        .alert(deletingModel.map { "删除「\($0.title)」模型？" } ?? "", isPresented: Binding(get: { deletingModel != nil }, set: { if !$0 { deletingModel = nil } })) {
+            Button("删除", role: .destructive) { deleteWhisperModel() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("删掉能腾出 \(deletingModel?.sizeText ?? "")，要用时可以重新下载。")
+        }
+    }
+
+    /// 选中的清单模型这一行：没下载 → 下载按钮；下载中 → 进度和取消；失败 → 原因和重试；下好了 → 能用了。
+    @ViewBuilder
+    private func whisperDownloadRow(_ item: WhisperModel) -> some View {
+        let models = model.whisperModels
+        switch models.status[item.id] {
+        case let .downloading(received, total, host):
+            SettingRow("正在下载", detail: "\(Self.megabytes(received)) / \(Self.megabytes(total)) · 来自 \(host)") {
+                ProgressView(value: Double(received), total: Double(max(total, 1)))
+                    .frame(width: 140)
+                Button("取消") { models.cancel(item) }
+                    .secondaryButton()
+                    .controlSize(.small)
+            }
+        case .verifying:
+            SettingRow("正在核对文件", detail: "确认和官方发布的一模一样") {
+                ProgressView().controlSize(.small)
+            }
+        case let .failed(message):
+            SettingRow("下载没成功", detail: message) {
+                Button("重试") { models.download(item) }
+                    .prominentButton()
+                    .controlSize(.small)
+            }
+        case nil:
+            if models.isDownloaded(item) {
+                SettingRow("已下载", detail: deleteError ?? "存在这台 Mac 上，转写不联网") {
+                    StatusPill(text: "能用了", color: .tileGreen, symbol: "checkmark")
+                    Button("删除…") { deletingModel = item }
                         .secondaryButton()
+                        .controlSize(.small)
+                }
+            } else {
+                SettingRow("还没下载", detail: "下载一次存在这台 Mac 上，之后转写不联网") {
+                    Button("下载（\(item.sizeText)）") { models.download(item) }
+                        .prominentButton()
                         .controlSize(.small)
                 }
             }
         }
+    }
+
+    private static func megabytes(_ bytes: Int64) -> String {
+        ByteCountFormatter.string(fromByteCount: bytes, countStyle: .decimal)
     }
 
     private var inputMethodCard: some View {
@@ -450,6 +513,17 @@ struct VoicePane: View {
         panel.allowedContentTypes = [UTType(filenameExtension: "bin") ?? .data, UTType(filenameExtension: "gguf") ?? .data]
         guard panel.runModal() == .OK, let url = panel.url else { return }
         model.update { $0.voice.whisper.modelPath = url.path }
+    }
+
+    private func deleteWhisperModel() {
+        guard let item = deletingModel else { return }
+        deletingModel = nil
+        do {
+            try model.whisperModels.delete(item)
+            deleteError = nil
+        } catch {
+            deleteError = "没删掉：\(error.localizedDescription)"
+        }
     }
 }
 
@@ -678,7 +752,7 @@ struct AboutPane: View {
                         .transition(.swapIn)
                 }
                 Spacer(minLength: 20)
-                Text("代码按 GPL-3.0-only 开源；名字和图标是专有品牌素材。").font(.caption).foregroundStyle(.tertiary)
+                Text("代码按 GPL-3.0-only 开源，内置的 whisper.cpp 按 MIT 许可；名字和图标是专有品牌素材。").font(.caption).foregroundStyle(.tertiary)
                     .padding(.bottom, 18)
                     .staggerIn(6)
             }
