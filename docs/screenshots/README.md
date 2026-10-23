@@ -2,7 +2,7 @@
 
 README 首页用的界面截图，深浅色各一张，README 里用 `<picture>` 跟着 GitHub 的深浅色切换。
 
-都是 App 的 `--render-live` 在屏幕外的真窗口里截的（不抢前台），用一份丢弃的配置文件，因为截图会把演示设备写进配置：
+都是 App 的 `--render-live` 在屏幕外的真窗口里截的（不抢前台）。设置 `VOXPALM_CONFIG` 指向独立测试配置以启用演示内容；预览只在内存里改状态，不保存配置、不启用控制设备或预热麦克风：
 
 ```bash
 VOXPALM_CONFIG=/tmp/voxpalm-shots/config.json build/VoxPalm.app/Contents/MacOS/VoxPalm --render-live /tmp/voxpalm-shots

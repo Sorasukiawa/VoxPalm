@@ -58,7 +58,8 @@ private struct MarchingLine: View {
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30, paused: !running || Motion.reduceMotion || activeState == .inactive)) { context in
-            let phase = running ? -context.date.timeIntervalSinceReferenceDate * 10 : 0
+            // 虚线一轮长 8 点；巨大的绝对时间位移会让 CoreGraphics 截图时反复展开虚线。
+            let phase = running ? (-context.date.timeIntervalSinceReferenceDate * 10).truncatingRemainder(dividingBy: 8) : 0
             Canvas { canvas, size in
                 var line = Path()
                 line.move(to: CGPoint(x: 0, y: size.height / 2))

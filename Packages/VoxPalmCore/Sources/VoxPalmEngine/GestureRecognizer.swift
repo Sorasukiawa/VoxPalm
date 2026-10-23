@@ -24,6 +24,18 @@ public struct GestureTiming: Codable, Hashable, Sendable {
         self.doubleTapWindow = doubleTapWindow
         self.longPressThreshold = longPressThreshold
     }
+
+    /// 保留正常的自定义时长；异常配置不能溢出系统计时器或整数转换。
+    static func safeInterval(_ value: Double, fallback: Double, allowsZero: Bool = false) -> Double {
+        guard value.isFinite, allowsZero ? value >= 0 : value > 0,
+              value < Double(Int64.max) / 1_000_000_000 else { return fallback }
+        return value
+    }
+
+    var normalized: GestureTiming {
+        GestureTiming(doubleTapWindow: Self.safeInterval(doubleTapWindow, fallback: 0.3),
+                      longPressThreshold: Self.safeInterval(longPressThreshold, fallback: 0.45))
+    }
 }
 
 /// 识别出来的手势。`pressBegan` / `pressEnded` 是原始的按下松开，语音会话用它提前开麦（预录）。
@@ -59,7 +71,10 @@ public final class MainQueueScheduler: GestureScheduler {
 /// 把按下 / 松开识别成单击、双击、长按。
 /// 某个键没绑双击时，单击在松开时立刻触发，不用等双击窗口。
 public final class GestureRecognizer {
-    public var timing: GestureTiming
+    public var timing: GestureTiming {
+        get { storedTiming }
+        set { storedTiming = newValue.normalized }
+    }
     /// 这个键（哪台设备的哪个键）这个手势有没有设动作
     public var hasBinding: (ButtonEvent, GestureKind) -> Bool = { _, _ in true }
     public var onGesture: ((ButtonEvent, RecognizedGesture) -> Void)?
@@ -71,11 +86,12 @@ public final class GestureRecognizer {
     }
 
     private let scheduler: GestureScheduler
+    private var storedTiming: GestureTiming
     private var states: [String: State] = [:]
     private var lastEvent: [String: ButtonEvent] = [:]
 
     public init(timing: GestureTiming = GestureTiming(), scheduler: GestureScheduler = MainQueueScheduler()) {
-        self.timing = timing
+        storedTiming = timing.normalized
         self.scheduler = scheduler
     }
 

@@ -42,6 +42,16 @@ final class ProbeCLI {
         }
         let command = args.first ?? "help"
         let rest = Array(args.dropFirst())
+        // 在开麦或登记系统监听前拒绝无效时长，避免 NaN / 无穷大转整数时崩溃。
+        if command == "audio" || command == "watch", rest.contains("--seconds") {
+            // 音频测量会按采样率预留内存；它只用于测电平/频宽，不是长时间录音工具。
+            let limit: Double = command == "audio" ? 60 : 86_400
+            guard let raw = option("--seconds", in: rest), let seconds = Double(raw),
+                  seconds.isFinite, seconds > 0, seconds <= limit else {
+                Console.say("\(command) 的 --seconds 需要大于 0、且不超过 \(Int(limit)) 秒。")
+                return 1
+            }
+        }
         switch command {
         case "list": return list(all: rest.contains("--all"))
         case "permissions": return permissions()
@@ -182,7 +192,7 @@ final class ProbeCLI {
             report.permissions = permissionSummary
             report.audioDevices = AudioDevices.all()
             report.captures = [measurement]
-            write(report, to: URL(fileURLWithPath: out))
+            if !write(report, to: URL(fileURLWithPath: out)) { return 1 }
         }
         return 0
     }
@@ -378,8 +388,7 @@ final class ProbeCLI {
         }
 
         DispatchQueue.main.sync { recorder.stopMonitors() }
-        write(report, to: outDirectory)
-        return 0
+        return write(report, to: outDirectory) ? 0 : 1
     }
 
     private func capture(_ gesture: Gesture, recorder: ProbeRecorder) -> [ProbeEvent] {
@@ -404,7 +413,8 @@ final class ProbeCLI {
         return "probe-reports/\(formatter.string(from: Date()))-\(slug)"
     }
 
-    private func write(_ report: ProbeReport, to directory: URL, quiet: Bool = false) {
+    @discardableResult
+    private func write(_ report: ProbeReport, to directory: URL, quiet: Bool = false) -> Bool {
         do {
             let files = try report.write(to: directory, redact: redact)
             if !quiet {
@@ -412,8 +422,10 @@ final class ProbeCLI {
                 Console.say("报告已写入：")
                 for file in files { Console.say("  \(file.path)") }
             }
+            return true
         } catch {
             Console.say("❌ 写报告失败：\(error)")
+            return false
         }
     }
 }

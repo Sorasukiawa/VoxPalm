@@ -8,6 +8,10 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CONFIG="${CONFIG:-release}"
+# 相对输出目录按调用脚本时的位置解释，不受下面 cd App 影响。
+OUTPUT="${OUTPUT_DIR:-$ROOT/build}"
+mkdir -p "$OUTPUT"
+OUTPUT="$(cd "$OUTPUT" && pwd)"
 # 官方版和开源版用不同的编译目录，免得互相残留模块。
 SCRATCH="$ROOT/App/.build"
 if [[ -n "${VOXPALM_PRIVATE_DIR:-}" ]]; then
@@ -16,17 +20,35 @@ if [[ -n "${VOXPALM_PRIVATE_DIR:-}" ]]; then
 fi
 
 ARCH_FLAGS=()
-if [[ -n "${UNIVERSAL:-}" ]]; then
+if [[ "${UNIVERSAL:-0}" == "1" ]]; then
   ARCH_FLAGS=(--arch arm64 --arch x86_64)
+elif [[ -n "${UNIVERSAL:-}" && "$UNIVERSAL" != "0" ]]; then
+  echo "UNIVERSAL 只能设为 0 或 1" >&2
+  exit 1
 fi
 
 cd "$ROOT/App"
 # 数组为空时这样写，老版本 bash 在 set -u 下才不报错
-swift build -c "$CONFIG" --scratch-path "$SCRATCH" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
+swift build -c "$CONFIG" --jobs "${SWIFT_JOBS:-2}" --scratch-path "$SCRATCH" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"}
 BIN_DIR="$(swift build -c "$CONFIG" --scratch-path "$SCRATCH" ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-path)"
 
-APP="${OUTPUT_DIR:-$ROOT/build}/VoxPalm.app"
-rm -rf "$APP"
+DESTINATION="$OUTPUT/VoxPalm.app"
+# 先在同一磁盘打完包、验过签名，再替换旧包；编译、拷贝或签名失败都保留旧包。
+STAGING="$(mktemp -d "$OUTPUT/.voxpalm-build.XXXXXX")"
+APP="$STAGING/VoxPalm.app"
+PREVIOUS="$STAGING/previous.app"
+cleanup() {
+  if [[ -e "$PREVIOUS" && ! -e "$DESTINATION" ]]; then
+    if ! mv "$PREVIOUS" "$DESTINATION"; then
+      echo "恢复旧包失败，旧包保留在：$PREVIOUS" >&2
+      return
+    fi
+  fi
+  rm -rf "$STAGING"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN_DIR/VoxPalm" "$APP/Contents/MacOS/VoxPalm"
 # 发布包去掉调试用的符号表：里面记着编译时源码和中间文件的完整路径（本机用户名、目录，连私有模块的文件名都有），
@@ -47,4 +69,9 @@ IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/nul
 # 先签里面的框架再签 App：强化运行时只肯加载同一个签名的框架。
 codesign --force --options runtime --sign "${IDENTITY:--}" "$APP/Contents/Frameworks/whisper.framework"
 codesign --force --options runtime --entitlements "$ROOT/App/VoxPalm.entitlements" --sign "${IDENTITY:--}" "$APP"
-echo "已打包：${APP}（签名：${IDENTITY:-临时签名}）"
+codesign --verify --deep --strict "$APP"
+if [[ -e "$DESTINATION" ]]; then
+  mv "$DESTINATION" "$PREVIOUS"
+fi
+mv "$APP" "$DESTINATION"
+echo "已打包：${DESTINATION}（签名：${IDENTITY:-临时签名}）"

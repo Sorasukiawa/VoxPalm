@@ -139,12 +139,12 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
     let scheduler = ManualScheduler()
     let engine = ButtonEngine(sources: [FakeSource()], scheduler: scheduler)
     engine.keyMap.set(KeyBinding(button: button, buttonLabel: "OK", gesture: .long, action: .pushToTalk))
-    engine.keyMap.set(KeyBinding(button: button, buttonLabel: "OK", gesture: .single, action: .sendReturn))
+    engine.keyMap.set(KeyBinding(button: button, buttonLabel: "OK", gesture: .single, action: .toggleDictation))
     let voice = FakeVoice()
     engine.voice = voice
     engine.activate(["fake:1"])
     engine.handle(event(.down, 0)); scheduler.advance(to: 0.1); engine.handle(event(.up, 0.1))
-    #expect(voice.log == ["arm", "disarm"])
+    #expect(voice.log == ["arm", "disarm", "begin"])
     #expect(voice.shortThreshold == nil)
 }
 
@@ -260,8 +260,8 @@ final class RecordingHIDSource: ControlSource {
     let source = RecordingHIDSource()
     let engine = ButtonEngine(sources: [source], scheduler: ManualScheduler())
     let voice = FakeVoice()
-    engine.voice = voice
     engine.keyMap.set(KeyBinding(button: button, buttonLabel: "OK", gesture: .long, action: .pushToTalk))
+    engine.voice = voice
     engine.activate(["hid:1"])
     #expect(source.active == ["hid:1"])
     var heard: [String] = []
@@ -272,7 +272,7 @@ final class RecordingHIDSource: ControlSource {
     engine.handle(ButtonEvent(deviceID: "hid:2", button: button, label: "OK", phase: .up, time: 0.1))
     engine.handle(ButtonEvent(deviceID: "hid:1", button: button, label: "OK", phase: .down, time: 1))
     #expect(heard == ["hid:2", "hid:1"])
-    #expect(voice.log.isEmpty)
+    #expect(voice.log == ["cancel"])
     engine.identifyHandler = nil
     #expect(source.active == ["hid:1"])
 }

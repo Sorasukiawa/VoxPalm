@@ -104,7 +104,7 @@ public struct ProbeReport: Codable, Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let json = directory.appendingPathComponent("report.json")
         let markdown = directory.appendingPathComponent("report.md")
-        try jsonData(redact: redact).write(to: json)
+        try jsonData(redact: redact).write(to: json, options: .atomic)
         let text = MarkdownRenderer.render(self)
         try (redact ? Redaction.maskBluetoothAddresses(text) : text).write(to: markdown, atomically: true, encoding: .utf8)
         return [json, markdown]

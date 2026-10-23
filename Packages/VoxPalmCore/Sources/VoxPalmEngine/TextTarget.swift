@@ -98,11 +98,17 @@ public enum DeliveryRule {
 
     /// 焦点不在输入框上时，焦点所在那一块里的输入框（按树的顺序）：正好只有一个能打字的、而且没有密码框，才返回它的位置；
     /// 一个都没有、不止一个、或者有密码框（像登录表单）都不猜，返回 nil。
-    public static func soleEditable(_ candidates: [FieldFacts]) -> Int? {
+    public static func soleEditable(_ candidates: [FieldFacts], searchComplete: Bool = true) -> Int? {
+        // 没读完整的区域里还可能有第二个输入框或密码框，不能把已读到的一个当作唯一。
+        guard searchComplete else { return nil }
         let kinds = candidates.map(kind)
         guard !kinds.contains(.secure) else { return nil }
         let editable = kinds.indices.filter { kinds[$0] == .editable }
         return editable.count == 1 ? editable[0] : nil
+    }
+
+    static func confirmsRefocus(expectedPID: Int32, currentPID: Int32?, sameElement: Bool?, field: FieldFacts?) -> Bool {
+        expectedPID == currentPID && sameElement == true && kind(field) == .editable
     }
 
     /// 能不能按回车：在贴字的条件上再加一条，输入框里得有字（读不到字的不拦）。
@@ -208,29 +214,42 @@ public struct TextTarget {
         // 一层层往下找，最多看 800 个元素、20 层，免得在大页面里找太久
         var queue: [(AXUIElement, Int)] = [(container, 0)]
         var visited = 0
+        var searchComplete = true
         var candidates: [(AXUIElement, FieldFacts)] = []
         while !queue.isEmpty, visited < 800 {
             let (node, depth) = queue.removeFirst()
             visited += 1
             AXUIElementSetMessagingTimeout(node, 0.5)
             var role: CFTypeRef?
-            AXUIElementCopyAttributeValue(node, kAXRoleAttribute as CFString, &role)
+            guard AXUIElementCopyAttributeValue(node, kAXRoleAttribute as CFString, &role) == .success else {
+                searchComplete = false
+                break
+            }
             if let role = role as? String, textRoles.contains(role) {
                 candidates.append((node, Self.facts(of: node, readText: false)))
                 continue
             }
-            guard depth < 20 else { continue }
             var children: CFTypeRef?
-            if AXUIElementCopyAttributeValue(node, kAXChildrenAttribute as CFString, &children) == .success, let children = children as? [AXUIElement] {
+            let status = AXUIElementCopyAttributeValue(node, kAXChildrenAttribute as CFString, &children)
+            if status == .success, let children = children as? [AXUIElement] {
+                if depth >= 20, !children.isEmpty {
+                    searchComplete = false
+                    break
+                }
                 queue += children.map { ($0, depth + 1) }
+            } else if status != .noValue, status != .attributeUnsupported {
+                searchComplete = false
+                break
             }
         }
-        guard let index = DeliveryRule.soleEditable(candidates.map(\.1)) else { return nil }
+        guard let index = DeliveryRule.soleEditable(candidates.map(\.1), searchComplete: searchComplete && queue.isEmpty) else { return nil }
         let input = candidates[index].0
         guard AXUIElementSetAttributeValue(input, kAXFocusedAttribute as CFString, kCFBooleanTrue) == .success else { return nil }
         // 等 App 把光标挪过去再贴
         Thread.sleep(forTimeInterval: 0.15)
-        guard var now = Self.current(readText: readText, patient: true), now.pid == pid, DeliveryRule.kind(now.field) == .editable else { return nil }
+        guard var now = Self.current(readText: readText, patient: true),
+              DeliveryRule.confirmsRefocus(expectedPID: pid, currentPID: now.pid,
+                                          sameElement: now.element.map { CFEqual(input, $0) }, field: now.field) else { return nil }
         now.refocused = true
         return now
     }

@@ -157,6 +157,7 @@ public final class SystemKeysControlSource: ControlSource {
     public let sourceID = "system-keys"
     public var onEvent: ((ButtonEvent) -> Void)?
     public var onDevicesChanged: (() -> Void)?
+    public var onInputCancelled: ((String) -> Void)?
     public var isMapped: ((ButtonID) -> Bool)?
     public private(set) var status = "未启用"
 
@@ -179,7 +180,9 @@ public final class SystemKeysControlSource: ControlSource {
     }
 
     public func activate(_ deviceIDs: Set<String>) {
-        active = deviceIDs.filter { $0.hasPrefix("system:") && $0 != NowPlayingControlSource.deviceID }
+        let next = deviceIDs.intersection([Self.mediaDeviceID, Self.keyboardDeviceID])
+        for id in active.subtracting(next) { onInputCancelled?(id) }
+        active = next
         monitor?.stop()
         monitor = nil
         guard !active.isEmpty else {
@@ -189,6 +192,10 @@ public final class SystemKeysControlSource: ControlSource {
         let canFilter = KeyPoster.canPost
         let monitor = SystemEventMonitor(mode: canFilter ? .filter : .listenOnly, includeKeyboard: active.contains(Self.keyboardDeviceID))
         monitor.onEvent = { [weak self] in self?.handle($0) }
+        monitor.onInputCancelled = { [weak self] in
+            guard let self else { return }
+            for id in self.active { self.onInputCancelled?(id) }
+        }
         monitor.shouldSuppress = { [weak self] in self?.shouldSuppress($0) ?? false }
         let started = monitor.start()
         self.monitor = started ? monitor : nil

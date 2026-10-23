@@ -145,8 +145,8 @@ public struct KeyMap: Codable, Hashable, Sendable {
     }
 
     public func hasBinding(_ button: ButtonID, _ gesture: GestureKind) -> Bool {
-        guard let action = action(for: button, gesture: gesture) else { return false }
-        return action != .none
+        guard let binding = binding(for: button, gesture: gesture) else { return false }
+        return binding.action != .none || binding.talkAfter == true
     }
 
     public func isMapped(_ button: ButtonID) -> Bool {

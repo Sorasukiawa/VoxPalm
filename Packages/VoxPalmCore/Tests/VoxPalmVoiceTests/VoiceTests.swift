@@ -3,6 +3,7 @@ import Foundation
 import Testing
 import CoreAudio
 @testable import VoxPalmDevices
+import VoxPalmEngine
 @testable import VoxPalmVoice
 
 @Test func whisper按语言给开头提示() {
@@ -71,6 +72,186 @@ import CoreAudio
     #expect(try WhisperDownload.matches(file, right))
     #expect(try !WhisperDownload.matches(file, wrongSize))
     #expect(try !WhisperDownload.matches(file, wrongHash))
+}
+
+@Test func 模型落盘失败保留原文件() throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-install-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let destination = directory.appendingPathComponent("model.bin")
+    try Data("旧模型".utf8).write(to: destination)
+    #expect(throws: NSError.self) {
+        try WhisperDownload.installVerifiedFile(directory.appendingPathComponent("不存在"), to: destination)
+    }
+    #expect(try Data(contentsOf: destination) == Data("旧模型".utf8))
+    let replacement = directory.appendingPathComponent("replacement.bin")
+    try Data("新模型".utf8).write(to: replacement)
+    try WhisperDownload.installVerifiedFile(replacement, to: destination)
+    #expect(try Data(contentsOf: destination) == Data("新模型".utf8))
+    #expect(!FileManager.default.fileExists(atPath: replacement.path))
+}
+
+@Test func 模型下载取消或校验失败不覆盖旧模型() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-download-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let model = WhisperModel(id: "test", title: "测试", summary: "", bytes: 3,
+                             sha256: "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    let destination = directory.appendingPathComponent(model.fileName)
+    try Data("旧模型".utf8).write(to: destination)
+    await #expect(throws: WhisperDownload.Failure.self) {
+        try await WhisperDownload.run(model, directory: directory, fetch: { _, partial, _ in
+            try Data("错误文件".utf8).write(to: partial)
+        }, progress: { _ in })
+    }
+    #expect(try Data(contentsOf: destination) == Data("旧模型".utf8))
+    for cancelDuringVerification in [false, true] {
+        let cancelled = Task {
+            try await WhisperDownload.run(model, directory: directory, fetch: { _, partial, _ in
+                try Data("abc".utf8).write(to: partial)
+                if !cancelDuringVerification { withUnsafeCurrentTask { $0?.cancel() } }
+            }, progress: { progress in
+                if cancelDuringVerification, progress == .verifying { withUnsafeCurrentTask { $0?.cancel() } }
+            })
+        }
+        await #expect(throws: CancellationError.self) { try await cancelled.value }
+        #expect(try Data(contentsOf: destination) == Data("旧模型".utf8))
+    }
+    #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path) == [model.fileName])
+    let downloaded = try await WhisperDownload.run(model, directory: directory, fetch: { _, partial, _ in
+        try Data("abc".utf8).write(to: partial)
+    }, progress: { _ in })
+    #expect(downloaded == destination)
+    #expect(try Data(contentsOf: downloaded) == Data("abc".utf8))
+}
+
+private actor DeferredTranscriber: Transcriber {
+    nonisolated var name: String { "测试转写" }
+    private var continuation: CheckedContinuation<String, Error>?
+    private var started: CheckedContinuation<Void, Never>?
+
+    func transcribe(_ buffers: [AVAudioPCMBuffer], locale: Locale) async throws -> String {
+        try await withCheckedThrowingContinuation {
+            continuation = $0
+            started?.resume()
+            started = nil
+        }
+    }
+
+    func waitUntilStarted() async {
+        if continuation != nil { return }
+        await withCheckedContinuation { started = $0 }
+    }
+
+    func finish() {
+        continuation?.resume(returning: "")
+        continuation = nil
+    }
+}
+
+@Test(arguments: [false, true]) @MainActor func 取消或换设置后晚结果不改变新会话(_ changeSettings: Bool) async throws {
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-session-\(UUID().uuidString).wav")
+    defer { try? FileManager.default.removeItem(at: file) }
+    let audio = sine(seconds: 0.4, rate: 16_000, channels: 1)
+    try AVAudioFile(forWriting: file, settings: audio.format.settings).write(from: audio)
+    let transcriber = DeferredTranscriber()
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.makeTranscriber = { _, _ in transcriber }
+    dependencies.makePreview = { _, _, _ in nil }
+    var settings = VoiceSession.Settings()
+    settings.transcriber = .appleSpeech
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    session.debugAudioFile = file
+    var outcomes: [VoiceSession.Outcome] = []
+    session.onOutcome = { outcomes.append($0) }
+    session.voiceBegin(VoiceRequest())
+    session.voiceEnd()
+    #expect(session.state == .transcribing)
+    #expect(!session.isVoiceActive && !session.canStartVoice)
+    await transcriber.waitUntilStarted()
+    if changeSettings { session.settings.localeID = "en-US" }
+    else { session.voiceCancel() }
+    #expect(session.state == .idle)
+    #expect(session.canStartVoice)
+    session.voiceArm(VoiceRequest())
+    await transcriber.finish()
+    // 给旧转写的主线程收尾机会；它必须保留新一轮 armed 状态，也不能发出旧结果。
+    try await Task.sleep(nanoseconds: 20_000_000)
+    #expect(session.state == .armed)
+    #expect(outcomes.isEmpty)
+    session.voiceCancel()
+}
+
+@Test @MainActor func 切换语音配置会松开旧输入法键并取消延迟回车() async throws {
+    var settings = VoiceSession.Settings()
+    settings.mode = .inputMethod
+    settings.inputMethodSendDelay = 0.01
+    let oldKey = settings.inputMethodKey
+    var began: [InputMethodKey] = []
+    var ended: [InputMethodKey] = []
+    var returned = 0
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.canPostInputMethodKey = { true }
+    dependencies.beginInputMethod = { began.append($0) }
+    dependencies.endInputMethod = { ended.append($0) }
+    dependencies.sendReturn = { _ in returned += 1; return "测试回车" }
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    session.voiceBegin(VoiceRequest())
+    session.settings.mode = .builtIn
+    #expect(session.state == .idle)
+    #expect(began == [oldKey] && ended == [oldKey])
+
+    session.settings.mode = .inputMethod
+    var request = VoiceRequest()
+    request.sendReturn = true
+    session.voiceBegin(request)
+    session.voiceEnd()
+    session.voiceCancel()
+    try await Task.sleep(nanoseconds: 30_000_000)
+    #expect(returned == 0)
+}
+
+@Test @MainActor func 没有发键权限不会报告交给输入法成功() {
+    var settings = VoiceSession.Settings()
+    settings.mode = .inputMethod
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.canPostInputMethodKey = { false }
+    var keyEvents = 0
+    dependencies.beginInputMethod = { _ in keyEvents += 1 }
+    dependencies.endInputMethod = { _ in keyEvents += 1 }
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    var outcomes: [VoiceSession.Outcome] = []
+    session.onOutcome = { outcomes.append($0) }
+    session.voiceBegin(VoiceRequest())
+    session.voiceEnd()
+    #expect(session.state == .idle && keyEvents == 0)
+    #expect(outcomes.count == 1)
+    #expect(!outcomes.contains(.handedToInputMethod))
+}
+
+@Test @MainActor func 待回车时允许新说话并取消旧回车() async throws {
+    var settings = VoiceSession.Settings()
+    settings.mode = .inputMethod
+    settings.inputMethodSendDelay = 0.01
+    var returned = 0
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.canPostInputMethodKey = { true }
+    dependencies.beginInputMethod = { _ in }
+    dependencies.endInputMethod = { _ in }
+    dependencies.sendReturn = { _ in returned += 1; return "测试回车" }
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    session.voiceBegin(VoiceRequest(sendReturn: true))
+    session.voiceEnd()
+    #expect(session.canStartVoice && !session.isVoiceActive)
+    session.voiceBegin(VoiceRequest())
+    #expect(session.isVoiceActive)
+    try await Task.sleep(nanoseconds: 30_000_000)
+    #expect(returned == 0)
+    session.voiceCancel()
 }
 
 /// 真模型端到端：设了 VOXPALM_TEST_WHISPER_MODEL（ggml 模型文件）才跑，用 say 合成一句中文转回来。

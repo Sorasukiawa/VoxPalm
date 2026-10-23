@@ -1,4 +1,5 @@
 import CryptoKit
+import Darwin
 import Foundation
 
 /// 下载 whisper.cpp 的模型：先下到模型目录里的临时文件，大小和 SHA-256 都对上才改成正式文件名。
@@ -29,7 +30,14 @@ public enum WhisperDownload {
     /// 下载并核对，成功后返回模型文件位置。progress 在后台线程回调，一秒十来次。取消外面的 Task 就停下。
     @discardableResult
     public static func run(_ model: WhisperModel, progress: @escaping @Sendable (Progress) -> Void) async throws -> URL {
-        let directory = WhisperModel.directory
+        try await run(model, directory: WhisperModel.directory, fetch: fetch, progress: progress)
+    }
+
+    /// 将网络和目录传入，测试只用临时目录和假下载，不访问网络或用户的模型。
+    static func run(_ model: WhisperModel, directory: URL,
+                    fetch: (URL, URL, @escaping @Sendable (Int64, Int64) -> Void) async throws -> Void,
+                    progress: @escaping @Sendable (Progress) -> Void) async throws -> URL {
+        try Task.checkCancellation()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         // 临时文件和下好的模型同时在盘上，留一点余量
         let needed = model.bytes + model.bytes / 10
@@ -37,30 +45,33 @@ public enum WhisperDownload {
            free < needed {
             throw Failure.notEnoughSpace(needed: needed)
         }
-        let partial = directory.appendingPathComponent(".\(model.fileName).download")
+        let destination = directory.appendingPathComponent(model.fileName)
+        // 并发重试或取消后立即重下时，各自管理自己的临时文件。
+        let partial = directory.appendingPathComponent(".\(model.fileName).\(UUID().uuidString).download")
         defer { try? FileManager.default.removeItem(at: partial) }
         var lastError: Error = Failure.network("没有可用的下载地址")
         for source in model.sources {
             try Task.checkCancellation()
             let host = source.host ?? source.absoluteString
             do {
-                try await fetch(source, to: partial) { received, total in
+                try await fetch(source, partial) { received, total in
                     progress(.downloading(received: received, total: total > 0 ? total : model.bytes, host: host))
                 }
+                try Task.checkCancellation()
                 progress(.verifying)
                 guard try matches(partial, model) else {
                     // 下坏的文件不留断点，换个来源从头下
                     resumeStore.take(source)
                     throw Failure.corrupted
                 }
-                try? FileManager.default.removeItem(at: model.fileURL)
-                try FileManager.default.moveItem(at: partial, to: model.fileURL)
+                try Task.checkCancellation()
+                try installVerifiedFile(partial, to: destination)
                 // 模型能重新下载，不占时间机器的备份
-                var file = model.fileURL
+                var file = destination
                 var values = URLResourceValues()
                 values.isExcludedFromBackup = true
                 try? file.setResourceValues(values)
-                return model.fileURL
+                return destination
             } catch let error where error is CancellationError {
                 throw error
             } catch {
@@ -68,6 +79,16 @@ public enum WhisperDownload {
             }
         }
         throw lastError
+    }
+
+    /// 临时文件和目标在同一个目录，rename 原子替换；失败时旧模型仍然完整。
+    static func installVerifiedFile(_ source: URL, to destination: URL) throws {
+        let result = source.withUnsafeFileSystemRepresentation { sourcePath in
+            destination.withUnsafeFileSystemRepresentation { destinationPath in
+                Darwin.rename(sourcePath!, destinationPath!)
+            }
+        }
+        guard result == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
     }
 
     /// 下载的文件和清单里记的一样：先比大小，再算 SHA-256（几百 MB 要一两秒）。
@@ -82,6 +103,7 @@ public enum WhisperDownload {
         defer { try? handle.close() }
         var hasher = SHA256()
         while let chunk = try handle.read(upToCount: 4 << 20), !chunk.isEmpty {
+            try Task.checkCancellation()
             hasher.update(data: chunk)
         }
         return hasher.finalize().map { String(format: "%02x", $0) }.joined()

@@ -54,6 +54,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// 退出前等控制设备收尾：接管了设备按键的来源要先让设备恢复普通按键。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        do {
+            try AppModel.shared.flushConfig()
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "设置还没有保存"
+            alert.informativeText = "\(error.localizedDescription)\n\n现在退出会丢掉本次未保存的修改。可以返回设置导出备份。"
+            alert.addButton(withTitle: "返回检查")
+            alert.addButton(withTitle: "仍然退出")
+            guard alert.runModal() == .alertSecondButtonReturn else {
+                showSettings(.about)
+                return .terminateCancel
+            }
+        }
         AppModel.shared.engine.shutdown {
             NSApp.reply(toApplicationShouldTerminate: true)
         }

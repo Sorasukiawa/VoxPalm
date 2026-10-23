@@ -77,4 +77,34 @@ private let password = FieldFacts(role: "AXTextField", subrole: "AXSecureTextFie
     #expect(DeliveryRule.soleEditable([]) == nil)
     // 有密码框（像登录表单）：不猜
     #expect(DeliveryRule.soleEditable([search, password]) == nil)
+    // 遇到读取失败、层数或数量上限，尚未查看的部分仍可能有密码框或其他输入框。
+    #expect(DeliveryRule.soleEditable([composer], searchComplete: false) == nil)
+}
+
+@Test func 放好光标后必须还是选中的同一个输入框() {
+    #expect(DeliveryRule.confirmsRefocus(expectedPID: 10, currentPID: 10, sameElement: true, field: textArea))
+    #expect(!DeliveryRule.confirmsRefocus(expectedPID: 10, currentPID: 11, sameElement: true, field: textArea))
+    #expect(!DeliveryRule.confirmsRefocus(expectedPID: 10, currentPID: 10, sameElement: false, field: textArea))
+    #expect(!DeliveryRule.confirmsRefocus(expectedPID: 10, currentPID: 10, sameElement: nil, field: textArea))
+    #expect(!DeliveryRule.confirmsRefocus(expectedPID: 10, currentPID: 10, sameElement: true, field: password))
+}
+
+@Test func 逐字输入分块不会拆开边界上的表情() {
+    let prefix = String(repeating: "中", count: 15)
+    let text = prefix + "😸尾"
+    let chunks = TextInserter.unicodeChunks(text)
+    #expect(chunks.map { String(decoding: $0, as: UTF16.self) } == [prefix, "😸尾"])
+    #expect(chunks.flatMap { $0 } == Array(text.utf16))
+    // 代理对刚好完整落在块尾时，不必拆到下一块。
+    let exact = String(repeating: "文", count: 14) + "😸尾"
+    #expect(TextInserter.unicodeChunks(exact).map(\.count) == [16, 1])
+}
+
+@Test func 逐字输入分块保留中文和空串() {
+    #expect(TextInserter.unicodeChunks("").isEmpty)
+    #expect(TextInserter.unicodeChunks("中文输入") == [Array("中文输入".utf16)])
+    let text = String(repeating: "字", count: 33)
+    let chunks = TextInserter.unicodeChunks(text)
+    #expect(chunks.map(\.count) == [16, 16, 1])
+    #expect(chunks.flatMap { $0 } == Array(text.utf16))
 }

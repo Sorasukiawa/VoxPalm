@@ -47,17 +47,29 @@ public enum TextInserter {
 
     private static func type(_ text: String) {
         let source = CGEventSource(stateID: .hidSystemState)
-        let units = Array(text.utf16)
-        var index = 0
-        while index < units.count {
-            let chunk = Array(units[index..<min(index + 16, units.count)])
+        for chunk in unicodeChunks(text) {
             for down in [true, false] {
                 guard let event = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: down) else { continue }
                 event.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
                 event.setIntegerValueField(.eventSourceUserData, value: KeyPoster.marker)
                 event.post(tap: .cghidEventTap)
             }
-            index += 16
         }
+    }
+
+    /// 每次最多发 16 个 UTF-16 单元；跨边界的表情等字符必须连同代理对一起发送。
+    static func unicodeChunks(_ text: String) -> [[UniChar]] {
+        let units = Array(text.utf16)
+        var chunks: [[UniChar]] = []
+        var index = 0
+        while index < units.count {
+            var end = min(index + 16, units.count)
+            if end < units.count, (0xD800...0xDBFF).contains(units[end - 1]), (0xDC00...0xDFFF).contains(units[end]) {
+                end -= 1
+            }
+            chunks.append(Array(units[index..<end]))
+            index = end
+        }
+        return chunks
     }
 }
