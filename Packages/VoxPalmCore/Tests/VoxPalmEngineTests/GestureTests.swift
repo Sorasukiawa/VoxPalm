@@ -45,6 +45,7 @@ final class FakeVoice: VoiceActionHandler {
     func voiceDisarm(tooShortFor threshold: Double?) { log.append("disarm"); shortThreshold = threshold }
     func voiceBegin(_ request: VoiceRequest) { log.append("begin"); isVoiceActive = true; lastRequest = request }
     func voiceEnd() { log.append("end"); isVoiceActive = false }
+    func voiceCancel() { log.append("cancel"); isVoiceActive = false }
 }
 
 private let button = ButtonID("hid:0x0C:0xCD")

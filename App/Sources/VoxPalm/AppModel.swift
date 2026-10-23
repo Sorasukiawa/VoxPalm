@@ -138,6 +138,10 @@ final class AppModel {
             guard event.deviceID != SystemKeysControlSource.keyboardDeviceID || self?.config.keyMap.isMapped(event.button) == true else { return }
             log.debug("按键 \(event.button.rawValue, privacy: .public) \(event.phase.rawValue, privacy: .public)")
         }
+        engine.onInputCancelled = { [weak self] id in
+            guard let self, self.config.controlDeviceIDs.contains(id) else { return }
+            self.pressedButtons.removeAll()
+        }
         engine.onGesture = { [weak self] event, gesture, action in
             let name: String? = switch gesture {
             case .single: "单击"
@@ -215,7 +219,10 @@ final class AppModel {
             voice.settings = new.voice
             engine.textMethod = new.voice.textMethod
         }
-        if new.controlDeviceIDs != old.controlDeviceIDs, !isPaused { activateEngine(new.controlDeviceIDs) }
+        if new.controlDeviceIDs != old.controlDeviceIDs {
+            pressedButtons.removeAll()
+            if !isPaused { activateEngine(new.controlDeviceIDs) }
+        }
         scheduleSave()
     }
 

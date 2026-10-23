@@ -22,6 +22,8 @@ public protocol VoiceActionHandler: AnyObject {
     func voiceBegin(_ request: VoiceRequest)
     /// 说完了：停止并出字
     func voiceEnd()
+    /// 设备断开或停止监听：释放输入法按键、丢掉内置录音，不自动贴字或发送。
+    func voiceCancel()
 }
 
 /// 免费版和 Pro 的差别由这里决定；Pro 包换成自己的实现。
@@ -54,6 +56,7 @@ public final class ButtonEngine {
 
     /// 原始按键（界面上显示「最近按键」用）
     public var onButtonEvent: ((ButtonEvent) -> Void)?
+    public var onInputCancelled: ((String) -> Void)?
     /// 识别出的手势和执行的动作（界面、日志用）
     public var onGesture: ((ButtonEvent, RecognizedGesture, Action?) -> Void)?
     /// 动作执行的结果说明（失败原因、回车发没发），界面上显示
@@ -80,6 +83,7 @@ public final class ButtonEngine {
     private var voiceOwner: String?
     /// 结束说话的那次按下，对应的松开也不要再交给手势识别
     private var swallowUntilUp: Set<String> = []
+    private var cancellationEpoch: [String: UInt64] = [:]
     public init(sources: [ControlSource], keyMap: KeyMap = KeyMap(), gate: FeatureGate = FreeEdition(), scheduler: GestureScheduler = MainQueueScheduler()) {
         self.sources = sources
         self.keyMap = keyMap
@@ -94,6 +98,7 @@ public final class ButtonEngine {
         recognizer.onGesture = { [weak self] event, gesture in self?.handle(gesture, event: event) }
         for source in sources {
             source.onEvent = { [weak self] in self?.handle($0) }
+            source.onInputCancelled = { [weak self] in self?.cancelInput(deviceID: $0) }
             source.isMapped = { [weak self] button in
                 guard let self, self.learnHandler == nil, self.identifyHandler == nil else { return false }
                 return self.keyMap.isMapped(button)
@@ -107,10 +112,28 @@ public final class ButtonEngine {
     @discardableResult
     public func activate(_ deviceIDs: [String]) -> Set<String> {
         let allowed = Set(deviceIDs.prefix(gate.maxActiveControlDevices))
+        for id in activeDeviceIDs.subtracting(allowed) { cancelInput(deviceID: id) }
         activeDeviceIDs = allowed
         recognizer.reset()
         applyActivation()
         return allowed
+    }
+
+    public func cancelInput(deviceID: String) {
+        let prefix = deviceID + "|"
+        cancellationEpoch[deviceID, default: 0] &+= 1
+        recognizer.cancel(deviceID: deviceID)
+        let ownedVoice = armed.contains { $0.hasPrefix(prefix) } || talking.contains { $0.hasPrefix(prefix) }
+            || voiceOwner?.hasPrefix(prefix) == true
+        armed = armed.filter { !$0.hasPrefix(prefix) }
+        talking = talking.filter { !$0.hasPrefix(prefix) }
+        swallowUntilUp = swallowUntilUp.filter { !$0.hasPrefix(prefix) }
+        if voiceOwner?.hasPrefix(prefix) == true { voiceOwner = nil }
+        if ownedVoice {
+            voice?.voiceCancel()
+            onMessage?("控制设备已断开或停用，本次说话已停止")
+        }
+        onInputCancelled?(deviceID)
     }
 
     /// 认设备时额外听的设备
@@ -121,7 +144,10 @@ public final class ButtonEngine {
     private func applyActivation() {
         var ids = activeDeviceIDs
         if identifyHandler != nil { ids.formUnion(Self.identifiableDeviceIDs(allDevices())) }
-        for source in sources { source.activate(ids) }
+        for source in sources {
+            source.isIdentifying = identifyHandler != nil
+            source.activate(ids)
+        }
     }
 
     /// App 退出前调用：等每个来源收尾（最多 `timeout` 秒），再调 completion。
@@ -251,6 +277,8 @@ public final class ButtonEngine {
     /// 执行一条映射：先做动作，要的话接着开始说话（这个键再按一次结束）。
     private func run(_ binding: KeyBinding, owner: String) {
         let request = VoiceRequest(sendReturn: binding.sendAfterTalk == true)
+        let deviceID = activeDeviceIDs.first { owner.hasPrefix($0 + "|") }
+        let epoch = deviceID.map { cancellationEpoch[$0, default: 0] }
         if binding.action.isVoice {
             if voice?.isVoiceActive == true {
                 voiceOwner = nil
@@ -262,9 +290,13 @@ public final class ButtonEngine {
             return
         }
         Task { @MainActor in
+            guard let deviceID, self.activeDeviceIDs.contains(deviceID),
+                  self.cancellationEpoch[deviceID, default: 0] == epoch else { return }
             let ok = await perform(binding.action)
             guard ok, binding.talkAfter == true, let voice = self.voice, !voice.isVoiceActive else { return }
             try? await Task.sleep(nanoseconds: UInt64(talkAfterDelay * 1_000_000_000))
+            guard self.activeDeviceIDs.contains(deviceID), !voice.isVoiceActive,
+                  self.cancellationEpoch[deviceID, default: 0] == epoch else { return }
             self.voiceOwner = owner
             voice.voiceBegin(request)
         }

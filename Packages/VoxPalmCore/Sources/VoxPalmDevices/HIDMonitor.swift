@@ -1,6 +1,7 @@
 import Foundation
 import IOKit
 import IOKit.hid
+import CryptoKit
 
 public struct HIDUsagePair: Codable, Hashable, Sendable {
     public let page: Int
@@ -28,6 +29,8 @@ public struct HIDDeviceInfo: Codable, Hashable, Identifiable, Sendable {
     public let usagePairs: [HIDUsagePair]
     public let isBuiltIn: Bool
     public let maxInputReportSize: Int?
+    /// 序列号/物理位置的摘要，用来区分同型号设备；不保留原始序列号或蓝牙地址。
+    public var instanceToken: String? = nil
 
     public var displayName: String { product ?? manufacturer ?? "未命名设备" }
 
@@ -99,6 +102,10 @@ public final class HIDMonitor {
     public var deviceFilter: ((HIDDeviceInfo) -> Bool)?
     /// 是否记录原始输入报告（探针用；App 只需要解析后的值）。
     public var recordsRawReports = false
+    /// App 只给需要原始报告的已选设备注册缓冲区。
+    public var rawReportFilter: ((HIDDeviceInfo) -> Bool)?
+    /// 对已选 DualSense 读取校准报告，令蓝牙设备发送完整输入；不写输出或配置报告。
+    public var enablesDualSenseExtendedReports = false
 
     public private(set) var openResult: IOReturn = kIOReturnSuccess
 
@@ -106,6 +113,11 @@ public final class HIDMonitor {
     private var devicesByID: [UInt64: HIDDeviceInfo] = [:]
     private var reportBuffers: [UInt64: UnsafeMutablePointer<UInt8>] = [:]
     private var running = false
+    private var requestedExtendedReports: Set<UInt64> = []
+    private var pollDevices: [UInt64: IOHIDDevice] = [:]
+    private var polling = HIDInputPollingState()
+    private var pollTimer: Timer?
+    private let pollQueue = DispatchQueue(label: "com.sorasukiawa.VoxPalm.hid-input", qos: .userInitiated)
 
     public init() {
         manager = IOHIDManagerCreate(kCFAllocatorDefault, IOOptionBits(kIOHIDOptionsTypeNone))
@@ -151,14 +163,25 @@ public final class HIDMonitor {
                 devicesByID[info.id] = info
             }
         }
-        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDManagerScheduleWithRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         // kIOHIDOptionsTypeNone：不独占，设备照常把输入发给系统和别的 App。
         openResult = IOHIDManagerOpen(manager, IOOptionBits(kIOHIDOptionsTypeNone))
+        refreshSelection()
+    }
+
+    /// 监听清单变化后更新原始报告订阅；启动前已连上的设备也在这里注册。
+    public func refreshSelection() {
+        guard running, let set = IOHIDManagerCopyDevices(manager) as? Set<IOHIDDevice> else { return }
+        for device in set { configureReports(for: device) }
     }
 
     public func stop() {
         guard running else { return }
         running = false
+        pollTimer?.invalidate()
+        pollTimer = nil
+        pollDevices.removeAll()
+        polling.stop()
         IOHIDManagerRegisterInputValueCallback(manager, nil, nil)
         IOHIDManagerRegisterDeviceMatchingCallback(manager, nil, nil)
         IOHIDManagerRegisterDeviceRemovalCallback(manager, nil, nil)
@@ -169,10 +192,11 @@ public final class HIDMonitor {
                 }
             }
         }
-        IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.defaultMode.rawValue)
+        IOHIDManagerUnscheduleFromRunLoop(manager, CFRunLoopGetMain(), CFRunLoopMode.commonModes.rawValue)
         IOHIDManagerClose(manager, IOOptionBits(kIOHIDOptionsTypeNone))
         for buffer in reportBuffers.values { buffer.deallocate() }
         reportBuffers.removeAll()
+        requestedExtendedReports.removeAll()
         devicesByID.removeAll()
     }
 
@@ -182,8 +206,24 @@ public final class HIDMonitor {
         let info = Self.info(for: device)
         let isNew = devicesByID[info.id] == nil
         devicesByID[info.id] = info
-        if recordsRawReports, reportBuffers[info.id] == nil, deviceFilter?(info) ?? true {
-            let size = max(info.maxInputReportSize ?? 64, 1)
+        configureReports(for: device)
+        if isNew { onDeviceChange?(.added(info)) }
+    }
+
+    private func configureReports(for device: IOHIDDevice) {
+        let info = Self.info(for: device)
+        let selected = recordsRawReports && (deviceFilter?(info) ?? true) && (rawReportFilter?(info) ?? true)
+        guard selected else {
+            if let buffer = reportBuffers.removeValue(forKey: info.id) {
+                IOHIDDeviceRegisterInputReportWithTimeStampCallback(device, buffer, 0, nil, nil)
+                buffer.deallocate()
+            }
+            requestedExtendedReports.remove(info.id)
+            removePolling(info.id)
+            return
+        }
+        if reportBuffers[info.id] == nil {
+            let size = min(max(info.maxInputReportSize ?? 64, 78), 65536)
             let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: size)
             reportBuffers[info.id] = buffer
             IOHIDDeviceRegisterInputReportWithTimeStampCallback(device, buffer, size, { context, _, sender, _, reportID, report, length, timeStamp in
@@ -194,7 +234,75 @@ public final class HIDMonitor {
                     .reportArrived(device: device, reportID: Int(reportID), bytes: bytes, timeStamp: timeStamp)
             }, Unmanaged.passUnretained(self).toOpaque())
         }
-        if isNew { onDeviceChange?(.added(info)) }
+        if enablesDualSenseExtendedReports, info.profile?.isGamepad == true,
+           (info.transport ?? "").localizedCaseInsensitiveContains("Bluetooth"),
+           requestedExtendedReports.insert(info.id).inserted {
+            pollQueue.async { [weak self] in
+                let selected = DispatchQueue.main.sync {
+                    guard let self else { return false }
+                    return self.running && self.enablesDualSenseExtendedReports && (self.deviceFilter?(info) ?? true)
+                }
+                guard selected else { return }
+                var bytes = [UInt8](repeating: 0, count: 41)
+                bytes[0] = 0x05
+                var length = bytes.count
+                // 公开协议中的校准查询；失败时仍接收基础报告，不重复请求打扰设备。
+                _ = IOHIDDeviceGetReport(device, kIOHIDReportTypeFeature, 0x05, &bytes, &length)
+            }
+        }
+        if enablesDualSenseExtendedReports, info.profile?.isGamepad == true,
+           (info.transport ?? "").localizedCaseInsensitiveContains("Bluetooth") {
+            pollDevices[info.id] = device
+            polling.activate(info.id, now: MonotonicClock.now())
+            if pollTimer == nil {
+                let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] _ in self?.pollIfNeeded() }
+                timer.tolerance = 0.005
+                RunLoop.main.add(timer, forMode: .common)
+                pollTimer = timer
+            }
+        } else {
+            removePolling(info.id)
+        }
+    }
+
+    private func removePolling(_ id: UInt64) {
+        pollDevices.removeValue(forKey: id)
+        polling.deactivate(id)
+        if pollDevices.isEmpty { pollTimer?.invalidate(); pollTimer = nil }
+    }
+
+    /// 有些 macOS 控制器会话会占住蓝牙报告流。无报告时才查询输入；阻塞查询放在专用队列，不阻塞界面。
+    private func pollIfNeeded() {
+        let now = MonotonicClock.now()
+        for (id, device) in pollDevices {
+            guard let ticket = polling.begin(id, now: now) else { continue }
+            pollQueue.async { [weak self] in
+                let report = Self.readControllerInput(device)
+                DispatchQueue.main.async { [weak self] in
+                    guard let self else { return }
+                    let accepted = self.polling.complete(ticket, now: MonotonicClock.now(), succeeded: report != nil)
+                    // 取消选择、重连或恢复报告流后，旧查询的结果不能再改按键状态。
+                    guard self.running, accepted,
+                          let info = self.devicesByID[id], self.deviceFilter?(info) ?? true else { return }
+                    guard let report else { return }
+                    self.onReport?(ReportEvent(device: info, time: MonotonicClock.now(), reportID: report.id, bytes: report.bytes))
+                }
+            }
+        }
+    }
+
+    private static func readControllerInput(_ device: IOHIDDevice) -> (id: Int, bytes: [UInt8])? {
+        for reportID in [0x31, 0x01] {
+            var bytes = [UInt8](repeating: 0, count: 78)
+            bytes[0] = UInt8(reportID)
+            var count = bytes.count
+            let result = IOHIDDeviceGetReport(device, kIOHIDReportTypeInput, CFIndex(reportID), &bytes, &count)
+            let validLength = reportID == 0x31 ? count == 78 : (count == 10 || count == 64)
+            if result == kIOReturnSuccess, validLength, bytes.first == UInt8(reportID) {
+                return (reportID, Array(bytes.prefix(count)))
+            }
+        }
+        return nil
     }
 
     private func deviceRemoved(_ device: IOHIDDevice) {
@@ -202,13 +310,17 @@ public final class HIDMonitor {
         guard let info = devicesByID.removeValue(forKey: id) else { return }
         // 设备已经拔掉，缓冲区不会再被写入，可以安全释放。
         reportBuffers.removeValue(forKey: id)?.deallocate()
+        requestedExtendedReports.remove(id)
+        removePolling(id)
         onDeviceChange?(.removed(info))
     }
 
     private func reportArrived(device: IOHIDDevice, reportID: Int, bytes: [UInt8], timeStamp: UInt64) {
         let id = Self.registryID(of: device)
-        guard let info = devicesByID[id] else { return }
-        onReport?(ReportEvent(device: info, time: MonotonicClock.seconds(machTime: timeStamp), reportID: reportID, bytes: bytes))
+        guard let info = devicesByID[id], deviceFilter?(info) ?? true, rawReportFilter?(info) ?? true else { return }
+        let time = MonotonicClock.seconds(machTime: timeStamp)
+        guard polling.acceptStream(id, eventTime: time, now: MonotonicClock.now()) else { return }
+        onReport?(ReportEvent(device: info, time: time, reportID: reportID, bytes: bytes))
     }
 
     private func valueArrived(_ value: IOHIDValue) {
@@ -266,7 +378,7 @@ public final class HIDMonitor {
         let primaryUsage = int(kIOHIDPrimaryUsageKey)
         let transport = string(kIOHIDTransportKey)
         let builtIn = (IOHIDDeviceGetProperty(device, kIOHIDBuiltInKey as CFString) as? NSNumber)?.boolValue ?? false
-        return HIDDeviceInfo(
+        var info = HIDDeviceInfo(
             id: registryID(of: device),
             vendorID: int(kIOHIDVendorIDKey),
             productID: int(kIOHIDProductIDKey),
@@ -280,5 +392,13 @@ public final class HIDMonitor {
             isBuiltIn: builtIn || ["SPI", "FIFO", "SPMI"].contains(transport ?? ""),
             maxInputReportSize: int(kIOHIDMaxInputReportSizeKey)
         )
+        let serial = string(kIOHIDSerialNumberKey).flatMap { $0.isEmpty ? nil : $0 }
+        let location = int(kIOHIDLocationIDKey).flatMap { $0 == 0 ? nil : String($0) }
+        // 显示名称不是硬件身份。取不到序列号/位置时由 controlKey 回退到当前连接编号。
+        let identity = serial ?? location.map { "location:\($0)" }
+        if let identity {
+            info.instanceToken = SHA256.hash(data: Data(identity.utf8)).map { String(format: "%02x", $0) }.joined()
+        }
+        return info
     }
 }

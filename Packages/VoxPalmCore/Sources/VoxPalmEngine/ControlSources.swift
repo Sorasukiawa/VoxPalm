@@ -7,6 +7,9 @@ public protocol ControlSource: AnyObject {
     var sourceID: String { get }
     var onEvent: ((ButtonEvent) -> Void)? { get set }
     var onDevicesChanged: (() -> Void)? { get set }
+    /// 断线/停用时取消这台设备的手势，不能模拟松开而误触单击动作。
+    var onInputCancelled: ((String) -> Void)? { get set }
+    var isIdentifying: Bool { get set }
     /// 被映射的键要不要拦下来（不再传给前台 App）。
     var isMapped: ((ButtonID) -> Bool)? { get set }
     var status: String { get }
@@ -30,6 +33,8 @@ public protocol ControlSource: AnyObject {
 }
 
 public extension ControlSource {
+    var onInputCancelled: ((String) -> Void)? { get { nil } set {} }
+    var isIdentifying: Bool { get { false } set {} }
     func diagram(for device: ControlDevice) -> DeviceDiagram? { nil }
     func problem(for deviceID: String) -> String? { nil }
     func retry(_ deviceID: String) {}
@@ -49,25 +54,31 @@ public final class HIDControlSource: ControlSource {
     public let sourceID = "hid"
     public var onEvent: ((ButtonEvent) -> Void)?
     public var onDevicesChanged: (() -> Void)?
+    public var onInputCancelled: ((String) -> Void)?
+    public var isIdentifying = false
     public var isMapped: ((ButtonID) -> Bool)?
     public private(set) var status = "未启用"
 
     private var monitor: HIDMonitor?
     private var active: Set<String> = []
+    private var buttonState = HIDButtonState()
+    private var profiles: [String: HIDDeviceProfile] = [:]
 
     public init() {}
 
-    public static func deviceID(_ info: HIDDeviceInfo) -> String { "hid:" + info.physicalKey }
+    public static func deviceID(_ info: HIDDeviceInfo) -> String { "hid:" + info.controlKey }
 
     public func devices() -> [ControlDevice] {
         var seen = Set<String>()
         var result: [ControlDevice] = []
+        profiles.removeAll()
         let all = HIDMonitor.snapshot().filter { !$0.isBuiltIn }
-        for info in all where seen.insert(info.physicalKey).inserted {
-            let siblings = all.filter { $0.physicalKey == info.physicalKey }
+        for info in all where seen.insert(info.controlKey).inserted {
+            profiles[Self.deviceID(info)] = info.profile
+            let siblings = all.filter { $0.controlKey == info.controlKey }
             let kinds = Array(Set(siblings.flatMap(\.kinds))).sorted().joined(separator: "、")
             result.append(ControlDevice(
-                id: Self.deviceID(info), sourceID: sourceID, name: info.displayName,
+                id: Self.deviceID(info), sourceID: sourceID, name: info.profile?.name ?? info.displayName,
                 detail: "\(info.transport ?? "HID") · \(info.vendorProduct) · \(kinds)", reportsRelease: true
             ))
         }
@@ -75,7 +86,9 @@ public final class HIDControlSource: ControlSource {
     }
 
     public func activate(_ deviceIDs: Set<String>) {
-        active = deviceIDs.filter { $0.hasPrefix("hid:") }
+        let next = deviceIDs.filter { $0.hasPrefix("hid:") }
+        for id in active.subtracting(next) { cancel(id) }
+        active = next
         guard !active.isEmpty else {
             monitor?.stop()
             monitor = nil
@@ -86,22 +99,50 @@ public final class HIDControlSource: ControlSource {
             let monitor = HIDMonitor()
             monitor.deviceFilter = { [weak self] info in self?.active.contains(Self.deviceID(info)) ?? false }
             monitor.onValue = { [weak self] value in self?.handle(value) }
-            monitor.onDeviceChange = { [weak self] _ in self?.onDevicesChanged?() }
-            monitor.start()
+            monitor.recordsRawReports = true
+            monitor.rawReportFilter = { $0.profile?.isGamepad == true }
+            monitor.enablesDualSenseExtendedReports = !isIdentifying
+            monitor.onReport = { [weak self] report in self?.handle(report) }
+            monitor.onDeviceChange = { [weak self] change in
+                guard let self else { return }
+                if case let .removed(info) = change { self.cancel(Self.deviceID(info)) }
+                self.onDevicesChanged?()
+            }
             self.monitor = monitor
+            monitor.start()
         }
-        status = HIDAccess.isGranted ? "监听中" : "缺少输入监控权限"
+        monitor?.enablesDualSenseExtendedReports = !isIdentifying
+        monitor?.refreshSelection()
+        status = monitor?.openResult == 0 ? "监听中" : "设备监听失败，请检查输入监控权限"
+    }
+
+    private func cancel(_ id: String) {
+        buttonState.cancel(id)
+        onInputCancelled?(id)
+    }
+
+    public func diagram(for device: ControlDevice) -> DeviceDiagram? {
+        guard let profile = profiles[device.id] else { return nil }
+        switch profile {
+        case .dualSense: return .dualSense
+        case .dualSenseEdge: return .dualSenseEdge
+        // 遥控器不同代际/系统的用途编号有差异，保留现有学键，不凭名称写死键值。
+        case .siriRemote1, .siriRemote2, .siriRemote3: return nil
+        }
+    }
+
+    private func handle(_ report: HIDMonitor.ReportEvent) {
+        guard let profile = report.device.profile, profile.isGamepad,
+              let pressed = DualSenseInput.pressed(reportID: report.reportID, bytes: report.bytes, edge: profile == .dualSenseEdge) else { return }
+        let id = Self.deviceID(report.device)
+        for event in buttonState.update(pressed, deviceID: id, time: report.time, label: DualSenseInput.label) { onEvent?(event) }
     }
 
     private func handle(_ value: HIDMonitor.ValueEvent) {
-        guard value.isButtonLike else { return }
-        onEvent?(ButtonEvent(
-            deviceID: Self.deviceID(value.device),
-            button: .hid(page: value.usagePage, usage: value.usage),
-            label: value.usageLabel,
-            phase: value.value != 0 ? .down : .up,
-            time: value.time
-        ))
+        guard value.isButtonLike, value.device.profile?.isGamepad != true else { return }
+        let button = ButtonID.hid(page: value.usagePage, usage: value.usage)
+        for event in buttonState.update(button, down: value.value != 0, deviceID: Self.deviceID(value.device),
+                                        time: value.time, label: value.usageLabel) { onEvent?(event) }
     }
 }
 

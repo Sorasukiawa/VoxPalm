@@ -14,11 +14,12 @@ import VoxPalmVoice
 /// 转盘和列表里的一项控制设备：连着的设备，加上认识但没连上的型号（灰的，告诉用户还支持什么）。
 struct PickerDevice: Identifiable, Equatable {
     enum Category: Int, CaseIterable, Comparable {
-        case remote, presenter, mic, keyboard, headphones, other
+        case remote, gamepad, presenter, mic, keyboard, headphones, other
 
         var title: String {
             switch self {
             case .remote: return "遥控器"
+            case .gamepad: return "游戏手柄"
             case .presenter: return "翻页笔和脚踏板"
             case .mic: return "无线麦"
             case .keyboard: return "键盘"
@@ -65,6 +66,9 @@ extension AppModel {
     private static let knownModels: [(DeviceDiagram, PickerDevice.Category, String)] = [
         (.xiaomiRemote2, .remote, "小米遥控器 2"),
         (.siriRemote, .remote, "Siri Remote"),
+        (.siriRemote1, .remote, "Siri Remote 一代"),
+        (.dualSense, .gamepad, "DualSense"),
+        (.dualSenseEdge, .gamepad, "DualSense Edge"),
     ] + PrivateModules.knownModels().map { ($0.diagram, .mic, $0.shortName) }
 
     static func shortName(for device: ControlDevice, art: DeviceDiagram) -> String {
@@ -94,7 +98,8 @@ extension AppModel {
         case "now-playing": return .headphones
         case "hid":
             switch art.id {
-            case DeviceDiagram.xiaomiRemote2.id, DeviceDiagram.siriRemote.id, DeviceDiagram.remote.id: return .remote
+            case DeviceDiagram.xiaomiRemote2.id, DeviceDiagram.siriRemote.id, DeviceDiagram.siriRemote1.id, DeviceDiagram.remote.id: return .remote
+            case DeviceDiagram.dualSense.id, DeviceDiagram.dualSenseEdge.id: return .gamepad
             case DeviceDiagram.presenter.id, DeviceDiagram.footPedal.id: return .presenter
             case DeviceDiagram.micTransmitter.id: return .mic
             default: return .other
