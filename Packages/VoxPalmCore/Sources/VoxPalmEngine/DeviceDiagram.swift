@@ -30,6 +30,7 @@ public struct DeviceDiagram: Hashable, Sendable, Identifiable {
         case rounded(Double)
         case circle
         case capsule
+        case gamepad
     }
 
     public enum Style: String, Hashable, Sendable {
@@ -120,7 +121,7 @@ public struct DeviceDiagram: Hashable, Sendable, Identifiable {
 
     /// 引导里建议用来说话的键：遥控器的确认键、无线麦的录制键、脚踏板中间那块等，没有这些就用第一个键。
     public var recommendedTalkSpot: Spot? {
-        let preferred = ["ok", "record", "middle", "laser", "playPause", "screen"]
+        let preferred = ["r1", "ok", "record", "middle", "laser", "playPause", "screen"]
         for id in preferred { if let spot = spots.first(where: { $0.id == id }) { return spot } }
         return spots.first
     }
@@ -130,7 +131,7 @@ public struct DeviceDiagram: Hashable, Sendable, Identifiable {
 
 public extension DeviceDiagram {
     /// 设置里「外形」可以选的（适配模块自带的示意图不在这里）
-    static let choices: [DeviceDiagram] = [xiaomiRemote2, siriRemote, remote, presenter, footPedal, micTransmitter, generic(buttons: [])]
+    static let choices: [DeviceDiagram] = [xiaomiRemote2, siriRemote, siriRemote1, dualSense, dualSenseEdge, remote, presenter, footPedal, micTransmitter, generic(buttons: [])]
 
     static func choice(id: String) -> DeviceDiagram? {
         id == mediaKeys.id ? mediaKeys : choices.first { $0.id == id }
@@ -184,7 +185,7 @@ public extension DeviceDiagram {
             Part(.center(25, 73.7, 11.7, 27), .capsule, .blackKey),
         ],
         spots: [
-            Spot("power", "电源键", .circle(28, 6.8, 6), .circle, .lightKey, symbol: "power"),
+            Spot("power", "电源键", .circle(28, 6.8, 6), .circle, .lightKey, symbol: "power", reserved: ["macOS 可能同时锁屏或睡眠；不建议映射"]),
             Spot("siri", "Siri 键（右侧面）", .center(35.5, 28.7, 1.4, 14.7), .capsule, .sideKey),
             Spot("up", "触控板上", .circle(17.5, 16.4, 5.5), .circle, .zone),
             Spot("left", "触控板左", .circle(5.3, 28.6, 5.5), .circle, .zone),
@@ -197,7 +198,7 @@ public extension DeviceDiagram {
             Spot("volumeUp", "音量 +", .circle(25, 66.3, 9), .circle, .zone, symbol: "plus"),
             Spot("mute", "静音", .circle(10, 81.1, 12.2), .circle, .blackKey, symbol: "speaker.slash"),
             Spot("volumeDown", "音量 −", .circle(25, 81.1, 9), .circle, .zone, symbol: "minus"),
-        ]
+        ], note: "第二、三代共用外形；按键需逐个学键并实测。方向环指实体按下，滑动触摸和遥控器麦克风尚未接入；系统可能同时响应音量、电源或播放键"
     )
 
     /// 通用电视遥控器（不知道具体型号时用）
@@ -296,7 +297,10 @@ public extension DeviceDiagram {
         if device.id == SystemKeysControlSource.mediaDeviceID { return mediaKeys }
         if device.sourceID == "hid" {
             if device.detail.contains("0x2717:0x32B8") { return xiaomiRemote2 }
-            if device.detail.contains("0x004C:") && (device.detail.contains("触控") || device.detail.contains("媒体键")) { return siriRemote }
+            if device.detail.contains("0x004C:0x0266") || device.detail.contains("0x004C:0x026D") { return siriRemote1 }
+            if device.detail.contains("0x004C:0x0314") || device.detail.contains("0x004C:0x0315") { return siriRemote }
+            if device.detail.contains("0x054C:0x0CE6") { return dualSense }
+            if device.detail.contains("0x054C:0x0DF2") { return dualSenseEdge }
             if device.detail.contains("媒体键") { return remote }
             if device.detail.contains("键盘") { return presenter }
         }

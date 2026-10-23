@@ -67,9 +67,12 @@ Whether a device's buttons can be read by the Mac is tested on each device; we n
 | DJI Mic 2 | Tested (transmitter connected directly to the Mac over Bluetooth, firmware 04.02.01.13): single press on the record, link and power buttons, and buttons and audio work at the same time. Double press isn't possible; when its mic goes silent, recording automatically falls back to the Mac's microphone | Closed-source module, included in the free version |
 | DJI Mic Mini | Not yet tested | Closed-source module, included in the free version |
 | Xiaomi Bluetooth Remote 2 / 2 Pro | Planned | Open source |
-| Apple Siri Remote (buttons and touch surface) | Planned | Open source |
+| Apple Siri Remote | Model detection, diagrams and button learning implemented; hardware verification pending. Touch gestures and the built-in microphone are not implemented | Open source |
+| DualSense (DS5) / DualSense Edge (DSE) | USB/Bluetooth button support implemented, including D-pad, shoulder buttons, touchpad click and Edge extra buttons; hardware verification pending | Open source |
 | Presenters, foot pedals and other generic button devices | Planned | Open source |
 | iPhone / iPad / Apple Watch (VoxPalm mobile: trackpad + hold to talk) | Planned | Open source |
+
+These new integrations are currently source-only and are not in the beta.2 download. See [remote and controller support](docs/设备兼容/遥控器与手柄.md) (Simplified Chinese) for scope, setup and hardware checks.
 
 Your device isn't listed? Test its buttons and audio with the [device probe](tools/probe/README.md) (Chinese) and post the report in an issue; see [Contributing](#contributing).
 
@@ -99,9 +102,9 @@ Passing tests only cover the cases in the code; device compatibility is defined 
 
 | Version | Scope |
 |---|---|
-| 0.1 beta | Mac core: button → action, hold to talk, mic switching and pre-roll, external input method bridge, built-in transcription; DJI Mic 2 / Mini and generic button devices |
+| 0.1 beta | Mac core: button → action, hold to talk, mic switching and pre-roll, external input method bridge, built-in transcription; DJI Mic 2 / Mini and generic button devices; Siri Remote buttons and DualSense / Edge support brought forward |
 | 0.2 beta | Mobile: iPhone / iPad trackpad + hold to talk, Apple Watch talk button |
-| 0.3 beta | Xiaomi Bluetooth Remote 2 and Siri Remote; Pro features: multiple key maps, per-app switching, action packs for recording and editing apps, transcription enhancements |
+| 0.3 beta | Xiaomi Bluetooth Remote 2 and Siri Remote touch surface; Pro features: multiple key maps, per-app switching, action packs for recording and editing apps, transcription enhancements |
 | 1.0 | App Store release on iOS, Pro on sale, website |
 
 ## Free and Pro

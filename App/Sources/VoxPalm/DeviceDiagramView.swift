@@ -43,7 +43,7 @@ struct DiagramCallout: Identifiable {
         }
         let body = lines.reduce(CGFloat(0)) { $0 + rows($1, size: 10.5) * 13.5 }
         let notes = reserved.reduce(CGFloat(0)) { $0 + rows("设备占用 · " + $1, size: 10.5) * 13.5 }
-        return 26 + body + notes
+        return 12 + rows(spot.name, size: 11.5) * 14 + body + notes
     }
 
     static func make(diagram: DeviceDiagram, buttons: [String: ButtonID], keyMap: KeyMap, reportsRelease: Bool, allowsDouble: Bool = true,
@@ -79,6 +79,7 @@ struct DeviceDiagramView: View {
     /// 点了已经对上的键：在它的标注旁边弹出编辑小窗
     var editing: Binding<String?>?
     var editor: ((String) -> AnyView)?
+    @State private var availableWidth: CGFloat = 650
 
     var body: some View {
         GeometryReader { geometry in
@@ -122,7 +123,13 @@ struct DeviceDiagramView: View {
                 }
             }
         }
-        .frame(height: DiagramLayout.preferredHeight(diagram: diagram, callouts: callouts))
+        .frame(height: DiagramLayout.preferredHeight(diagram: diagram, callouts: callouts, width: availableWidth))
+        .background {
+            GeometryReader { proxy in
+                Color.clear.onAppear { availableWidth = proxy.size.width }
+                    .onChange(of: proxy.size.width) { _, width in availableWidth = width }
+            }
+        }
     }
 
     private var highlighted: [String: DeviceArt.Highlight] {
@@ -155,7 +162,9 @@ struct DiagramLayout {
     }
 
     /// 设备在左右排标注时最多占多宽（相对整块宽度）
-    static func maxDeviceFraction(_ diagram: DeviceDiagram) -> CGFloat { diagram.isWide ? 0.4 : 0.3 }
+    static func maxDeviceFraction(_ diagram: DeviceDiagram) -> CGFloat {
+        diagram.isWide || diagram.parts.contains(where: { $0.shape == .gamepad }) ? 0.4 : 0.3
+    }
 
     static func preferredHeight(diagram: DeviceDiagram, callouts: [DiagramCallout], width: CGFloat = 650) -> CGFloat {
         if usesRows(diagram) {
@@ -164,14 +173,15 @@ struct DiagramLayout {
             return (callouts.count > 3 ? top + bottom + 40 : bottom + 20) + 140
         }
         if diagram.id == "generic" { return max(260, CGFloat(callouts.count) * 64 + 40) }
-        guard diagram.isWide else { return 460 }
-        // 宽的展开图标注在左右：高度取设备高度和较长一列标注里大的那个。
+        // 按实际左右分组计算，不按宽高比固定高度；按键多的手柄也不能挤在同一行。
         let deviceWidth = width * maxDeviceFraction(diagram)
         let deviceHeight = deviceWidth * diagram.height / diagram.width
         let labelWidth = min(230, (width - deviceWidth) / 2 - 44)
-        let left = callouts.filter { spotIsLeft($0.spot, diagram) }.reduce(CGFloat(0)) { $0 + $1.height(width: labelWidth) + 6 }
-        let right = callouts.filter { !spotIsLeft($0.spot, diagram) }.reduce(CGFloat(0)) { $0 + $1.height(width: labelWidth) + 6 }
-        return max(deviceHeight, left, right) + 30
+        let (leftSpots, rightSpots) = columns(diagram, shown: Set(callouts.map(\.id)))
+        let heights = Dictionary(uniqueKeysWithValues: callouts.map { ($0.id, $0.height(width: labelWidth) + 6) })
+        let left = leftSpots.reduce(CGFloat(0)) { $0 + (heights[$1.id] ?? 0) }
+        let right = rightSpots.reduce(CGFloat(0)) { $0 + (heights[$1.id] ?? 0) }
+        return max(diagram.isWide ? 0 : 460, max(deviceHeight, left, right) + 30)
     }
 
     /// 标注放上下两排时，上排和下排各自最高的标注（只有一排时都算下排）
@@ -186,8 +196,15 @@ struct DiagramLayout {
         return (top == 0 && twoRows ? 40 : top, bottom == 0 ? 40 : bottom)
     }
 
-    private static func spotIsLeft(_ spot: DeviceDiagram.Spot, _ diagram: DeviceDiagram) -> Bool {
-        spot.box.midX / diagram.width < 0.5
+    private static func columns(_ diagram: DeviceDiagram, shown: Set<String>) -> ([DeviceDiagram.Spot], [DeviceDiagram.Spot]) {
+        var left: [DeviceDiagram.Spot] = [], right: [DeviceDiagram.Spot] = []
+        for spot in diagram.spots.sorted(by: { $0.box.midY == $1.box.midY ? $0.box.midX < $1.box.midX : $0.box.midY < $1.box.midY })
+            where shown.isEmpty || shown.contains(spot.id) {
+            let x = spot.box.midX / diagram.width
+            if x < 0.42 { left.append(spot) } else if x > 0.58 { right.append(spot) }
+            else if left.count <= right.count { left.append(spot) } else { right.append(spot) }
+        }
+        return (left, right)
     }
 
     init(diagram: DeviceDiagram, callouts: [DiagramCallout], size: CGSize) {
@@ -229,15 +246,9 @@ struct DiagramLayout {
         let heights = Dictionary(uniqueKeysWithValues: callouts.map { ($0.id, $0.height(width: labelWidth)) })
 
         // 分左右：左半边的键标在左边，右半边的标在右边，正中间的两边轮流放。
-        var left: [DeviceDiagram.Spot] = []
-        var right: [DeviceDiagram.Spot] = []
         // 只给有标注的键排位置（引导里只标设了动作的键）
         let shown = Set(callouts.map(\.id))
-        for spot in diagram.spots.sorted(by: { $0.box.midY < $1.box.midY }) where shown.isEmpty || shown.contains(spot.id) {
-            let x = spot.box.midX / diagram.width
-            if x < 0.42 { left.append(spot) } else if x > 0.58 { right.append(spot) }
-            else if left.count <= right.count { left.append(spot) } else { right.append(spot) }
-        }
+        let (left, right) = Self.columns(diagram, shown: shown)
         for (side, column) in [(Edge.leading, left), (Edge.trailing, right)] {
             let x = side == .leading ? pad : size.width - pad - labelWidth
             let wanted = column.map { spot in (spot, frame(spot.box).midY, heights[spot.id] ?? 40) }
@@ -394,6 +405,19 @@ struct DeviceArt: View {
         case let .rounded(radius): return Path(roundedRect: rect, cornerRadius: min(radius * layout.scale, min(rect.width, rect.height) / 2), style: .continuous)
         case .circle: return Path(ellipseIn: rect)
         case .capsule: return Path(roundedRect: rect, cornerRadius: min(rect.width, rect.height) / 2, style: .continuous)
+        case .gamepad:
+            // 归一化轮廓：顶部横梁、两侧握把和下方中央凹口。
+            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height) }
+            var path = Path()
+            path.move(to: point(0.15, 0.08))
+            path.addCurve(to: point(0.85, 0.08), control1: point(0.30, 0), control2: point(0.70, 0))
+            path.addCurve(to: point(0.97, 0.96), control1: point(0.95, 0.30), control2: point(1.05, 0.83))
+            path.addCurve(to: point(0.75, 0.68), control1: point(0.91, 1.10), control2: point(0.84, 0.77))
+            path.addCurve(to: point(0.25, 0.68), control1: point(0.62, 0.57), control2: point(0.38, 0.57))
+            path.addCurve(to: point(0.03, 0.96), control1: point(0.16, 0.77), control2: point(0.09, 1.10))
+            path.addCurve(to: point(0.15, 0.08), control1: point(-0.05, 0.83), control2: point(0.05, 0.30))
+            path.closeSubpath()
+            return path
         }
     }
 

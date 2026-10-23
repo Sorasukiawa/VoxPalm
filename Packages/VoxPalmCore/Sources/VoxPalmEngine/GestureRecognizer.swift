@@ -82,6 +82,14 @@ public final class GestureRecognizer {
     public func reset() {
         for state in states.values { cancelTimers(state) }
         states.removeAll()
+        lastEvent.removeAll()
+    }
+
+    public func cancel(deviceID: String) {
+        for key in Array(lastEvent.keys) where lastEvent[key]?.deviceID == deviceID {
+            if let state = states.removeValue(forKey: key) { cancelTimers(state) }
+            lastEvent.removeValue(forKey: key)
+        }
     }
 
     public func handle(_ event: ButtonEvent) {

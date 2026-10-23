@@ -253,6 +253,24 @@ public final class VoiceSession: VoiceActionHandler {
         }
     }
 
+    public func voiceCancel() {
+        guard isVoiceActive else { return }
+        if settings.mode == .inputMethod, state == .listening { InputMethodBridge.end(settings.inputMethodKey) }
+        restoreDefaultInput(after: 0)
+        stopDebugFeed()
+        lock.lock()
+        collecting = false
+        sessionBuffers.removeAll()
+        let preview = preview
+        self.preview = nil
+        lock.unlock()
+        preview?.stop()
+        request = VoiceRequest()
+        target = nil
+        state = .idle
+        stopCaptureUnlessWarm()
+    }
+
     // MARK: - 内置转写
 
     /// 开始说话后开实时预览，先把预录的声音送进去，之后录到的声音在 received 里接着送。

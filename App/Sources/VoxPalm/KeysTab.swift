@@ -508,6 +508,10 @@ enum AIPreset {
         // 无线麦：录制键开始 / 结束说话，连接键发送
         Item(spot: "record", gesture: .single, action: .toggleDictation),
         Item(spot: "link", gesture: .single, action: .sendReturn),
+        // 手柄：右肩键按住说话，叉键发送；方向上下沿用切对话。
+        Item(spot: "r1", gesture: .long, action: .pushToTalk),
+        Item(spot: "cross", gesture: .single, action: .sendReturn),
+        Item(spot: "siri", gesture: .long, action: .pushToTalk),
     ]
 
     static func bindings(for resolved: AppModel.ResolvedDiagram) -> [KeyBinding] {
