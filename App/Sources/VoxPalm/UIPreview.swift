@@ -152,7 +152,7 @@ extension UIPreview {
                 liveShot(SettingsView().environment(model).environment(navigation).frame(width: 900, height: 1240), titled: true, dark: dark,
                          to: directory.appendingPathComponent("live-settings-\(pane.rawValue)-full-\(suffix).png"))
             }
-            // 语音页换成外部输入法再截一张（只改调试配置文件）
+            // 语音页换成外部输入法再截一张（预览只改内存状态）
             let mode = model.config.voice.mode
             model.update { $0.voice.mode = .inputMethod }
             let voice = SettingsNavigation()
@@ -171,8 +171,6 @@ extension UIPreview {
                          to: directory.appendingPathComponent("live-settings-voice-whisper-\(name)-\(suffix).png"))
             }
             model.whisperModels.simulate(nil, for: recommended)
-            // 设置文件晚半秒才写，等它写回去再往下截
-            RunLoop.main.run(until: Date().addingTimeInterval(0.8))
             let navigation = SettingsNavigation()
             navigation.pane = .permissions
             liveShot(SettingsView().environment(model).environment(navigation).frame(width: 900, height: 680), titled: true, dark: dark,

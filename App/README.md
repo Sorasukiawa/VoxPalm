@@ -11,6 +11,8 @@ open build/VoxPalm.app
 
 `scripts/build-app.sh` 会编译、打包成 `build/VoxPalm.app` 并签名：钥匙串里有 Developer ID 或 Apple Development 证书就用它（重新编译后系统权限不会失效），没有就临时签名（每次重新编译后要重新授权）。`CONFIG=debug` 打调试版；`OUTPUT_DIR=<目录>` 打到别的目录，不动 `build/` 里正在用的那份；`UNIVERSAL=1` 打 Apple 芯片和 Intel 通用版（发布包用）。
 
+新包会先在输出目录的临时文件夹里完成打包和签名校验，全部成功才替换原有 App；失败时保留旧包。相对 `OUTPUT_DIR` 按运行命令时的目录解释，`UNIVERSAL=0` 只编译当前架构，`SWIFT_JOBS` 控制编译并发（默认 2）。打包脚本的隔离回归检查：`bash scripts/tests/build-app.sh`（使用假编译器和签名器，不访问钥匙串）。
+
 第一次编译时 SwiftPM 会从 GitHub 下载 whisper.cpp 官方预编译的 xcframework（约 66 MB，版本和校验和写在 `Packages/VoxPalmCore/Package.swift`）。打包脚本把其中 macOS 的框架放进 `VoxPalm.app/Contents/Frameworks` 并一起签名，许可证放进 `Contents/Resources/THIRD-PARTY-NOTICES.md`。
 
 ## 第一次用
@@ -26,9 +28,11 @@ whisper.cpp 的模型：
 
 | 名字 | 文件 | 大小 | 说明 |
 |---|---|---|---|
-| 小 | `ggml-small-q5_1.bin` | 190 MB | 转得快，中文错字多一些；Intel 芯片的 Mac 默认用它 |
-| 均衡 | `ggml-large-v3-turbo-q5_0.bin` | 574 MB | 中文准确率接近最大的模型；Apple 芯片的 Mac 默认用它 |
-| 更准 | `ggml-large-v3-turbo-q8_0.bin` | 874 MB | 比「均衡」再准一点 |
+| 小 | `ggml-small-q5_1.bin` | 190 MB | 体积最小；Intel 芯片的 Mac 默认用它 |
+| 均衡 | `ggml-large-v3-turbo-q5_0.bin` | 574 MB | Apple 芯片的 Mac 默认用它 |
+| 更准 | `ggml-large-v3-turbo-q8_0.bin` | 874 MB | large-v3-turbo 的 8 位量化版本，体积更大 |
+
+名称沿用界面选项；三档的实际速度和准确率还没有完成同一组语料的对比实测，不能只根据名称判断效果。
 
 模型不随 App 打包，从 whisper.cpp 官方的 Hugging Face 仓库（`ggerganov/whisper.cpp`）下载，连不上时自动换国内镜像 `hf-mirror.com`；下完按写死的大小和 SHA-256 核对，对上了才用。存在 `~/Library/Application Support/VoxPalm/Models`（不进时间机器备份），设置里可以删。下到一半断了，点「重试」从断点接着下（只在这次运行里记得断点）。也可以在模型菜单里选「自己的模型文件」，用任意 ggml 格式的 whisper 模型。
 
@@ -64,6 +68,10 @@ Siri Remote、DualSense（DS5）和 DualSense Edge（DSE）的源码适配已加
 ```bash
 cd Packages/VoxPalmCore && swift test
 ```
+
+在仓库根目录运行 `bash scripts/check.sh`，可依次检查打包脚本、核心库、探针、App 配置存储和探针参数。默认使用 2 个编译任务，`SWIFT_JOBS` 可调整；脚本强制使用开源构建，不启动正常 App 或接管真实设备。GitHub Actions 使用同一入口，另做临时签名的通用版打包；自动检查通过不等于完成设备和系统版本兼容性验收。
+
+配置导入会先在配置目录生成 `config-backup-<标识>.json`，成功后可在「关于」页找到备份。读不出原配置时会保留它，界面显示保存问题，本次修改暂不自动写回；可先导出本次设置，再导入有效配置恢复保存。退出前会立即保存尚在等待写入的改动，写入失败时提供返回检查的选择。
 
 另有一个用真模型的 whisper.cpp 测试，平时跳过；设 `VOXPALM_TEST_WHISPER_MODEL=<ggml 模型文件>` 才跑（用 `say -v Tingting` 合成一句中文再转回来）。
 

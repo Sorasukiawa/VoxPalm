@@ -23,15 +23,15 @@ public struct WhisperModel: Identifiable, Hashable, Sendable {
     }
 
     public static let catalog: [WhisperModel] = [
-        WhisperModel(id: "small-q5_1", title: "小", summary: "下载快、转得快，中文错字明显多一些；Intel 芯片的 Mac 默认用它",
+        WhisperModel(id: "small-q5_1", title: "小", summary: "体积较小，Intel 芯片的 Mac 默认用它；效果和速度还需按设备验证",
                      bytes: 190_085_487, sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"),
-        WhisperModel(id: "large-v3-turbo-q5_0", title: "均衡", summary: "中文准确率接近最大的模型，Apple 芯片上说几秒话一两秒转完",
+        WhisperModel(id: "large-v3-turbo-q5_0", title: "均衡", summary: "Apple 芯片的 Mac 默认用它；已有单机中文转写测试，结果仅供参考",
                      bytes: 574_041_195, sha256: "394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2"),
-        WhisperModel(id: "large-v3-turbo-q8_0", title: "更准", summary: "比「均衡」再准一点，体积大一半",
+        WhisperModel(id: "large-v3-turbo-q8_0", title: "更准", summary: "8 位量化版本，体积更大；与其他档位的准确率差异尚未对照验证",
                      bytes: 874_188_075, sha256: "317eb69c11673c9de1e1f0d459b253999804ec71ac4c23c17ecf5fbe24e259a1"),
     ]
 
-    /// 这台 Mac 默认用哪个：Apple 芯片用「均衡」；Intel 芯片用不上显卡加速，大模型一句话要算十几秒，用「小」
+    /// 这台 Mac 默认用哪个：Apple 芯片用「均衡」；Intel 芯片先用体积较小的模型，实际速度仍需真机验证。
     public static var recommended: WhisperModel {
         #if arch(arm64)
         return catalog[1]

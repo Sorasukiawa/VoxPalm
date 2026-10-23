@@ -56,6 +56,7 @@ final class SettingsNavigation {
 /// 底下透一点珊瑚色的光，和引导同一套样子。换页时旧页淡出、新页往上浮，页里的卡片依次浮上来。
 struct SettingsView: View {
     @Environment(SettingsNavigation.self) private var navigation
+    @Environment(AppModel.self) private var model
 
     var body: some View {
         HStack(spacing: 0) {
@@ -64,19 +65,32 @@ struct SettingsView: View {
                 .padding(.leading, 10)
                 .padding(.vertical, 10)
                 .ignoresSafeArea(.container, edges: .top)
-            ZStack(alignment: .topLeading) {
-                Group {
-                    switch navigation.pane {
-                    case .devices: DevicesPane()
-                    case .keys: KeysPane()
-                    case .voice: VoicePane()
-                    case .permissions: PermissionsPane()
-                    case .pro: ProPane()
-                    case .about: AboutPane()
+            VStack(spacing: 0) {
+                if let problem = model.configProblem {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        Text("设置还没有保存。\(problem)").font(.caption).textSelection(.enabled)
+                        Spacer(minLength: 0)
+                        Button("查看与备份") { navigation.pane = .about }
+                            .secondaryButton().controlSize(.small)
                     }
+                    .padding(14)
                 }
-                .id(navigation.pane)
-                .transition(.paneSwap)
+                ZStack(alignment: .topLeading) {
+                    Group {
+                        switch navigation.pane {
+                        case .devices: DevicesPane()
+                        case .keys: KeysPane()
+                        case .voice: VoicePane()
+                        case .permissions: PermissionsPane()
+                        case .pro: ProPane()
+                        case .about: AboutPane()
+                        }
+                    }
+                    .id(navigation.pane)
+                    .transition(.paneSwap)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .animation(Motion.pick(Motion.smooth), value: navigation.pane)
@@ -747,9 +761,19 @@ struct AboutPane: View {
                 }
                 .padding(.top, 26)
                 .staggerIn(5)
+                if model.configProblem != nil, model.canRetryConfigSave {
+                    Button("重试保存") { try? model.flushConfig() }
+                        .secondaryButton().controlSize(.small).padding(.top, 10)
+                }
                 if let notice {
                     Text(notice).font(.caption).foregroundStyle(.secondary).padding(.top, 10)
                         .transition(.swapIn)
+                }
+                if let backup = model.configBackupURL {
+                    Button("在访达显示导入前的设置备份") {
+                        NSWorkspace.shared.activateFileViewerSelecting([backup])
+                    }
+                    .font(.caption).buttonStyle(.link).padding(.top, 10)
                 }
                 Spacer(minLength: 20)
                 Text("代码按 GPL-3.0-only 开源，内置的 whisper.cpp 按 MIT 许可；名字和图标是专有品牌素材。").font(.caption).foregroundStyle(.tertiary)
@@ -771,7 +795,7 @@ struct AboutPane: View {
             try model.exportConfig(to: url)
             flash("已导出到「\(url.lastPathComponent)」")
         } catch {
-            flash("导出失败：\(error.localizedDescription)")
+            flash("导出失败：\(error.localizedDescription)", temporary: false)
         }
     }
 
@@ -781,14 +805,15 @@ struct AboutPane: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try model.importConfig(from: url)
-            flash("已导入「\(url.lastPathComponent)」")
+            flash("已导入「\(url.lastPathComponent)」，原设置已备份")
         } catch {
-            flash("导入失败：\(error.localizedDescription)")
+            flash("导入失败：\(error.localizedDescription)", temporary: false)
         }
     }
 
-    private func flash(_ text: String) {
+    private func flash(_ text: String, temporary: Bool = true) {
         notice = text
+        guard temporary else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { if notice == text { notice = nil } }
     }
 }

@@ -14,6 +14,9 @@ final class AppModel {
     static let shared = AppModel()
 
     private(set) var config: AppConfig
+    /// 读写设置失败时持续显示，不能只写日志后让用户以为已经保存。
+    private(set) var configProblem: String?
+    private(set) var configBackupURL: URL?
     private(set) var devices: [ControlDevice] = []
     private(set) var micDevices: [AudioDeviceInfo] = []
     /// 控制设备连着但用不了的原因（适配模块报的，比如 DJI 接管按键失败）；面板顶上显示成提醒
@@ -75,14 +78,19 @@ final class AppModel {
     /// whisper.cpp 模型的下载状态（设置页的 whisper.cpp 卡片、面板的提醒用）
     let whisperModels = WhisperModels()
     @ObservationIgnored private let audioWatcher = AudioWatcher()
-    @ObservationIgnored private var saveWork: DispatchWorkItem?
+    @ObservationIgnored private let configStore: AppConfigStore
+    /// 截图也会实例化 AppModel，但只能读设备清单，不能接管真实按键或开麦。
+    @ObservationIgnored private let isPreview = UIPreview.isRendering
     @ObservationIgnored private var permissionTimer: Timer?
     @ObservationIgnored private var inputSourceObserver: NSObjectProtocol?
 
     init() {
         PrivateModules.setUp()
-        let config = AppConfig.load()
+        let store = AppConfigStore()
+        configStore = store
+        let config = store.initialConfig
         self.config = config
+        configProblem = store.loadProblem
         // 下载的 whisper.cpp 模型放在配置文件旁边：用 VOXPALM_CONFIG 调试时跟着测试配置走
         WhisperModel.directory = AppConfig.fileURL.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true)
         whisperModels.refresh()
@@ -90,8 +98,12 @@ final class AppModel {
         engine = ButtonEngine(sources: sources, keyMap: config.keyMap)
         engine.timing = config.timing
         engine.textMethod = config.voice.textMethod
-        voice = VoiceSession(settings: config.voice)
+        voice = VoiceSession(settings: Self.runtimeVoiceSettings(config.voice, isPreview: isPreview))
         engine.voice = voice
+        store.onSaveResult = { [weak self] problem in
+            self?.configProblem = problem
+            if let problem { log.error("保存设置失败：\(problem, privacy: .public)") }
+        }
         wireCallbacks()
         refreshDevices()
         refreshPermissions()
@@ -119,6 +131,7 @@ final class AppModel {
         // 晚一点没关系：让系统把这次唤醒和别的合在一起
         permissionTimer?.tolerance = 0.5
         log.info("掌声启动：\(PrivateModules.buildFlavor, privacy: .public)，控制设备 \(config.controlDeviceIDs.count) 台")
+        if isPreview { log.info("界面预览模式：不启用控制设备或录音") }
     }
 
     private func wireCallbacks() {
@@ -210,33 +223,38 @@ final class AppModel {
     func update(_ change: (inout AppConfig) -> Void) {
         var new = config
         change(&new)
+        apply(new, save: true)
+    }
+
+    private func apply(_ new: AppConfig, save: Bool) {
         guard new != config else { return }
         let old = config
         config = new
         if new.keyMap != old.keyMap { engine.keyMap = new.keyMap }
         if new.timing != old.timing { engine.timing = new.timing }
         if new.voice != old.voice {
-            voice.settings = new.voice
+            voice.settings = Self.runtimeVoiceSettings(new.voice, isPreview: isPreview)
             engine.textMethod = new.voice.textMethod
         }
         if new.controlDeviceIDs != old.controlDeviceIDs {
             pressedButtons.removeAll()
             if !isPaused { activateEngine(new.controlDeviceIDs) }
         }
-        scheduleSave()
+        if save, !isPreview { configStore.scheduleSave(config) }
     }
 
-    private func scheduleSave() {
-        saveWork?.cancel()
-        let work = DispatchWorkItem { [config] in
-            do {
-                try config.save()
-            } catch {
-                log.error("保存设置失败：\(error.localizedDescription, privacy: .public)")
-            }
-        }
-        saveWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    /// 退出前同步写入最后一次修改，也供设置页主动重试。
+    func flushConfig() throws {
+        try configStore.flush()
+    }
+
+    var canRetryConfigSave: Bool { configStore.hasPendingChanges && configStore.loadProblem == nil }
+
+    /// 界面照样显示用户选项，只禁止预览进程实际预热麦克风。
+    static func runtimeVoiceSettings(_ settings: VoiceSession.Settings, isPreview: Bool) -> VoiceSession.Settings {
+        var runtime = settings
+        if isPreview { runtime.keepMicWarm = false }
+        return runtime
     }
 
     func exportConfig(to url: URL) throws {
@@ -245,8 +263,9 @@ final class AppModel {
 
     func importConfig(from url: URL) throws {
         let data = try Data(contentsOf: url)
-        let imported = try JSONDecoder().decode(AppConfig.self, from: data)
-        update { $0 = imported }
+        let imported = try AppConfig.decode(data)
+        configBackupURL = try configStore.replace(with: imported, previous: config)
+        apply(imported, save: false)
     }
 
     // MARK: - 设备
@@ -264,6 +283,7 @@ final class AppModel {
 
     /// 启用控制设备，顺便更新它会静音哪些麦
     private func activateEngine(_ ids: [String]) {
+        guard !isPreview else { return }
         engine.activate(ids)
         refreshMuted()
     }
@@ -304,6 +324,7 @@ final class AppModel {
 
     /// 提醒条上的「重试」：让适配模块重新接管控制设备
     func retryControlDevice() {
+        guard !isPreview else { return }
         guard let id = activeDevice?.id else { return }
         engine.retry(id)
     }
@@ -423,6 +444,7 @@ final class AppModel {
 
     /// 引导选设备那步：按一下任意一台设备就认出来（引擎同时听所有 HID 设备和媒体键，不执行动作）。
     func startIdentifying(_ handler: @escaping (ControlDevice) -> Void) {
+        guard !isPreview else { return }
         engine.identifyHandler = { [weak self] event in
             guard let self else { return }
             self.highlight(event)
@@ -591,6 +613,10 @@ final class AppModel {
 
     var attentions: [Attention] {
         var items: [Attention] = []
+        if configProblem != nil {
+            items.append(Attention(id: "config-storage", title: "设置还没有保存",
+                                   detail: "请到设置 › 关于查看原因，重试保存或导出备份。", fix: .about))
+        }
         for permission in missingPermissions {
             items.append(Attention(id: permission.id, title: "还差「\(permission.title)」权限", detail: permission.consequence, fix: .permissions, permission: permission))
         }
@@ -666,12 +692,14 @@ final class AppModel {
 
     /// 不按键直接试一次转写（菜单里的「试一下」）：开始 3 秒后结束。
     func tryVoice() {
+        guard !isPreview else { return }
         voice.voiceBegin(VoiceRequest())
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.voice.voiceEnd() }
     }
 
     /// 面板上「按住试一下」：按下开麦，松手出字（不管说话键是哪个）。
     func tryPress(_ down: Bool) {
+        guard !isPreview else { return }
         if down {
             voice.voiceArm(VoiceRequest())
             voice.voiceBegin(VoiceRequest())

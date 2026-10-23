@@ -36,6 +36,7 @@ let package = Package(
             // 打包时 whisper.cpp 的框架放在 VoxPalm.app/Contents/Frameworks（scripts/build-app.sh）
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]
         ),
+        .testTarget(name: "VoxPalmTests", dependencies: ["VoxPalm"]),
     ],
     swiftLanguageModes: [.v5]
 )

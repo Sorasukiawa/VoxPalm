@@ -126,9 +126,31 @@ public final class VoiceSession: VoiceActionHandler {
     private var request = VoiceRequest()
     /// 按下说话键那一刻的出字目标：贴字、按回车前拿它比，换了 App 或输入框就不贴、不按
     private var target: TextTarget?
+    /// 取消、换设置或开始新一轮后，旧任务即使不响应取消也不能再出字、回车或覆盖新会话。
+    private var generation = UUID()
+    private var transcriptionTask: Task<Void, Never>?
+    private var returnTask: Task<Void, Never>?
+    private var warmDuration: Double?
 
-    public init(settings: Settings = Settings()) {
+    /// 将系统操作集中在这里，回归测试可以完全使用假件，不开麦、不向前台发键。
+    struct Dependencies {
+        var currentTarget: @MainActor () -> TextTarget? = { TextTarget.current() }
+        var makeTranscriber: (TranscriberChoice, WhisperSettings) throws -> Transcriber = { try TranscriberFactory.make($0, whisper: $1) }
+        var makePreview: (TranscriberChoice, Locale, @escaping (String) -> Void) -> LivePreview? = { TranscriberFactory.makePreview($0, locale: $1, onPartial: $2) }
+        var canPostInputMethodKey: () -> Bool = { KeyPoster.canPost }
+        var beginInputMethod: (InputMethodKey) -> Void = InputMethodBridge.begin
+        var endInputMethod: (InputMethodKey) -> Void = InputMethodBridge.end
+        var sendReturn: @MainActor (TextTarget?) -> String = { TextDelivery.sendReturn(since: $0) }
+    }
+    private let dependencies: Dependencies
+
+    public convenience init(settings: Settings = Settings()) {
+        self.init(settings: settings, dependencies: Dependencies())
+    }
+
+    init(settings: Settings, dependencies: Dependencies) {
         self.settings = settings
+        self.dependencies = dependencies
         capture.onBuffer = { [weak self] in self?.received($0) }
         if let path = ProcessInfo.processInfo.environment["VOXPALM_DEBUG_AUDIO_FILE"], !path.isEmpty {
             debugAudioFile = URL(fileURLWithPath: path)
@@ -155,14 +177,20 @@ public final class VoiceSession: VoiceActionHandler {
     // MARK: - VoiceActionHandler
 
     public var isVoiceActive: Bool { state == .listening || state == .armed }
+    public var canStartVoice: Bool { state == .idle }
 
     public func voiceArm(_ request: VoiceRequest) {
         guard state == .idle else { return }
+        invalidatePendingWork()
+        let generation = generation
         self.request = request
         // 记下按键这一刻的出字目标。挪到下一轮主循环再读：按键可能来自系统按键拦截的回调，在那里等别的 App 回话会拖慢整个键盘。
         target = nil
         DispatchQueue.main.async { [weak self] in
-            MainActor.assumeIsolated { self?.target = TextTarget.current() }
+            MainActor.assumeIsolated {
+                guard let self, self.generation == generation, self.isVoiceActive else { return }
+                self.target = self.dependencies.currentTarget()
+            }
         }
         switch settings.mode {
         case .builtIn:
@@ -181,6 +209,7 @@ public final class VoiceSession: VoiceActionHandler {
 
     public func voiceDisarm(tooShortFor threshold: Double?) {
         guard state == .armed else { return }
+        invalidatePendingWork()
         if let threshold { onOutcome?(.tooShort(threshold: threshold)) }
         switch settings.mode {
         case .builtIn:
@@ -203,14 +232,17 @@ public final class VoiceSession: VoiceActionHandler {
         if state == .idle { voiceArm(request) }
         guard state == .armed else { return }
         self.request = request
+        if settings.mode == .inputMethod, !dependencies.canPostInputMethodKey() {
+            voiceCancel()
+            let message = "没有辅助功能权限，模拟不了输入法的语音键"
+            onMessage?(message)
+            onOutcome?(.failed(message))
+            return
+        }
         state = .listening
         if settings.mode == .builtIn { startPreview() }
         if settings.mode == .inputMethod {
-            guard KeyPoster.canPost else {
-                onMessage?("没有辅助功能权限，模拟不了输入法的语音键")
-                return
-            }
-            InputMethodBridge.begin(settings.inputMethodKey)
+            dependencies.beginInputMethod(settings.inputMethodKey)
         }
     }
 
@@ -218,15 +250,12 @@ public final class VoiceSession: VoiceActionHandler {
         guard state == .listening || state == .armed else { return }
         switch settings.mode {
         case .inputMethod:
-            if state == .listening { InputMethodBridge.end(settings.inputMethodKey) }
+            if state == .listening { dependencies.endInputMethod(settings.inputMethodKey) }
             restoreDefaultInput(after: settings.restoreInputDelay)
             if state == .listening { onOutcome?(.handedToInputMethod) }
             if request.sendReturn, state == .listening {
                 // 输入法什么时候把字放进去不确定，等一会儿；换了目标或输入框还是空的就不发。
-                let target = target
-                DispatchQueue.main.asyncAfter(deadline: .now() + settings.inputMethodSendDelay) { [weak self] in
-                    MainActor.assumeIsolated { self?.onMessage?(TextDelivery.sendReturn(since: target)) }
-                }
+                scheduleReturn(since: target, after: settings.inputMethodSendDelay)
             }
             state = .idle
         case .builtIn:
@@ -254,8 +283,20 @@ public final class VoiceSession: VoiceActionHandler {
     }
 
     public func voiceCancel() {
-        guard isVoiceActive else { return }
-        if settings.mode == .inputMethod, state == .listening { InputMethodBridge.end(settings.inputMethodKey) }
+        cancel(using: settings)
+    }
+
+    private func invalidatePendingWork() {
+        generation = UUID()
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        returnTask?.cancel()
+        returnTask = nil
+    }
+
+    private func cancel(using activeSettings: Settings) {
+        invalidatePendingWork()
+        if activeSettings.mode == .inputMethod, state == .listening { dependencies.endInputMethod(activeSettings.inputMethodKey) }
         restoreDefaultInput(after: 0)
         stopDebugFeed()
         lock.lock()
@@ -268,15 +309,19 @@ public final class VoiceSession: VoiceActionHandler {
         request = VoiceRequest()
         target = nil
         state = .idle
-        stopCaptureUnlessWarm()
+        if !activeSettings.keepMicWarm || activeSettings.mode != .builtIn { capture.stop() }
     }
 
     // MARK: - 内置转写
 
     /// 开始说话后开实时预览，先把预录的声音送进去，之后录到的声音在 received 里接着送。
     private func startPreview() {
-        let new = TranscriberFactory.makePreview(settings.transcriber, locale: Locale(identifier: settings.localeID)) { [weak self] text in
-            DispatchQueue.main.async { self?.onPartial?(text) }
+        let generation = generation
+        let new = dependencies.makePreview(settings.transcriber, Locale(identifier: settings.localeID)) { [weak self] text in
+            DispatchQueue.main.async {
+                guard let self, self.generation == generation, self.state == .listening else { return }
+                self.onPartial?(text)
+            }
         }
         guard let new else { return }
         lock.lock()
@@ -289,17 +334,21 @@ public final class VoiceSession: VoiceActionHandler {
 
     private func transcribe(_ buffers: [AVAudioPCMBuffer], sendReturn: Bool, target: TextTarget?) {
         let settings = settings
+        let generation = generation
+        let makeTranscriber = dependencies.makeTranscriber
         let started = Date()
         // 主线程上的任务；转写本身是非隔离的异步函数，在后台执行，不卡界面。
-        Task { @MainActor [weak self] in
+        transcriptionTask = Task { @MainActor [weak self] in
             let result: Result<String, Error>
             do {
-                let transcriber = try TranscriberFactory.make(settings.transcriber, whisper: settings.whisper)
+                try Task.checkCancellation()
+                let transcriber = try makeTranscriber(settings.transcriber, settings.whisper)
                 result = .success(try await transcriber.transcribe(buffers, locale: Locale(identifier: settings.localeID)))
             } catch {
                 result = .failure(error)
             }
-            guard let self else { return }
+            guard let self, self.generation == generation, !Task.isCancelled else { return }
+            self.transcriptionTask = nil
             switch result {
             case let .success(text):
                 let elapsed = Date().timeIntervalSince(started)
@@ -326,10 +375,7 @@ public final class VoiceSession: VoiceActionHandler {
                             if sendReturn {
                                 // 等粘贴落进输入框，再确认还是贴字时那个输入框、里面有字，才按回车。
                                 let baseline = pasted ?? target
-                                Task { @MainActor [weak self] in
-                                    try? await Task.sleep(nanoseconds: 350_000_000)
-                                    self?.onMessage?(TextDelivery.sendReturn(since: baseline))
-                                }
+                                self.scheduleReturn(since: baseline, after: 0.35)
                             }
                         }
                     }
@@ -340,7 +386,21 @@ public final class VoiceSession: VoiceActionHandler {
                 self.onMessage?("转写失败：\(error)")
                 self.onOutcome?(.failed("\(error)"))
             }
-            self.state = .idle
+            if self.generation == generation { self.state = .idle }
+        }
+    }
+
+    private func scheduleReturn(since target: TextTarget?, after delay: Double) {
+        returnTask?.cancel()
+        let generation = generation
+        // 配置也能从文件导入，不能让负数、无穷大或过大的延时在转整数时崩溃。
+        let seconds = delay.isFinite ? min(60, max(0, delay)) : 1.5
+        returnTask = Task { @MainActor [weak self] in
+            do { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
+            catch { return }
+            guard let self, self.generation == generation, self.state == .idle else { return }
+            self.returnTask = nil
+            self.onMessage?(self.dependencies.sendReturn(target))
         }
     }
 
@@ -381,10 +441,10 @@ public final class VoiceSession: VoiceActionHandler {
         if collecting {
             sessionBuffers.append(buffer)
             preview?.append(buffer)
-        } else if settings.keepMicWarm {
+        } else if let warmDuration {
             ring.append(buffer)
             var total = AudioConversion.duration(ring)
-            while total > settings.warmSeconds, let first = ring.first {
+            while total > warmDuration, let first = ring.first {
                 total -= Double(first.frameLength) / first.format.sampleRate
                 ring.removeFirst()
             }
@@ -478,13 +538,21 @@ public final class VoiceSession: VoiceActionHandler {
     }
 
     private func settingsChanged(from old: Settings) {
-        if old.micUID != settings.micUID, capture.isRunning {
+        cancel(using: old)
+        if old.micUID != settings.micUID || old.mode != settings.mode {
             capture.stop()
+            lock.lock()
+            ring.removeAll()
+            lock.unlock()
         }
         applyWarm()
     }
 
     private func applyWarm() {
+        lock.lock()
+        let seconds = settings.warmSeconds.isFinite ? min(3, max(0, settings.warmSeconds)) : 1
+        warmDuration = settings.keepMicWarm && settings.mode == .builtIn ? seconds : nil
+        lock.unlock()
         if settings.keepMicWarm, settings.mode == .builtIn {
             startCaptureIfNeeded()
         } else if state == .idle {
@@ -521,6 +589,7 @@ public final class VoiceSession: VoiceActionHandler {
         }
         restoreWork?.cancel()
         restoreWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+        let seconds = delay.isFinite ? min(60, max(0, delay)) : 1.5
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: work)
     }
 }

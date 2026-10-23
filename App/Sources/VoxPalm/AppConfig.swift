@@ -40,18 +40,154 @@ struct AppConfig: Codable, Equatable {
         return base.appendingPathComponent("VoxPalm/config.json")
     }
 
-    static func load(from url: URL = fileURL) -> AppConfig {
-        guard let data = try? Data(contentsOf: url), let config = try? JSONDecoder().decode(AppConfig.self, from: data) else {
+    static func load(from url: URL = fileURL) throws -> AppConfig {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
             return AppConfig()
         }
+        return try decode(data)
+    }
+
+    static func decode(_ data: Data) throws -> AppConfig {
+        let config = try JSONDecoder().decode(AppConfig.self, from: data)
+        try config.validate()
         return config
     }
 
+    /// 外部 JSON 也会进入定时器、录音缓冲区和 SwiftUI 列表，不能只检查它是否符合 Codable。
+    func validate() throws {
+        guard version == 1 else { throw ValidationError.unsupportedVersion(version) }
+        for (name, value) in [("双击间隔", timing.doubleTapWindow), ("长按时长", timing.longPressThreshold)] {
+            guard value.isFinite, value > 0, value < Double(Int64.max) / 1_000_000_000 else {
+                throw ValidationError.invalidValue(name)
+            }
+        }
+        for (name, value) in [("切回麦克风延迟", voice.restoreInputDelay), ("输入法发送延迟", voice.inputMethodSendDelay),
+                              ("最短录音时长", voice.minimumSeconds)] {
+            guard value.isFinite, (0...60).contains(value) else { throw ValidationError.invalidValue("\(name)（0–60 秒）") }
+        }
+        guard voice.warmSeconds.isFinite, (0...3).contains(voice.warmSeconds) else {
+            throw ValidationError.invalidValue("预录时长（0–3 秒）")
+        }
+        guard Set(controlDeviceIDs).count == controlDeviceIDs.count, !controlDeviceIDs.contains("") else {
+            throw ValidationError.invalidValue("控制设备列表")
+        }
+        var ids = Set<UUID>()
+        var gestures: [ButtonID: Set<GestureKind>] = [:]
+        for binding in keyMap.bindings {
+            guard ids.insert(binding.id).inserted,
+                  gestures[binding.button, default: []].insert(binding.gesture).inserted else {
+                throw ValidationError.invalidValue("重复的按键映射")
+            }
+        }
+        for layout in deviceLayouts.values {
+            guard Set(layout.learned.map(\.button)).count == layout.learned.count else {
+                throw ValidationError.invalidValue("重复的已学按键")
+            }
+        }
+    }
+
     func save(to url: URL = fileURL) throws {
+        try validate()
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(self).write(to: url, options: .atomic)
+    }
+
+    enum ValidationError: LocalizedError {
+        case unsupportedVersion(Int)
+        case invalidValue(String)
+
+        var errorDescription: String? {
+            switch self {
+            case let .unsupportedVersion(version): return "设置文件版本 \(version) 不受当前掌声支持，请使用对应版本的 App。"
+            case let .invalidValue(name): return "设置文件里的「\(name)」不合法，未应用这份设置。"
+            }
+        }
+    }
+}
+
+/// 延迟保存与退出前落盘共用同一份待保存内容；读坏的原文件只在明确导入时备份、替换。
+@MainActor
+final class AppConfigStore {
+    let url: URL
+    let initialConfig: AppConfig
+    private(set) var loadProblem: String?
+    private(set) var hasPendingChanges = false
+    var onSaveResult: ((String?) -> Void)?
+    private var pending: AppConfig?
+    private var saveWork: DispatchWorkItem?
+
+    init(url: URL = AppConfig.fileURL) {
+        self.url = url
+        do {
+            initialConfig = try AppConfig.load(from: url)
+        } catch {
+            initialConfig = AppConfig()
+            loadProblem = "原设置文件读不出来，已保留在 \(url.path)。本次更改暂不保存，可先导出，再导入有效设置恢复保存。原因：\(error.localizedDescription)"
+        }
+    }
+
+    func scheduleSave(_ config: AppConfig) {
+        pending = config
+        hasPendingChanges = true
+        saveWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            do { try self?.flush() } catch { /* flush 已把失败交给界面，保留待保存内容供重试 */ }
+        }
+        saveWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    func flush() throws {
+        saveWork?.cancel()
+        saveWork = nil
+        guard let pending else { return }
+        do {
+            if let loadProblem { throw SaveError.protectedOriginal(loadProblem) }
+            try pending.save(to: url)
+            self.pending = nil
+            hasPendingChanges = false
+            onSaveResult?(nil)
+        } catch {
+            onSaveResult?(error.localizedDescription)
+            throw error
+        }
+    }
+
+    /// 导入先保存旧设置，再写新设置；写盘失败时不更改运行中的配置，也不丢掉延迟保存内容。
+    @discardableResult
+    func replace(with imported: AppConfig, previous: AppConfig) throws -> URL {
+        try imported.validate()
+        let backup = url.deletingLastPathComponent().appendingPathComponent("config-backup-\(UUID().uuidString).json")
+        if loadProblem != nil {
+            try FileManager.default.copyItem(at: url, to: backup)
+            if hasPendingChanges {
+                // 原文件读坏后用户仍可能编辑了临时设置，两份都保留。
+                let unsaved = url.deletingLastPathComponent().appendingPathComponent("config-unsaved-\(UUID().uuidString).json")
+                try previous.save(to: unsaved)
+            }
+        } else {
+            try previous.save(to: backup)
+        }
+        try imported.save(to: url)
+        saveWork?.cancel()
+        saveWork = nil
+        pending = nil
+        hasPendingChanges = false
+        loadProblem = nil
+        onSaveResult?(nil)
+        return backup
+    }
+
+    private enum SaveError: LocalizedError {
+        case protectedOriginal(String)
+        var errorDescription: String? {
+            switch self { case let .protectedOriginal(message): return message }
+        }
     }
 }
 

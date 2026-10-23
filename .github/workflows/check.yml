@@ -1,0 +1,34 @@
+name: 开源版检查
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      # 固定到官方 v7.0.1 的提交，不随标签移动。
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: 记录工具链
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: 单元测试与脚本回归
+        run: bash scripts/check.sh
+      - name: 通用版打包与验签
+        env:
+          SIGN_IDENTITY: '-'
+          UNIVERSAL: '1'
+        run: OUTPUT_DIR="$RUNNER_TEMP/voxpalm-package" bash scripts/build-app.sh

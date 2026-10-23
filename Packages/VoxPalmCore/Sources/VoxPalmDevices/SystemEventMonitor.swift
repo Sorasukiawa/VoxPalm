@@ -38,6 +38,8 @@ public final class SystemEventMonitor {
     }
 
     public var onEvent: ((Event) -> Void)?
+    /// 系统暂停监听时可能丢掉松开事件，通知上层取消按住状态。
+    public var onInputCancelled: (() -> Void)?
     /// 只在 `.filter` 模式下生效：返回 true 的事件不再传给别的 App。
     public var shouldSuppress: ((Event) -> Bool)?
 
@@ -101,8 +103,9 @@ public final class SystemEventMonitor {
         source = nil
     }
 
-    private func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+    func handle(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            onInputCancelled?()
             if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
             return Unmanaged.passUnretained(event)
         }
