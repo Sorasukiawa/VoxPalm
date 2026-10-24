@@ -71,6 +71,20 @@ cd Packages/VoxPalmCore && swift test
 
 在仓库根目录运行 `bash scripts/check.sh`，可依次检查打包脚本、核心库、探针、App 配置存储和探针参数。默认使用 2 个编译任务，`SWIFT_JOBS` 可调整；脚本强制使用开源构建，不启动正常 App 或接管真实设备。GitHub Actions 使用同一入口，另做临时签名的通用版打包；自动检查通过不等于完成设备和系统版本兼容性验收。
 
+已验证的工具链（2026-10-24，`de5bfb3`，两边 `bash scripts/check.sh` 都通过，核心库 89、探针 8、App 11 项测试）：
+
+| 环境 | Xcode | Swift |
+|---|---|---|
+| GitHub Actions `macos-26`（镜像 `macos-26-arm64` 20261013.0424.1） | 26.6（17F113） | 6.3.3 |
+| 本机 macOS 27 | 27.1（27A9275） | 6.4 |
+
+云端通用版打包时链接器会对 `whisper.framework` 报 `ignoring unexpected dylib file` 警告，不影响打包和验签。本机复现云端检查：
+
+```bash
+SWIFT_JOBS=2 bash scripts/check.sh
+SIGN_IDENTITY=- UNIVERSAL=1 OUTPUT_DIR="$TMPDIR/voxpalm-package" bash scripts/build-app.sh
+```
+
 配置导入会先在配置目录生成 `config-backup-<标识>.json`，成功后可在「关于」页找到备份。读不出原配置时会保留它，界面显示保存问题，本次修改暂不自动写回；可先导出本次设置，再导入有效配置恢复保存。退出前会立即保存尚在等待写入的改动，写入失败时提供返回检查的选择。
 
 另有一个用真模型的 whisper.cpp 测试，平时跳过；设 `VOXPALM_TEST_WHISPER_MODEL=<ggml 模型文件>` 才跑（用 `say -v Tingting` 合成一句中文再转回来）。
