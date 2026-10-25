@@ -68,7 +68,8 @@
 | DJI Mic Mini | 待实测 | 闭源模块，免费版可用 |
 | 小米蓝牙遥控器 2 / 2 Pro | 计划中 | 开源 |
 | Apple Siri Remote | 已加入型号识别、对应外形和按键学习，真机待验证；滑动触摸、内置麦克风未接入 | 开源 |
-| DualSense（DS5）/ DualSense Edge（DSE） | 已加入 USB/蓝牙按键适配，含方向键、肩键、触摸板按下和 Edge 额外键；真机待验证 | 开源 |
+| DualSense（DS5） | 已加入 USB/蓝牙按键适配；真机待验证 | 开源 |
+| DualSense Edge（DSE） | USB 的 23 个按键输入、八方向及回中已实测，默认档背键可独立读取；蓝牙、连接稳定性及 App 完整流程仍待验收 | 开源 |
 | 翻页笔、脚踏板等通用按键设备 | 计划中 | 开源 |
 | iPhone / iPad / Apple Watch（掌声手机版：触控板 + 按住说话） | 计划中 | 开源 |
 
