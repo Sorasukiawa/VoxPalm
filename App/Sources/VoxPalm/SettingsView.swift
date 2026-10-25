@@ -481,25 +481,40 @@ struct VoicePane: View {
         SettingsCard("外部输入法", subtitle: "说话期间临时把系统默认输入切到你选的收音设备，结束后切回。", symbol: "globe", color: .tileIndigo) {
             VStack(alignment: .leading, spacing: 0) {
                 InputMethodFlow(mic: model.pickerMics.first { $0.uid == model.config.voice.micUID }?.shortName ?? "你选的麦",
-                                key: model.config.voice.inputMethodKey.key.title,
+                                key: model.config.voice.inputMethodKey.key == .custom
+                                    ? model.config.voice.inputMethodKey.custom?.display ?? "自定义快捷键"
+                                    : model.config.voice.inputMethodKey.key.title,
                                 style: model.config.voice.inputMethodKey.style)
                     .padding(.bottom, 12)
                 RowDivider()
-                SettingRow("输入法的语音键", detail: "要和输入法里设的一样。微信输入法默认「按住 Fn」；系统听写默认是「连按两下 Fn」") {
+                SettingRow("输入法的语音键", detail: "按键和按法都要与输入法的设置一致；使用 Fn 按住说话前，先确认输入法里已启用它。系统听写可设为「连按两下 Fn」。") {
                     Picker("输入法的语音键", selection: model.binding(\.voice.inputMethodKey.key)) {
-                        ForEach(InputMethodKey.Key.allCases.filter { $0 != .custom }, id: \.self) { Text($0.title).tag($0) }
+                        ForEach(InputMethodKey.Key.allCases, id: \.self) { Text($0.title).tag($0) }
                     }
                     .labelsHidden().fixedSize()
+                    .onChange(of: model.config.voice.inputMethodKey.key) { _, key in
+                        if key == .custom, model.config.voice.inputMethodKey.style == .hold {
+                            model.update { $0.voice.inputMethodKey.style = .tap }
+                        }
+                    }
+                }
+                if model.config.voice.inputMethodKey.key == .custom {
+                    RowDivider()
+                    SettingRow("要模拟的快捷键", detail: "与输入工具里的设置一致，例如 Handy 的 Option + 空格。组合键在开始和结束时各按一次。") {
+                        ShortcutRecorder(combo: model.binding(\.voice.inputMethodKey.custom))
+                    }
                 }
                 RowDivider()
                 SettingRow("怎么按") {
                     Picker("怎么按", selection: model.binding(\.voice.inputMethodKey.style)) {
-                        ForEach(InputMethodKey.Style.allCases, id: \.self) { Text($0.title).tag($0) }
+                        ForEach(InputMethodKey.Style.allCases.filter {
+                            model.config.voice.inputMethodKey.key != .custom || $0 != .hold
+                        }, id: \.self) { Text($0.title).tag($0) }
                     }
                     .labelsHidden().fixedSize()
                 }
                 RowDivider()
-                SettingRow("松手后多久切回麦克风", detail: "微信输入法不跟着切，实测一直用 Mac 自带的麦") {
+                SettingRow("松手后多久切回麦克风", detail: "微信、豆包输入法需把各自的麦克风设为「自动检测」，才能跟随这里临时切麦。") {
                     SnapSlider(value: model.binding(\.voice.restoreInputDelay), in: 0...5, step: 0.5).frame(width: 180)
                     ValueChip(text: String(format: "%.1f 秒", model.config.voice.restoreInputDelay))
                 }

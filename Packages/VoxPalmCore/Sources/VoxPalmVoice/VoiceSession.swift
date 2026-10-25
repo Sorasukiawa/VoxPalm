@@ -239,6 +239,16 @@ public final class VoiceSession: VoiceActionHandler {
             onOutcome?(.failed(message))
             return
         }
+        if settings.mode == .inputMethod, settings.inputMethodKey.key == .custom,
+           settings.inputMethodKey.custom == nil || settings.inputMethodKey.style == .hold {
+            voiceCancel()
+            let message = settings.inputMethodKey.custom == nil
+                ? "还没设置输入法的自定义语音快捷键，请先在设置 › 语音中录制"
+                : "自定义组合键不支持持续按住，请在设置 › 语音中改用按一下开始、再按一下结束"
+            onMessage?(message)
+            onOutcome?(.failed(message))
+            return
+        }
         state = .listening
         if settings.mode == .builtIn { startPreview() }
         if settings.mode == .inputMethod {
