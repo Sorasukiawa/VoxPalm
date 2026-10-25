@@ -109,16 +109,16 @@ public enum InputMethodBridge {
     }
 }
 
-/// 系统里的输入法收音跟不跟系统默认输入走。外部输入法模式靠说话时临时切系统默认输入来换麦，不跟着走的输入法换不了。
+/// 提醒检查输入法的独立麦克风选择。是否跟随系统默认输入取决于输入法的设置，不能仅凭输入法身份判断。
 public enum InputMethodMic {
-    /// 实测不跟着切麦的输入法：输入法 ID 前缀 → 名字。
-    /// 微信输入法 3.0：说话时系统默认输入已经切到别的麦，它照样录 Mac 自带麦（2026-10-21 实测）
+    /// 保留旧接口名：这里记录需要提醒检查麦克风设置的输入法 ID 前缀，不是“不支持切麦”的能力名单。
+    /// 微信输入法 3.0 选择「自动检测」后可跟随切麦并出字（2026-10-25 实测）；此前的固定 Mac 麦结果来自它自己的设备选择。
     static let ignoringDefaultInput = ["com.tencent.inputmethod.wetype": "微信输入法"]
 
     /// 系统启用的输入法变了时发的通知（分布式通知）
     public static let enabledChangedNotification = Notification.Name(kTISNotifyEnabledKeyboardInputSourcesChanged as String)
 
-    /// 系统启用的输入法里有不跟着切麦的，返回它的名字。
+    /// 返回需要提示检查独立麦克风设置的已启用输入法；不读取或推断该输入法当前的设备选择。
     /// 看「启用了」而不是「当前选中」：微信输入法的语音快捷键是全局的，当前输入法是 ABC 时照样响应（2026-10-21 实测）
     public static func enabledIgnoringDefaultInput() -> String? {
         guard let sources = TISCreateInputSourceList(nil, false)?.takeRetainedValue() as? [TISInputSource] else { return nil }

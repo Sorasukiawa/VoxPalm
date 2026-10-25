@@ -66,9 +66,14 @@ cp "$ROOT/brand/menubar/MenuBarIconTemplate.png" "$ROOT/brand/menubar/MenuBarIco
 
 # 签名：有 Developer ID 或 Apple Development 证书就用它，这样重新编译后系统权限不会失效；没有就临时签名。
 IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | grep -E '"(Developer ID Application|Apple Development):' | head -1 | sed -E 's/.*"(.*)"/\1/' || true)}"
-# 先签里面的框架再签 App：强化运行时只肯加载同一个签名的框架。
-codesign --force --options runtime --sign "${IDENTITY:--}" "$APP/Contents/Frameworks/whisper.framework"
-codesign --force --options runtime --entitlements "$ROOT/App/VoxPalm.entitlements" --sign "${IDENTITY:--}" "$APP"
+# 正式证书启用强化运行时；临时签名没有 Team ID，启用后会在加载 whisper 时被库验证拦下。
+SIGN_OPTIONS=runtime
+if [[ -z "$IDENTITY" || "$IDENTITY" == "-" ]]; then
+  SIGN_OPTIONS=0
+fi
+# 先签里面的框架再签 App，显式覆盖编译产物可能保留的旧签名选项。
+codesign --force --options "$SIGN_OPTIONS" --sign "${IDENTITY:--}" "$APP/Contents/Frameworks/whisper.framework"
+codesign --force --options "$SIGN_OPTIONS" --entitlements "$ROOT/App/VoxPalm.entitlements" --sign "${IDENTITY:--}" "$APP"
 codesign --verify --deep --strict "$APP"
 if [[ -e "$DESTINATION" ]]; then
   mv "$DESTINATION" "$PREVIOUS"

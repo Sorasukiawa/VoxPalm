@@ -22,6 +22,7 @@ fi
 SH
 cat > "$TEST_DIR/bin/codesign" <<'SH'
 #!/bin/bash
+printf '%s\n' "$*" >> "$TEST_DIR/codesign-arguments"
 if [[ "${FAIL_SIGN:-0}" == 1 ]]; then exit 1; fi
 if [[ "${FAIL_VERIFY:-0}" == 1 && "$1" == --verify ]]; then exit 1; fi
 SH
@@ -44,7 +45,9 @@ if FAIL_VERIFY=1 OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST
   echo '验签失败应返回失败' >&2; exit 1
 fi
 test "$(cat output/VoxPalm.app/keep)" = 'old executable'
+: > "$TEST_DIR/codesign-arguments"
 UNIVERSAL=0 OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/success.log" 2>&1
+test "$(grep -c -- '--options 0' "$TEST_DIR/codesign-arguments")" = 2
 test "$(cat output/VoxPalm.app/Contents/MacOS/VoxPalm)" = 'new executable'
 test ! -e output/VoxPalm.app/keep
 test -f output/VoxPalm.app/Contents/Frameworks/whisper.framework/whisper
@@ -54,8 +57,11 @@ if grep -q -- '--arch' "$TEST_DIR/swift-arguments"; then
 fi
 UNIVERSAL=1 OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/universal.log" 2>&1
 grep -q -- '--arch arm64 --arch x86_64' "$TEST_DIR/swift-arguments"
+: > "$TEST_DIR/codesign-arguments"
+SIGN_IDENTITY=fixture-identity OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/certificate.log" 2>&1
+test "$(grep -c -- '--options runtime' "$TEST_DIR/codesign-arguments")" = 2
 if UNIVERSAL=invalid OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/invalid.log" 2>&1; then
   echo '无效的 UNIVERSAL 应返回失败' >&2; exit 1
 fi
 test -z "$(find output -name '.voxpalm-build.*' -print)"
-echo '打包回归通过：失败保留旧包、成功替换、相对路径、通用版开关、临时文件清理。'
+echo '打包回归通过：失败保留旧包、成功替换、相对路径、通用版开关、临时与证书签名选项、临时文件清理。'

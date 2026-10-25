@@ -232,6 +232,31 @@ private actor DeferredTranscriber: Transcriber {
     #expect(!outcomes.contains(.handedToInputMethod))
 }
 
+@Test(arguments: [false, true]) @MainActor func 无效自定义输入法快捷键不会报告成功(_ usesHold: Bool) {
+    var settings = VoiceSession.Settings()
+    settings.mode = .inputMethod
+    settings.inputMethodKey = InputMethodKey(key: .custom, style: .tap)
+    if usesHold {
+        settings.inputMethodKey.style = .hold
+        settings.inputMethodKey.custom = .init(keyCode: 49, modifiers: 1 << 19, display: "⌥Space")
+    }
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.canPostInputMethodKey = { true }
+    var keyEvents = 0
+    dependencies.beginInputMethod = { _ in keyEvents += 1 }
+    dependencies.endInputMethod = { _ in keyEvents += 1 }
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    var outcomes: [VoiceSession.Outcome] = []
+    session.onOutcome = { outcomes.append($0) }
+    session.voiceBegin(VoiceRequest())
+    session.voiceEnd()
+    #expect(session.state == .idle && keyEvents == 0)
+    #expect(outcomes.count == 1)
+    guard let outcome = outcomes.first else { return }
+    if case .failed = outcome {} else { Issue.record("缺少快捷键或使用不支持的按法时应明确报告失败") }
+}
+
 @Test @MainActor func 待回车时允许新说话并取消旧回车() async throws {
     var settings = VoiceSession.Settings()
     settings.mode = .inputMethod

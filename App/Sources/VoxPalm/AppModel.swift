@@ -25,7 +25,7 @@ final class AppModel {
     private(set) var mutedMicUIDs: Set<String> = []
     /// 别的程序正开着被静音的那支麦（比如系统设置的「声音」页）：面板提醒是哪个程序
     private(set) var micHolders: [AudioInputClient] = []
-    /// 系统启用了不跟着切麦的输入法时它的名字（比如微信输入法）：外部输入法模式下选的麦它用不上
+    /// 需要提醒检查独立麦克风设置的输入法；能否跟随系统取决于输入法里的实际选择。
     private(set) var inputMethodIgnoringMic: String?
     private(set) var voiceState: VoiceSession.State = .idle
     private(set) var lastButton: String?
@@ -352,7 +352,7 @@ final class AppModel {
         micRoute.device ?? selectedMic
     }
 
-    /// 外部输入法模式下，系统启用了不跟着切麦的输入法，而这次该用的麦又不是 Mac 自带麦：用那家输入法出字时这支麦用不上
+    /// 外部输入法模式下选择外接麦时，提醒检查输入法自己的麦克风设置，不推断它当前实际用了哪支麦。
     var inputMethodMicWarning: (ime: String, mic: String)? {
         guard config.voice.mode == .inputMethod, let ime = inputMethodIgnoringMic,
               let mic = recordingMic, mic.transport != "Built-in" else { return nil }
@@ -641,8 +641,8 @@ final class AppModel {
                                    fix: .devices, informational: true))
         }
         if !isPaused, let warning = inputMethodMicWarning {
-            items.append(Attention(id: "ime-mic", title: "\(warning.ime)不跟着切麦",
-                                   detail: "用它出字时它一直录 Mac 自带麦，\(warning.mic) 用不上。要用 \(warning.mic) 收音，在设置 › 语音换成「内置转写」。",
+            items.append(Attention(id: "ime-mic", title: "检查\(warning.ime)的麦克风设置",
+                                   detail: "要用 \(warning.mic) 收音，请确认输入法自己的麦克风已设为「自动检测」；固定选择某支麦时不会跟随掌声切换。",
                                    fix: .voice, informational: true))
         }
         return items
