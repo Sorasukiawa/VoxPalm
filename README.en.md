@@ -69,7 +69,7 @@ Whether a device's buttons can be read by the Mac is tested on each device; we n
 | Xiaomi Bluetooth Remote 2 / 2 Pro | Planned | Open source |
 | Apple Siri Remote | Model detection, diagrams and button learning implemented; hardware verification pending. Touch gestures and the built-in microphone are not implemented | Open source |
 | DualSense (DS5) | USB/Bluetooth button support implemented; hardware verification pending | Open source |
-| DualSense Edge (DSE) | All 23 buttons, eight D-pad directions and return to neutral tested over USB and Bluetooth; independent back buttons in the default profile. Bluetooth R1 push-to-talk with the Mac's built-in microphone, Chinese transcription and pasting into a chat input tested. Disconnect cancellation and long-term stability still need verification | Open source |
+| DualSense Edge (DSE) | All 23 buttons, eight D-pad directions and neutral tested over USB/Bluetooth; independent back buttons in the default profile. R1 with the built-in controller mic over USB, Chinese transcription and pasting into a chat input tested. Bluetooth can use the Mac mic; wireless controller audio remains experimental. Disconnect cancellation and long-term stability still need verification | Open source |
 | Presenters, foot pedals and other generic button devices | Planned | Open source |
 | iPhone / iPad / Apple Watch (VoxPalm mobile: trackpad + hold to talk) | Planned | Open source |
 

@@ -25,7 +25,8 @@ public enum DualSenseInput {
         case (0x01, 64): offset = 8; complete = true
         case (0x01, 10): offset = 5; complete = false
         case (0x31, 78):
-            guard validBluetoothChecksum(bytes) else { return nil }
+            // 音频与按键共用 0x31 编号；音频内容不能被当成按键，也不能伪造全部松开。
+            guard bytes[1] & 0x02 == 0, validBluetoothChecksum(bytes) else { return nil }
             offset = 9; complete = true
         default: return nil
         }

@@ -46,6 +46,12 @@ private func names(_ names: [String]) -> Set<ButtonID> { Set(names.map(DualSense
     #expect(DualSenseInput.pressed(reportID: 256, bytes: usbReport(), edge: false) == nil)
 }
 
+@Test func 有效音频包不能变成手柄按键或伪造松开() {
+    let audio = [UInt8(0x31), 0x02, 0x42] + [UInt8](repeating: 0xE1, count: 71) + [146, 103, 83, 58]
+    #expect(DualSenseInput.pressed(reportID: 0x31, bytes: audio, edge: true) == nil)
+    #expect(DualSenseInput.pressed(reportID: 0x31, bytes: audio, edge: false) == nil)
+}
+
 @Test func 重复报告去重且对角切换先松开旧方向() {
     var state = HIDButtonState()
     let first = state.update(names(["up", "right"]), deviceID: "a", time: 0, label: DualSenseInput.label)
