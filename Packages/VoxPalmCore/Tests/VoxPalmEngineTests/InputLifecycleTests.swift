@@ -95,16 +95,40 @@ private func input(_ engine: ButtonEngine, _ phase: ButtonEvent.Phase, button: B
 }
 
 @Test @MainActor func 修改映射后不再执行之前排队的开始说话() async throws {
-    let (engine, voice, _) = makeEngine()
-    engine.talkAfterDelay = 0.06
+    final class QueuedVoice: VoiceActionHandler {
+        var isVoiceActive = false
+        var checks = 0
+        var log: [String] = []
+        var atReadyCheck: ((Int) -> Void)?
+        var canStartVoice: Bool { checks += 1; atReadyCheck?(checks); return true }
+        func voiceArm(_ request: VoiceRequest) {}
+        func voiceDisarm(tooShortFor threshold: Double?) {}
+        func voiceBegin(_ request: VoiceRequest) { log.append("begin") }
+        func voiceEnd() {}
+        func voiceCancel() { log.append("cancel") }
+    }
+    let (engine, _, _) = makeEngine()
+    let voice = QueuedVoice()
+    engine.voice = voice
+    engine.talkAfterDelay = 0
     engine.keyMap = KeyMap(bindings: [
         KeyBinding(button: talkButton, buttonLabel: "说话", gesture: .single, action: .none, talkAfter: true),
     ])
     voice.log.removeAll()
-    input(engine, .trigger)
-    try await Task.sleep(nanoseconds: 20_000_000)
-    engine.keyMap = KeyMap()
-    try await Task.sleep(nanoseconds: 100_000_000)
+    await withCheckedContinuation { continuation in
+        voice.atReadyCheck = { count in
+            if count == 1 {
+                // 已通过任务入口的代次检查，在延迟开始前改映射，命中延迟后的二次检查。
+                engine.keyMap = KeyMap()
+            } else if count == 2 {
+                voice.atReadyCheck = nil
+                // 当前 MainActor 任务完成最后的检查后再断言，避免用墙钟时间猜调度顺序。
+                Task { @MainActor in continuation.resume() }
+            }
+        }
+        input(engine, .trigger)
+    }
+    #expect(voice.checks == 2)
     #expect(voice.log == ["cancel"])
 }
 
