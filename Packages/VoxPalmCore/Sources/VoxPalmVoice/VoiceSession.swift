@@ -316,10 +316,16 @@ public final class VoiceSession: VoiceActionHandler {
     public func inputDevicesChanged() {
         guard debugAudioFile == nil else { return }
         let route = micRoute()
-        let wrongInput = settings.mode == .inputMethod && isVoiceActive
-            && settings.micUID.map(MicRouting.isControllerInput) == true
-            && route.device?.id != dependencies.defaultInputID()
-        guard route.unavailableUID != nil || wrongInput else { return }
+        let missingInput = route.unavailableUID != nil
+        var wrongInput = false
+        // 分支比较设备编号，避开 Swift 6.3 优化器对可选值短路比较的生命周期错误。
+        if settings.mode == .inputMethod, isVoiceActive,
+           let selectedUID = settings.micUID, MicRouting.isControllerInput(selectedUID) {
+            let currentInput = dependencies.defaultInputID()
+            if let device = route.device { wrongInput = device.id != currentInput }
+            else { wrongInput = true }
+        }
+        guard missingInput || wrongInput else { return }
         let wasActive = isVoiceActive
         if wasActive { voiceCancel() }
         capture.stop()
@@ -327,7 +333,7 @@ public final class VoiceSession: VoiceActionHandler {
         ring.removeAll()
         lock.unlock()
         if wasActive {
-            let reason = route.unavailableUID != nil ? "手柄麦克风已断开" : "系统收音设备已变化"
+            let reason = missingInput ? "手柄麦克风已断开" : "系统收音设备已变化"
             onMessage?("\(reason)，本次说话已取消")
             onOutcome?(.failed("\(reason)，请重新连接或重新按住说话"))
         }
