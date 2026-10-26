@@ -378,6 +378,179 @@ private func mic(_ id: AudioObjectID, _ uid: String, _ transport: String, isDefa
     #expect(MicRouting.resolve(selectedUID: nil, inputs: [dji, virtual], muted: ["DJI"]) == .init(device: nil, avoided: dji))
 }
 
+@Test func 手柄麦克风掉线不能回退成Mac麦但重连后仍可选择() {
+    let uid = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:test-port:2"
+    let builtIn = mic(1, "Mac", "Built-in", isDefault: true)
+    let controller = mic(2, uid, "USB")
+    #expect(MicRouting.resolve(selectedUID: uid, inputs: [builtIn], muted: []) ==
+            .init(device: nil, avoided: nil, unavailableUID: uid))
+    #expect(MicRouting.resolve(selectedUID: uid, inputs: [builtIn, controller], muted: []) ==
+            .init(device: controller, avoided: nil))
+    // 普通麦克风继续遵循已有的系统默认回退，不扩大本次行为改动。
+    #expect(MicRouting.resolve(selectedUID: "missing-usb-mic", inputs: [builtIn], muted: []) ==
+            .init(device: nil, avoided: nil))
+}
+
+@Test(arguments: [VoiceSession.Mode.builtIn, .inputMethod]) @MainActor
+func 手柄麦缺失时不进入正在听也不触发外部输入法(_ mode: VoiceSession.Mode) {
+    var settings = VoiceSession.Settings()
+    settings.mode = mode
+    settings.micUID = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:missing-test-port:2"
+    var keyBegins = 0
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.canPostInputMethodKey = { true }
+    dependencies.beginInputMethod = { _ in keyBegins += 1 }
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    session.debugAudioFile = nil
+    var states: [VoiceSession.State] = []
+    var failures = 0
+    session.onStateChange = { states.append($0) }
+    session.onOutcome = { if case .failed = $0 { failures += 1 } }
+    session.voiceArm(VoiceRequest())
+    session.voiceBegin(VoiceRequest())
+    #expect(session.state == .idle)
+    #expect(states.isEmpty)
+    #expect(keyBegins == 0)
+    #expect(failures == 2)
+}
+
+@Test(arguments: [false, true]) @MainActor
+func 手柄麦在预备后或说话中断开会取消并还原默认输入(_ afterBegin: Bool) async throws {
+    let uid = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:test-port:2"
+    let builtIn = mic(1, "Mac", "Built-in", isDefault: true)
+    var inputs = [builtIn, mic(2, uid, "USB")]
+    var currentInput: AudioObjectID = 1
+    var writes: [AudioObjectID] = []
+    var begins = 0, ends = 0
+    var restored: (() -> Void)?
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.inputDevices = { inputs }
+    dependencies.defaultInputID = { currentInput }
+    dependencies.setDefaultInput = {
+        currentInput = $0; writes.append($0)
+        if $0 == 1 { let complete = restored; restored = nil; complete?() }
+        return true
+    }
+    dependencies.canPostInputMethodKey = { true }
+    dependencies.beginInputMethod = { _ in begins += 1 }
+    dependencies.endInputMethod = { _ in ends += 1 }
+    var settings = VoiceSession.Settings()
+    settings.mode = .inputMethod
+    settings.micUID = uid
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    session.debugAudioFile = nil
+    session.voiceArm(VoiceRequest())
+    #expect(session.state == .armed)
+    #expect(currentInput == 2)
+    if afterBegin { session.voiceBegin(VoiceRequest()) }
+    inputs = [builtIn]
+    await withCheckedContinuation { continuation in
+        restored = { continuation.resume() }
+        if afterBegin { session.inputDevicesChanged() }
+        else { session.voiceBegin(VoiceRequest()) }
+    }
+    #expect(session.state == .idle)
+    #expect(begins == (afterBegin ? 1 : 0))
+    #expect(ends == (afterBegin ? 1 : 0))
+    #expect(currentInput == 1)
+    #expect(writes == [2, 1])
+}
+
+@Test @MainActor func 预热手柄麦失败后不能把旧预录带入下一轮() async throws {
+    actor RecordingTranscriber: Transcriber {
+        nonisolated let name = "测试转写"
+        var durations: [Double] = []
+        func transcribe(_ buffers: [AVAudioPCMBuffer], locale: Locale) async throws -> String {
+            durations.append(AudioConversion.duration(buffers))
+            return ""
+        }
+    }
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-warm-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let empty = directory.appendingPathComponent("empty.wav")
+    let audio = sine(seconds: 0.4, rate: 16_000, channels: 1)
+    do { _ = try AVAudioFile(forWriting: empty, settings: audio.format.settings) }
+    let transcriber = RecordingTranscriber()
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.inputDevices = { [] }
+    dependencies.makeTranscriber = { _, _ in transcriber }
+    dependencies.makePreview = { _, _, _ in nil }
+    var settings = VoiceSession.Settings()
+    settings.micUID = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:missing-test-port:2"
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    session.debugAudioFile = empty
+    session.settings.keepMicWarm = true
+    session.received(audio) // idle 预热阶段喂入，真正进入 ring 而非 sessionBuffers。
+    await withCheckedContinuation { continuation in
+        session.onStateChange = { state in
+            if state == .idle { session.onStateChange = nil; continuation.resume() }
+        }
+        session.voiceBegin(VoiceRequest())
+        session.voiceEnd()
+    }
+    #expect(session.state == .idle)
+    let before = await transcriber.durations
+    #expect(before.count == 1)
+    #expect(abs((before.first ?? 0) - 0.4) < 0.001) // 先证明旧预录确实存在并可被下一轮收取。
+    session.debugAudioFile = nil
+    session.settings.localeID = "en-US" // 同一个 UID 的预热开麦失败。
+    session.debugAudioFile = empty
+    var last: VoiceSession.Outcome?
+    session.onOutcome = { last = $0 }
+    session.voiceBegin(VoiceRequest())
+    session.voiceEnd()
+    #expect(last == .noAudio)
+    #expect(session.state == .idle)
+    #expect(await transcriber.durations.count == 1)
+    session.voiceCancel()
+}
+
+@Test(arguments: [false, true]) @MainActor
+func 手柄仍在线但输入法默认麦被外部改变时取消且不覆盖外部选择(_ afterBegin: Bool) async throws {
+    let uid = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:test-port:2"
+    var currentInput: AudioObjectID = 1
+    var writes: [AudioObjectID] = []
+    var begins = 0, ends = 0
+    var restorationChecked: (() -> Void)?
+    func completeRestorationCheck() {
+        let complete = restorationChecked
+        restorationChecked = nil
+        complete?()
+    }
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.inputDevices = { [mic(1, "Mac", "Built-in"), mic(2, uid, "USB"), mic(3, "Other", "USB")] }
+    dependencies.defaultInputID = { completeRestorationCheck(); return currentInput }
+    dependencies.setDefaultInput = {
+        currentInput = $0; writes.append($0)
+        if $0 == 1 { completeRestorationCheck() }
+        return true
+    }
+    dependencies.canPostInputMethodKey = { true }
+    dependencies.beginInputMethod = { _ in begins += 1 }
+    dependencies.endInputMethod = { _ in ends += 1 }
+    var settings = VoiceSession.Settings()
+    settings.mode = .inputMethod
+    settings.micUID = uid
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    session.debugAudioFile = nil
+    session.voiceArm(VoiceRequest())
+    if afterBegin { session.voiceBegin(VoiceRequest()) }
+    currentInput = 3 // 用户或系统改了默认输入，DSE 仍在清单中。
+    if afterBegin { session.inputDevicesChanged() }
+    else { session.voiceBegin(VoiceRequest()) }
+    #expect(session.state == .idle)
+    #expect(begins == (afterBegin ? 1 : 0))
+    #expect(ends == (afterBegin ? 1 : 0))
+    await withCheckedContinuation { continuation in restorationChecked = { continuation.resume() } }
+    #expect(currentInput == 3)
+    #expect(writes == [2])
+}
+
 @Test func 左右Option分开发键() throws {
     // 输入法里录成左 Option 的语音键只认左边，键码和区分左右的设备位都要对
     let left = try #require(InputMethodKey.Key.leftOption.modifier)

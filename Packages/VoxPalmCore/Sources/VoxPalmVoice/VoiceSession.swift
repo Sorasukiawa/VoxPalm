@@ -121,6 +121,7 @@ public final class VoiceSession: VoiceActionHandler {
     private var debugFed: Double = 0
     private var debugTimer: Timer?
     private var savedDefaultInput: AudioObjectID?
+    private var routedDefaultInput: AudioObjectID?
     private var restoreWork: DispatchWorkItem?
     /// 这次说话的附加要求（说完要不要回车发送）
     private var request = VoiceRequest()
@@ -141,6 +142,9 @@ public final class VoiceSession: VoiceActionHandler {
         var beginInputMethod: (InputMethodKey) -> Void = InputMethodBridge.begin
         var endInputMethod: (InputMethodKey) -> Void = InputMethodBridge.end
         var sendReturn: @MainActor (TextTarget?) -> String = { TextDelivery.sendReturn(since: $0) }
+        var inputDevices: () -> [AudioDeviceInfo] = AudioDevices.inputs
+        var defaultInputID: () -> AudioObjectID = { AudioDevices.defaultInputID }
+        var setDefaultInput: (AudioObjectID) -> Bool = AudioDevices.setDefaultInput
     }
     private let dependencies: Dependencies
 
@@ -166,9 +170,7 @@ public final class VoiceSession: VoiceActionHandler {
 
     /// 这次录音用哪支麦（选的那支被控制设备静音了就换一支，见 MicRouting）
     public func micRoute() -> MicRouting.Route {
-        let muted = mutedInputs()
-        guard !muted.isEmpty else { return MicRouting.Route(device: settings.micUID.flatMap { AudioDevices.device(uid: $0) }, avoided: nil) }
-        return MicRouting.resolve(selectedUID: settings.micUID, inputs: AudioDevices.inputs(), muted: muted)
+        MicRouting.resolve(selectedUID: settings.micUID, inputs: dependencies.inputDevices(), muted: mutedInputs())
     }
 
     /// 录音用的设备；nil = 系统默认输入
@@ -198,11 +200,23 @@ public final class VoiceSession: VoiceActionHandler {
             sessionBuffers = settings.keepMicWarm ? ring : []
             collecting = true
             lock.unlock()
-            startCaptureIfNeeded()
+            guard startCaptureIfNeeded() else {
+                lock.lock()
+                collecting = false
+                sessionBuffers.removeAll()
+                ring.removeAll()
+                lock.unlock()
+                onOutcome?(.failed("没有打开选定的收音设备，请检查连接和麦克风权限"))
+                return
+            }
             if let file = debugAudioFile { startDebugFeed(file) }
             if TranscriberFactory.usesWhisper(settings.transcriber) { WhisperTranscriber.prepare(settings: settings.whisper) }
         case .inputMethod:
-            switchDefaultInput()
+            guard switchDefaultInput() else {
+                restoreDefaultInput(after: 0)
+                onOutcome?(.failed("无法切换到选定的收音设备，请检查连接"))
+                return
+            }
         }
         state = .armed
     }
@@ -230,6 +244,8 @@ public final class VoiceSession: VoiceActionHandler {
 
     public func voiceBegin(_ request: VoiceRequest) {
         if state == .idle { voiceArm(request) }
+        guard state == .armed else { return }
+        inputDevicesChanged()
         guard state == .armed else { return }
         self.request = request
         if settings.mode == .inputMethod, !dependencies.canPostInputMethodKey() {
@@ -294,6 +310,27 @@ public final class VoiceSession: VoiceActionHandler {
 
     public func voiceCancel() {
         cancel(using: settings)
+    }
+
+    /// 音频清单变化时结束丢失手柄麦的录音；松手后已开始的转写继续保留。
+    public func inputDevicesChanged() {
+        guard debugAudioFile == nil else { return }
+        let route = micRoute()
+        let wrongInput = settings.mode == .inputMethod && isVoiceActive
+            && settings.micUID.map(MicRouting.isControllerInput) == true
+            && route.device?.id != dependencies.defaultInputID()
+        guard route.unavailableUID != nil || wrongInput else { return }
+        let wasActive = isVoiceActive
+        if wasActive { voiceCancel() }
+        capture.stop()
+        lock.lock()
+        ring.removeAll()
+        lock.unlock()
+        if wasActive {
+            let reason = route.unavailableUID != nil ? "手柄麦克风已断开" : "系统收音设备已变化"
+            onMessage?("\(reason)，本次说话已取消")
+            onOutcome?(.failed("\(reason)，请重新连接或重新按住说话"))
+        }
     }
 
     private func invalidatePendingWork() {
@@ -439,7 +476,8 @@ public final class VoiceSession: VoiceActionHandler {
         return min(1, max(0, (db + 50) / 50))
     }
 
-    private func received(_ buffer: AVAudioPCMBuffer) {
+    /// 收音源的 PCM 入口，在模块内可独立验证预录与会话缓冲，不依赖真实麦克风。
+    func received(_ buffer: AVAudioPCMBuffer) {
         let now = CFAbsoluteTimeGetCurrent()
         if onLevel != nil, now - lastLevelTime > 0.05 {
             lastLevelTime = now
@@ -515,10 +553,16 @@ public final class VoiceSession: VoiceActionHandler {
         debugQueue = []
     }
 
-    private func startCaptureIfNeeded() {
-        guard debugAudioFile == nil else { return }
+    @discardableResult
+    private func startCaptureIfNeeded() -> Bool {
+        guard debugAudioFile == nil else { return true }
         let route = micRoute()
-        guard !capture.isRunning || capture.deviceID != (route.device?.id ?? AudioDevices.defaultInputID) else { return }
+        guard route.unavailableUID == nil else {
+            capture.stop()
+            onMessage?("选定的手柄麦克风没连上，请重新连接 USB 或改选收音设备")
+            return false
+        }
+        guard !capture.isRunning || capture.deviceID != (route.device?.id ?? AudioDevices.defaultInputID) else { return true }
         switch MicrophoneAccess.status {
         case .authorized:
             do {
@@ -528,6 +572,7 @@ public final class VoiceSession: VoiceActionHandler {
                 try capture.start(deviceID: route.device?.id)
                 let device = capture.deviceID.flatMap { AudioDevices.device(id: $0) }
                 logger.notice("开麦 \(device?.name ?? "?", privacy: .public) \(Int(self.capture.format?.sampleRate ?? 0)) Hz \(self.capture.format?.channelCount ?? 0) 声道")
+                return true
             } catch {
                 onMessage?("开麦失败：\(error)")
             }
@@ -540,6 +585,7 @@ public final class VoiceSession: VoiceActionHandler {
         default:
             onMessage?("没有麦克风权限：系统设置 → 隐私与安全性 → 麦克风 → 打开「掌声」")
         }
+        return false
     }
 
     private func stopCaptureUnlessWarm() {
@@ -564,7 +610,11 @@ public final class VoiceSession: VoiceActionHandler {
         warmDuration = settings.keepMicWarm && settings.mode == .builtIn ? seconds : nil
         lock.unlock()
         if settings.keepMicWarm, settings.mode == .builtIn {
-            startCaptureIfNeeded()
+            if !startCaptureIfNeeded() {
+                lock.lock()
+                ring.removeAll()
+                lock.unlock()
+            }
         } else if state == .idle {
             capture.stop()
             lock.lock()
@@ -575,27 +625,39 @@ public final class VoiceSession: VoiceActionHandler {
 
     // MARK: - 外部输入法：临时切换系统默认输入
 
-    private func switchDefaultInput() {
+    private func switchDefaultInput() -> Bool {
         restoreWork?.cancel()
         restoreWork = nil
         // 跟随系统默认、而默认输入会被控制设备静音时，也临时切到换上的那支
         let route = micRoute()
-        guard let target = route.device?.id else { return }
+        guard route.unavailableUID == nil else {
+            onMessage?("选定的手柄麦克风没连上，请重新连接 USB 或改选收音设备")
+            return false
+        }
+        guard let target = route.device?.id else { return true }
         if let avoided = route.avoided {
             logger.notice("外部输入法收音避开 \(avoided.name, privacy: .public)，临时切到 \(route.device?.name ?? "?", privacy: .public)")
         }
-        let current = AudioDevices.defaultInputID
-        guard current != target else { return }
-        if savedDefaultInput == nil { savedDefaultInput = current }
-        if !AudioDevices.setDefaultInput(target) { onMessage?("切换收音设备失败") }
+        let current = dependencies.defaultInputID()
+        guard current != target else { return true }
+        guard dependencies.setDefaultInput(target) else {
+            onMessage?("切换收音设备失败")
+            return false
+        }
+        if savedDefaultInput == nil || routedDefaultInput != current { savedDefaultInput = current }
+        routedDefaultInput = target
+        return true
     }
 
     private func restoreDefaultInput(after delay: Double) {
         guard let saved = savedDefaultInput else { return }
+        let owned = routedDefaultInput
         let work = DispatchWorkItem { [weak self] in
-            AudioDevices.setDefaultInput(saved)
-            self?.savedDefaultInput = nil
-            self?.restoreWork = nil
+            guard let self else { return }
+            if let owned, self.dependencies.defaultInputID() == owned { _ = self.dependencies.setDefaultInput(saved) }
+            self.savedDefaultInput = nil
+            self.routedDefaultInput = nil
+            self.restoreWork = nil
         }
         restoreWork?.cancel()
         restoreWork = work

@@ -273,6 +273,7 @@ final class AppModel {
     func refreshDevices() {
         devices = engine.allDevices()
         micDevices = AudioDevices.inputs()
+        if !isPreview { voice.inputDevicesChanged() }
         let problem = activeDevice.flatMap { engine.problem(of: $0.id) }
         if problem != controlProblem {
             controlProblem = problem
