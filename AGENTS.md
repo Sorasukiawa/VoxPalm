@@ -28,3 +28,8 @@ Mac 起步的「多设备按键控制 + 语音输入」App：用遥控器、无�
 
 - 文档和注释用简体中文；提交说明格式 `类型: 描述`。
 - README 例外，有四个语言版本：`README.md`（简体中文，以它为准）、`README.zh-TW.md`、`README.en.md`、`README.ja.md`。改其中一个时同步改其余几个。首页截图在 `docs/screenshots/`，重新截的方法见那里的 README。
+
+## 检查与评审
+
+- 合入前检查：`bash scripts/check.sh`（git-ship merge 会自动跑；真实设备和转写效果另外验收）。
+- 改到 `REVIEW.md`「高风险路径」列出的文件时，合入前按 `REVIEW.md` 做一次独立审查；动到打包、权限、模型下载或开源边界时，再专门做一次安全审查（Claude 用 `/security-review`；Codex 让审查方按 `REVIEW.md` 第 1、2、4 条专看外泄）。
