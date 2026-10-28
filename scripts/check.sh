@@ -5,7 +5,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 unset VOXPALM_PRIVATE_DIR
 JOBS="${SWIFT_JOBS:-2}"
-bash -n scripts/build-app.sh scripts/tests/build-app.sh scripts/check.sh
+# bash -n 一次只查一个文件，后面的会被当成参数。
+for script in scripts/build-app.sh scripts/lib/local-paths.sh scripts/tests/build-app.sh scripts/check.sh; do
+  bash -n "$script"
+done
 plutil -lint App/Info.plist App/VoxPalm.entitlements
 bash scripts/tests/build-app.sh
 swift test --package-path Packages/VoxPalmCore --jobs "$JOBS"
