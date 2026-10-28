@@ -89,7 +89,8 @@ private func hid(_ t: Double, _ phase: ProbeEvent.Phase, control: String = "Cons
 }
 
 @Test func 报告里的USB声卡序列号不原样导出() throws {
-    let uid = "AppleUSBAudioEngine:Example Audio:USB Mic:SN0123456789:1"
+    // 名字带斜杠：报告不转义斜杠，序列号才认得出来
+    let uid = "AppleUSBAudioEngine:Example Audio:USB/Line Mic:SN0123456789:1"
     var report = ProbeReport(device: .init(name: "测试设备"))
     report.connectionTest = .analyze([ProbeEvent(t: 1, channel: .device, device: "USB 麦", deviceKey: uid, control: "音频设备", phase: .added)])
     #expect(!String(decoding: try report.jsonData(), as: UTF8.self).contains("SN0123456789"))

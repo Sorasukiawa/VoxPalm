@@ -85,6 +85,12 @@ private func fakeToken(_ serial: String = "a1-b2-c3-12-34-56") -> String {
     #expect(codes.count == 3 && codes[0] == codes[1] && codes[0] != codes[2])
     #expect(Redaction.redactReport(text, key: key) == once)
     #expect(Redaction.redactReport(text) != once)
+    // 名字里有引号、反斜杠、斜杠，经 JSONEncoder 转义后序列号也要换掉
+    let names = ["Example \"Pro\" Audio", #"Example\Audio"#, "Example/Audio", "Example\u{1}Audio"]
+    let encoded = String(decoding: try JSONEncoder().encode(names.map { "AppleUSBAudioEngine:\($0):USB Mic:SN0123456789:1" }), as: UTF8.self)
+    let escaped = Redaction.redactReport(encoded, key: key)
+    #expect(!escaped.contains("SN0123456789"))
+    #expect(try JSONDecoder().decode([String].self, from: Data(escaped.utf8)).count == names.count)
 }
 
 @Test func HID用途名字() {

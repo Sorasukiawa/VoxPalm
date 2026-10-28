@@ -7,8 +7,8 @@ public enum Redaction {
         pattern: "([0-9A-Fa-f]{2})([-:])([0-9A-Fa-f]{2})\\2([0-9A-Fa-f]{2})\\2[0-9A-Fa-f]{2}\\2[0-9A-Fa-f]{2}\\2[0-9A-Fa-f]{2}"
     )
     private static let digestPattern = try! NSRegularExpression(pattern: "^(?:[0-9a-f]{64}|registry-[0-9]+)$")
-    /// JSON 里整个字符串值是 USB 声卡 UID 的地方
-    private static let usbAudioUIDPattern = try! NSRegularExpression(pattern: "\"(AppleUSBAudioEngine:[^\"\\\\\\n]*)\"")
+    /// JSON 里整个字符串值是 USB 声卡 UID 的地方（名字里的 `\"`、`\\` 等转义也算在里面）
+    private static let usbAudioUIDPattern = try! NSRegularExpression(pattern: #""(AppleUSBAudioEngine:(?:[^"\\\n]|\\.)*)""#)
 
     public static func maskBluetoothAddresses(_ text: String) -> String {
         let range = NSRange(text.startIndex..., in: text)
