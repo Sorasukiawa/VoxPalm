@@ -75,6 +75,25 @@ fi
 codesign --force --options "$SIGN_OPTIONS" --sign "${IDENTITY:--}" "$APP/Contents/Frameworks/whisper.framework"
 codesign --force --options "$SIGN_OPTIONS" --entitlements "$ROOT/App/VoxPalm.entitlements" --sign "${IDENTITY:--}" "$APP"
 codesign --verify --deep --strict "$APP"
+# 发布包签完名再整包查一遍本机路径：strip -S 去不掉写进程序的 #filePath、#file 和写死的路径，查到就失败、保留旧包。
+# 官方版也查（私有编译目录 .build-private 也含 .build）；仓库和私有仓库不在 /Users/ 下也按完整路径查，
+# 经符号链接的再查一遍解析后的真实路径，编译器记的是那个。调试版本来就带路径，不查。
+if [[ "$CONFIG" == "release" ]]; then
+  EXTRA_PATHS=("$ROOT" "$(cd "$ROOT" && pwd -P)")
+  if [[ -n "${VOXPALM_PRIVATE_DIR:-}" ]]; then
+    EXTRA_PATHS+=("$VOXPALM_PRIVATE_DIR" "$(cd "$VOXPALM_PRIVATE_DIR" && pwd -P)")
+  fi
+  if ! LEAKS="$(bash "$ROOT/scripts/lib/local-paths.sh" "$APP" "${EXTRA_PATHS[@]}")"; then
+    echo "整包本机路径自检没能查完，保留旧包。已查到的：" >&2
+    head -20 <<< "$LEAKS" >&2
+    exit 1
+  fi
+  if [[ -n "$LEAKS" ]]; then
+    printf '发布包里查到 %s 处本机路径，保留旧包。写进程序的路径只能放在 #if DEBUG 里：\n' "$(grep -c '' <<< "$LEAKS")" >&2
+    head -20 <<< "$LEAKS" >&2
+    exit 1
+  fi
+fi
 if [[ -e "$DESTINATION" ]]; then
   mv "$DESTINATION" "$PREVIOUS"
 fi
