@@ -42,10 +42,26 @@ struct AppConfigTests {
         #expect(shared.deviceLayouts["dji:mic2:<redacted>:input"]?.diagramID == "无线麦")
         #expect(shared.voice.micUID == nil)
         try shared.validate()
-        // 不含身份的收音设备照常导出，本机设置不受影响
-        config.voice.micUID = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:1150000:2"
-        #expect(config.sharable().voice.micUID == config.voice.micUID)
+        // USB 麦去掉序列号留型号，内置麦原样导出，本机设置不受影响
+        config.voice.micUID = "AppleUSBAudioEngine:Example Audio:USB Mic:SN0123456789:1"
+        #expect(config.sharable().voice.micUID == "AppleUSBAudioEngine:Example Audio:USB Mic:<redacted>:1")
+        config.voice.micUID = "BuiltInMicrophoneDevice"
+        #expect(config.sharable().voice.micUID == "BuiltInMicrophoneDevice")
         #expect(config.controlDeviceIDs == [Self.otherEdge])
+    }
+
+    @Test func 导入后同型号的USB麦恰好一支才认回() {
+        var config = AppConfig()
+        config.voice.micUID = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:1150000:2"
+        var imported = config.sharable()
+        let otherPort = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:2110000:2"
+        var changed = imported.resolveDevicePlaceholders(connected: [], mics: ["BuiltInMicrophoneDevice"])
+        #expect(!changed)
+        changed = imported.resolveDevicePlaceholders(connected: [], mics: [otherPort, config.voice.micUID!])
+        #expect(!changed)
+        changed = imported.resolveDevicePlaceholders(connected: [], mics: ["BuiltInMicrophoneDevice", otherPort])
+        #expect(changed)
+        #expect(imported.voice.micUID == otherPort)
     }
 
     @Test func 导入后同型号恰好一台才认回且示意图跟着走() {

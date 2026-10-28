@@ -20,9 +20,13 @@ private func fakeToken(_ serial: String = "a1-b2-c3-12-34-56") -> String {
     #expect(Redaction.maskDeviceIdentity("hid:0x004C:0x0315|registry-42|Bluetooth") == "hid:0x004C:0x0315|<redacted>|Bluetooth")
     #expect(Redaction.maskDeviceIdentity("dji:mic2:A1-B2-C3-12-34-56:input") == "dji:mic2:<redacted>:input")
     #expect(Redaction.maskDeviceIdentity("a1:b2:c3:12:34:56:input") == "<redacted>:input")
+    // USB 声卡 UID 里的序列号或端口位置
+    #expect(Redaction.maskDeviceIdentity("AppleUSBAudioEngine:Example Audio:USB Mic:SN0123456789:1")
+            == "AppleUSBAudioEngine:Example Audio:USB Mic:<redacted>:1")
+    #expect(Redaction.maskDeviceIdentity("AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:1150000:2")
+            == "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:<redacted>:2")
     // 不含身份的标识原样保留
-    for id in ["hid:0x1234:0x5678|翻页笔|USB", "keys:media", "BuiltInMicrophoneDevice",
-               "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:1150000:2"] {
+    for id in ["hid:0x1234:0x5678|翻页笔|USB", "keys:media", "BuiltInMicrophoneDevice", "AppleUSBAudioEngine:短"] {
         #expect(Redaction.maskDeviceIdentity(id) == id)
     }
 }
@@ -38,6 +42,9 @@ private func fakeToken(_ serial: String = "a1-b2-c3-12-34-56") -> String {
     let dji = Redaction.maskDeviceIdentity("dji:mic2:A1-B2-C3-12-34-56:input")
     #expect(Redaction.identity(dji, matches: "dji:mic2:D4-E5-F6-00-00-01:input"))
     #expect(!Redaction.identity(dji, matches: "dji:mic3:D4-E5-F6-00-00-01:input"))
+    let usb = Redaction.maskDeviceIdentity("AppleUSBAudioEngine:Example Audio:USB Mic:SN0123456789:1")
+    #expect(Redaction.identity(usb, matches: "AppleUSBAudioEngine:Example Audio:USB Mic:SN9876543210:1"))
+    #expect(!Redaction.identity(usb, matches: "AppleUSBAudioEngine:Example Audio:USB Mic Pro:SN9876543210:1"))
     // 没有占位的标识只认一模一样的
     #expect(Redaction.identity("hid:0x1234:0x5678|翻页笔|USB", matches: "hid:0x1234:0x5678|翻页笔|USB"))
     #expect(!Redaction.identity("hid:0x1234:0x5678|翻页笔|USB", matches: "hid:0x1234:0x5678|翻页笔2|USB"))

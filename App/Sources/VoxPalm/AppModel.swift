@@ -265,7 +265,7 @@ final class AppModel {
     func importConfig(from url: URL) throws {
         let data = try Data(contentsOf: url)
         var imported = try AppConfig.decode(data)
-        _ = imported.resolveDevicePlaceholders(connected: engine.allDevices().map(\.id))
+        _ = imported.resolveDevicePlaceholders(connected: engine.allDevices().map(\.id), mics: AudioDevices.inputs().map(\.uid))
         configBackupURL = try configStore.replace(with: imported, previous: config)
         apply(imported, save: false)
     }
@@ -276,8 +276,8 @@ final class AppModel {
         devices = engine.allDevices()
         micDevices = AudioDevices.inputs()
         // 导入时没连着的设备，连上后再认回
-        let connected = devices.map(\.id)
-        update { _ = $0.resolveDevicePlaceholders(connected: connected) }
+        let (connected, mics) = (devices.map(\.id), micDevices.map(\.uid))
+        update { _ = $0.resolveDevicePlaceholders(connected: connected, mics: mics) }
         if !isPreview { voice.inputDevicesChanged() }
         let problem = activeDevice.flatMap { engine.problem(of: $0.id) }
         if problem != controlProblem {

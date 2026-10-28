@@ -28,13 +28,21 @@ public enum Redaction {
     /// 设备标识里身份部分换成的占位。
     public static let identityPlaceholder = "<redacted>"
 
-    /// 设置里的设备标识去掉身份：完整蓝牙地址、已适配 HID 设备的序列号摘要或连接编号换成占位，
-    /// 型号和连接方式留着，导入后靠 `identity(_:matches:)` 认回同型号设备。
+    /// 设置里的设备标识去掉身份：完整蓝牙地址、已适配 HID 设备的序列号摘要或连接编号、
+    /// USB 声卡 UID 里的序列号（没有序列号时是端口位置）换成占位，型号和连接方式留着，导入后靠 `identity(_:matches:)` 认回同型号设备。
     public static func maskDeviceIdentity(_ id: String) -> String {
-        let segments = id.split(separator: "|", omittingEmptySubsequences: false).map { segment -> String in
+        var segments = id.split(separator: "|", omittingEmptySubsequences: false).map { segment -> String in
             let text = String(segment)
             let range = NSRange(text.startIndex..., in: text)
             return digestPattern.firstMatch(in: text, range: range) == nil ? text : identityPlaceholder
+        }
+        // USB 声卡的 UID：AppleUSBAudioEngine:厂商:型号:序列号或位置:接口
+        if segments.count == 1, id.hasPrefix("AppleUSBAudioEngine:") {
+            var parts = id.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+            if parts.count >= 5 {
+                parts[parts.count - 2] = identityPlaceholder
+                segments = [parts.joined(separator: ":")]
+            }
         }
         let joined = segments.joined(separator: "|")
         let range = NSRange(joined.startIndex..., in: joined)
