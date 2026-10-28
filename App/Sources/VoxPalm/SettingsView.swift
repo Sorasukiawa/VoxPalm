@@ -808,7 +808,7 @@ struct AboutPane: View {
         guard panel.runModal() == .OK, let url = panel.url else { return }
         do {
             try model.exportConfig(to: url)
-            flash("已导出到「\(url.lastPathComponent)」")
+            flash("已导出到「\(url.lastPathComponent)」，文件里不含设备序列号和蓝牙地址")
         } catch {
             flash("导出失败：\(error.localizedDescription)", temporary: false)
         }

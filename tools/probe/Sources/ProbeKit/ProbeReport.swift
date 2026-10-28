@@ -93,7 +93,9 @@ public struct ProbeReport: Codable, Sendable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(self)
+        var shared = self
+        if redact { shared.hidDevices = Redaction.anonymizeInstanceTokens(hidDevices) }
+        let data = try encoder.encode(shared)
         guard redact, let text = String(data: data, encoding: .utf8) else { return data }
         return Data(Redaction.maskBluetoothAddresses(text).utf8)
     }

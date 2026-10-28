@@ -26,7 +26,7 @@ let package = Package(
                               "-Xlinker", "\(Context.packageDirectory)/Sources/voxpalm-probe/Info.plist"]),
             ]
         ),
-        .testTarget(name: "ProbeKitTests", dependencies: ["ProbeKit"]),
+        .testTarget(name: "ProbeKitTests", dependencies: ["ProbeKit", .product(name: "VoxPalmDevices", package: "VoxPalmCore")]),
     ],
     swiftLanguageModes: [.v5]
 )
