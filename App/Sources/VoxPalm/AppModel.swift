@@ -274,10 +274,10 @@ final class AppModel {
 
     func refreshDevices() {
         devices = engine.allDevices()
+        micDevices = AudioDevices.inputs()
         // 导入时没连着的设备，连上后再认回
         let connected = devices.map(\.id)
         update { _ = $0.resolveDevicePlaceholders(connected: connected) }
-        micDevices = AudioDevices.inputs()
         if !isPreview { voice.inputDevicesChanged() }
         let problem = activeDevice.flatMap { engine.problem(of: $0.id) }
         if problem != controlProblem {

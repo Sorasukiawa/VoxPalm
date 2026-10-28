@@ -123,6 +123,8 @@ struct AppConfig: Codable, Equatable {
     /// 导入的设置里去掉身份的设备标识，换回当前连着的同型号设备。恰好一台对得上才换，认不准的留着，等设备连上再认。
     /// 返回有没有改动。
     mutating func resolveDevicePlaceholders(connected: [String]) -> Bool {
+        let isMasked = { (id: String) in id.contains(Redaction.identityPlaceholder) }
+        guard controlDeviceIDs.contains(where: isMasked) || deviceLayouts.keys.contains(where: isMasked) else { return false }
         let before = self
         func match(_ masked: String, excluding taken: [String]) -> String? {
             let candidates = connected.filter { Redaction.identity(masked, matches: $0) && !taken.contains($0) }
