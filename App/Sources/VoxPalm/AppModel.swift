@@ -257,13 +257,15 @@ final class AppModel {
         return runtime
     }
 
+    /// 导出的文件不含设备身份，见 `AppConfig.sharable`
     func exportConfig(to url: URL) throws {
-        try config.save(to: url)
+        try config.sharable().save(to: url)
     }
 
     func importConfig(from url: URL) throws {
         let data = try Data(contentsOf: url)
-        let imported = try AppConfig.decode(data)
+        var imported = try AppConfig.decode(data)
+        _ = imported.resolveDevicePlaceholders(connected: engine.allDevices().map(\.id), mics: AudioDevices.inputs().map(\.uid))
         configBackupURL = try configStore.replace(with: imported, previous: config)
         apply(imported, save: false)
     }
@@ -273,6 +275,9 @@ final class AppModel {
     func refreshDevices() {
         devices = engine.allDevices()
         micDevices = AudioDevices.inputs()
+        // 导入时没连着的设备，连上后再认回
+        let (connected, mics) = (devices.map(\.id), micDevices.map(\.uid))
+        update { _ = $0.resolveDevicePlaceholders(connected: connected, mics: mics) }
         if !isPreview { voice.inputDevicesChanged() }
         let problem = activeDevice.flatMap { engine.problem(of: $0.id) }
         if problem != controlProblem {
@@ -285,7 +290,8 @@ final class AppModel {
     /// 启用控制设备，顺便更新它会静音哪些麦
     private func activateEngine(_ ids: [String]) {
         guard !isPreview else { return }
-        engine.activate(ids)
+        // 还没认回的导入标识不是真设备，不交给适配模块
+        engine.activate(ids.filter { !$0.contains(Redaction.identityPlaceholder) })
         refreshMuted()
     }
 

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Testing
 import VoxPalmEngine
@@ -9,6 +10,86 @@ struct AppConfigTests {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-config-test-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appendingPathComponent("config.json")
+    }
+
+    private static func token(_ serial: String) -> String {
+        SHA256.hash(data: Data(serial.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static let edge = "hid:0x054C:0x0DF2|\(token("a1-b2-c3-12-34-56"))|Bluetooth"
+    private static let otherEdge = "hid:0x054C:0x0DF2|\(token("d4-e5-f6-00-00-01"))|Bluetooth"
+    private static let remote = "hid:0x1234:0x5678|翻页笔|USB"
+
+    private func layout(_ diagram: String) -> DeviceLayout {
+        var layout = DeviceLayout()
+        layout.diagramID = diagram
+        return layout
+    }
+
+    @Test func 导出的设置不含设备摘要和蓝牙地址() throws {
+        var config = AppConfig()
+        config.controlDeviceIDs = [Self.otherEdge]
+        config.deviceLayouts = [Self.edge: layout("别的那台"), Self.otherEdge: layout("正在用的"), Self.remote: layout("翻页笔"),
+                                "dji:mic2:A1-B2-C3-12-34-56:input": layout("无线麦")]
+        config.voice.micUID = "A1-B2-C3-12-34-56:input"
+        let shared = config.sharable()
+        let text = String(decoding: try JSONEncoder().encode(shared), as: UTF8.self)
+        #expect(!text.contains(Self.token("a1-b2-c3-12-34-56")) && !text.contains(Self.token("d4-e5-f6-00-00-01")))
+        #expect(!text.contains("12-34-56"))
+        #expect(shared.controlDeviceIDs == ["hid:0x054C:0x0DF2|<redacted>|Bluetooth"])
+        #expect(shared.deviceLayouts["hid:0x054C:0x0DF2|<redacted>|Bluetooth"]?.diagramID == "正在用的")
+        #expect(shared.deviceLayouts[Self.remote]?.diagramID == "翻页笔")
+        #expect(shared.deviceLayouts["dji:mic2:<redacted>:input"]?.diagramID == "无线麦")
+        #expect(shared.voice.micUID == nil)
+        try shared.validate()
+        // USB 麦去掉序列号留型号，内置麦原样导出，本机设置不受影响
+        config.voice.micUID = "AppleUSBAudioEngine:Example Audio:USB Mic:SN0123456789:1"
+        #expect(config.sharable().voice.micUID == "AppleUSBAudioEngine:Example Audio:USB Mic:<redacted>:1")
+        config.voice.micUID = "BuiltInMicrophoneDevice"
+        #expect(config.sharable().voice.micUID == "BuiltInMicrophoneDevice")
+        #expect(config.controlDeviceIDs == [Self.otherEdge])
+    }
+
+    @Test func 导入后同型号的USB麦恰好一支才认回() {
+        var config = AppConfig()
+        config.voice.micUID = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:1150000:2"
+        var imported = config.sharable()
+        let otherPort = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:2110000:2"
+        var changed = imported.resolveDevicePlaceholders(connected: [], mics: ["BuiltInMicrophoneDevice"])
+        #expect(!changed)
+        changed = imported.resolveDevicePlaceholders(connected: [], mics: [otherPort, config.voice.micUID!])
+        #expect(!changed)
+        changed = imported.resolveDevicePlaceholders(connected: [], mics: ["BuiltInMicrophoneDevice", otherPort])
+        #expect(changed)
+        #expect(imported.voice.micUID == otherPort)
+    }
+
+    @Test func 导入后同型号恰好一台才认回且示意图跟着走() {
+        var config = AppConfig()
+        config.controlDeviceIDs = [Self.edge]
+        config.deviceLayouts = [Self.edge: layout("手柄"), Self.remote: layout("翻页笔")]
+        let shared = config.sharable()
+
+        var imported = shared
+        // 没连着或同型号不止一台：认不准，原样留着
+        var changed = imported.resolveDevicePlaceholders(connected: [Self.remote])
+        #expect(!changed)
+        changed = imported.resolveDevicePlaceholders(connected: [Self.edge, Self.otherEdge, Self.remote])
+        #expect(!changed)
+        #expect(imported == shared)
+        changed = imported.resolveDevicePlaceholders(connected: [Self.otherEdge, Self.remote, "hid:0x054C:0x0DF2|\(Self.token("x"))|USB"])
+        #expect(changed)
+        #expect(imported.controlDeviceIDs == [Self.otherEdge])
+        #expect(imported.deviceLayouts == [Self.otherEdge: layout("手柄"), Self.remote: layout("翻页笔")])
+        changed = imported.resolveDevicePlaceholders(connected: [Self.otherEdge])
+        #expect(!changed)
+
+        // 本机已有这台的示意图设置时不被导入的覆盖
+        var existing = shared
+        existing.deviceLayouts[Self.edge] = layout("本机的")
+        changed = existing.resolveDevicePlaceholders(connected: [Self.edge])
+        #expect(changed)
+        #expect(existing.deviceLayouts == [Self.edge: layout("本机的"), Self.remote: layout("翻页笔")])
     }
 
     @Test func 首次启动没有配置时用默认值但不写文件() throws {
