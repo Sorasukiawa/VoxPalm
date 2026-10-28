@@ -81,7 +81,7 @@ final class ProbeCLI {
           wizard [--out 目录]   手势向导：逐个键测单击、双击、长按 1 秒、长按 3 秒，生成 JSON 和 Markdown 报告
 
         选项：
-          --no-redact           报告里保留完整蓝牙地址（默认只留前 3 段）
+          --no-redact           报告里保留完整蓝牙地址和 USB 序列号（默认蓝牙地址只留前 3 段，序列号重算）
         """)
     }
 
@@ -256,9 +256,9 @@ final class ProbeCLI {
             do {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 let encoder = JSONEncoder()
-                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
                 var text = String(decoding: try encoder.encode(events), as: UTF8.self)
-                if redact { text = Redaction.maskBluetoothAddresses(text) }
+                if redact { text = Redaction.redactReport(text) }
                 let file = directory.appendingPathComponent("watch.json")
                 try text.write(to: file, atomically: true, encoding: .utf8)
                 Console.say("已写入 \(file.path)")

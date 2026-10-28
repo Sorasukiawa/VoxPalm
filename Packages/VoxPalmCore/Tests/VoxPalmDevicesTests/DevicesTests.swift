@@ -68,6 +68,25 @@ private func fakeToken(_ serial: String = "a1-b2-c3-12-34-56") -> String {
     #expect(again[0].instanceToken != once[0].instanceToken)
 }
 
+@Test func 报告里的USB声卡序列号换成只在这份报告有效的值() throws {
+    let text = #"""
+    {"uid" : "AppleUSBAudioEngine:Example: Audio:USB Mic:SN0123456789:1", "deviceKey" : "AppleUSBAudioEngine:Example: Audio:USB Mic:SN0123456789:2",
+     "other" : "AppleUSBAudioEngine:Example: Audio:USB Mic:SN9999999999:1", "bt" : "A1-B2-C3-12-34-56:input",
+     "short" : "AppleUSBAudioEngine:短", "note" : "备注 AppleUSBAudioEngine:x:y:z:1 照原样"}
+    """#
+    let key = SymmetricKey(size: .bits256)
+    let once = Redaction.redactReport(text, key: key)
+    #expect(!once.contains("SN0123456789") && !once.contains("SN9999999999"))
+    #expect(once.contains("A1-B2-C3-xx-xx-xx:input"))
+    #expect(once.contains(#""AppleUSBAudioEngine:短""#) && once.contains("备注 AppleUSBAudioEngine:x:y:z:1 照原样"))
+    // 厂商名里有冒号也只换序列号那段；同一支麦的几个 UID 对得上，不同的麦对不上
+    let regex = try NSRegularExpression(pattern: "AppleUSBAudioEngine:Example: Audio:USB Mic:([0-9a-f]{16}):")
+    let codes = regex.matches(in: once, range: NSRange(once.startIndex..., in: once)).compactMap { Range($0.range(at: 1), in: once).map { String(once[$0]) } }
+    #expect(codes.count == 3 && codes[0] == codes[1] && codes[0] != codes[2])
+    #expect(Redaction.redactReport(text, key: key) == once)
+    #expect(Redaction.redactReport(text) != once)
+}
+
 @Test func HID用途名字() {
     #expect(HIDUsageNames.describe(page: 0x0C, usage: 0xCD) == "Consumer · Play/Pause")
     #expect(HIDUsageNames.usage(page: 0x07, usage: 0x28) == "Return")
