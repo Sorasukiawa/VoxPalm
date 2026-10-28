@@ -30,6 +30,7 @@ public struct HIDDeviceInfo: Codable, Hashable, Identifiable, Sendable {
     public let isBuiltIn: Bool
     public let maxInputReportSize: Int?
     /// 序列号/物理位置的摘要，用来区分同型号设备；不保留原始序列号或蓝牙地址。
+    /// 摘要不加盐，能穷举还原出蓝牙地址，只在本机用；写进要分享的报告或设置前先经过 `Redaction`。
     public var instanceToken: String? = nil
 
     public var displayName: String { product ?? manufacturer ?? "未命名设备" }

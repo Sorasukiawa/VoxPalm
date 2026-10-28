@@ -1,4 +1,7 @@
 import Testing
+import Foundation
+import CryptoKit
+import VoxPalmDevices
 @testable import ProbeKit
 
 private func hid(_ t: Double, _ phase: ProbeEvent.Phase, control: String = "Consumer · Play/Pause") -> ProbeEvent {
@@ -63,4 +66,24 @@ private func hid(_ t: Double, _ phase: ProbeEvent.Phase, control: String = "Cons
     #expect(!text.contains("12-34-56"))
     let markdown = MarkdownRenderer.render(report)
     #expect(markdown.contains("# 设备探针报告：测试设备"))
+}
+
+@Test func 报告里的设备摘要换成只在这份报告有效的值() throws {
+    let token = SHA256.hash(data: Data("a1-b2-c3-12-34-56".utf8)).map { String(format: "%02x", $0) }.joined()
+    let json = #"{"id":1,"vendorID":1356,"productID":3570,"product":"DualSense Edge Wireless Controller","transport":"Bluetooth","usagePairs":[],"isBuiltIn":false,"instanceToken":"\#(token)"}"#
+    let device = try JSONDecoder().decode(HIDDeviceInfo.self, from: Data(json.utf8))
+    var report = ProbeReport(device: .init(name: "测试设备"))
+    report.hidDevices = [device, device]
+    func tokens(_ data: Data) throws -> [String?] {
+        let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let devices = try #require(object["hidDevices"] as? [[String: Any]])
+        return devices.map { $0["instanceToken"] as? String }
+    }
+    let shared = try report.jsonData()
+    #expect(!String(decoding: shared, as: UTF8.self).contains(token))
+    let first = try tokens(shared)
+    #expect(first.count == 2 && first[0] != nil && first[0] == first[1])
+    #expect(try tokens(report.jsonData())[0] != first[0])
+    #expect(String(decoding: try report.jsonData(redact: false), as: UTF8.self).contains(token))
+    #expect(report.hidDevices[0].instanceToken == token)
 }

@@ -1,4 +1,5 @@
 import Foundation
+import VoxPalmDevices
 import VoxPalmEngine
 import VoxPalmVoice
 
@@ -95,6 +96,56 @@ struct AppConfig: Codable, Equatable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(self).write(to: url, options: .atomic)
+    }
+
+    /// 「导出设置」写出去的版本。这个文件常被发给别人看，设备标识去掉身份（`Redaction.maskDeviceIdentity`），
+    /// 导入后由 `resolveDevicePlaceholders` 按型号认回。
+    func sharable() -> AppConfig {
+        var copy = self
+        copy.controlDeviceIDs = []
+        for id in controlDeviceIDs.map(Redaction.maskDeviceIdentity) where !copy.controlDeviceIDs.contains(id) {
+            copy.controlDeviceIDs.append(id)
+        }
+        // 同型号的几台会落到同一个标识上，只留一份示意图设置：先留正在用的那台。
+        copy.deviceLayouts = [:]
+        let ordered = deviceLayouts.sorted { a, b in
+            let (activeA, activeB) = (controlDeviceIDs.contains(a.key), controlDeviceIDs.contains(b.key))
+            return activeA != activeB ? activeA : a.key < b.key
+        }
+        for (id, layout) in ordered {
+            let masked = Redaction.maskDeviceIdentity(id)
+            if copy.deviceLayouts[masked] == nil { copy.deviceLayouts[masked] = layout }
+        }
+        if let uid = voice.micUID {
+            // 蓝牙麦的 UID 去掉地址后只剩「<redacted>:input」，认不出型号，改回跟随系统默认输入
+            let masked = Redaction.maskDeviceIdentity(uid)
+            copy.voice.micUID = masked.hasPrefix(Redaction.identityPlaceholder) ? nil : masked
+        }
+        return copy
+    }
+
+    /// 导入的设置里去掉身份的设备标识，换回当前连着的同型号设备（`mics` 是收音设备的 UID）。
+    /// 恰好一台对得上才换，认不准的留着，等设备连上再认。返回有没有改动。
+    mutating func resolveDevicePlaceholders(connected: [String], mics: [String] = []) -> Bool {
+        let isMasked = { (id: String) in id.contains(Redaction.identityPlaceholder) }
+        guard controlDeviceIDs.contains(where: isMasked) || deviceLayouts.keys.contains(where: isMasked)
+                || voice.micUID.map(isMasked) == true else { return false }
+        let before = self
+        func match(_ masked: String, in connected: [String] = connected, excluding taken: [String]) -> String? {
+            let candidates = connected.filter { Redaction.identity(masked, matches: $0) && !taken.contains($0) }
+            return candidates.count == 1 ? candidates[0] : nil
+        }
+        if let uid = voice.micUID, isMasked(uid), let found = match(uid, in: mics, excluding: []) { voice.micUID = found }
+        for (index, id) in controlDeviceIDs.enumerated() where id.contains(Redaction.identityPlaceholder) {
+            if let found = match(id, excluding: controlDeviceIDs) { controlDeviceIDs[index] = found }
+        }
+        for (id, layout) in deviceLayouts where id.contains(Redaction.identityPlaceholder) {
+            guard let found = match(id, excluding: []) else { continue }
+            deviceLayouts[id] = nil
+            // 本机已经有这台设备的示意图设置时以本机的为准
+            if deviceLayouts[found] == nil { deviceLayouts[found] = layout }
+        }
+        return self != before
     }
 
     enum ValidationError: LocalizedError {
