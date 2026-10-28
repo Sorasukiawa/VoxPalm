@@ -87,3 +87,17 @@ private func hid(_ t: Double, _ phase: ProbeEvent.Phase, control: String = "Cons
     #expect(String(decoding: try report.jsonData(redact: false), as: UTF8.self).contains(token))
     #expect(report.hidDevices[0].instanceToken == token)
 }
+
+@Test func 报告里的USB声卡序列号不原样导出() throws {
+    // 名字带斜杠：报告不转义斜杠，序列号才认得出来
+    let uid = "AppleUSBAudioEngine:Example Audio:USB/Line Mic:SN0123456789:1"
+    var report = ProbeReport(device: .init(name: "测试设备"))
+    report.connectionTest = .analyze([ProbeEvent(t: 1, channel: .device, device: "USB 麦", deviceKey: uid, control: "音频设备", phase: .added)])
+    #expect(!String(decoding: try report.jsonData(), as: UTF8.self).contains("SN0123456789"))
+    #expect(String(decoding: try report.jsonData(redact: false), as: UTF8.self).contains(uid))
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-probe-test-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: directory) }
+    for file in try report.write(to: directory) {
+        #expect(!(try String(contentsOf: file, encoding: .utf8)).contains("SN0123456789"))
+    }
+}

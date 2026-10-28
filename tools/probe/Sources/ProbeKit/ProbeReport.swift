@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import VoxPalmDevices
 
@@ -89,15 +90,16 @@ public struct ProbeReport: Codable, Sendable {
 
     // MARK: - 导出
 
-    public func jsonData(redact: Bool = true) throws -> Data {
+    /// `key` 是这一份报告的一次性密钥，同一次导出的 JSON 和 Markdown 用同一把。
+    public func jsonData(redact: Bool = true, key: SymmetricKey = SymmetricKey(size: .bits256)) throws -> Data {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         encoder.dateEncodingStrategy = .iso8601
         var shared = self
-        if redact { shared.hidDevices = Redaction.anonymizeInstanceTokens(hidDevices) }
+        if redact { shared.hidDevices = Redaction.anonymizeInstanceTokens(hidDevices, key: key) }
         let data = try encoder.encode(shared)
         guard redact, let text = String(data: data, encoding: .utf8) else { return data }
-        return Data(Redaction.maskBluetoothAddresses(text).utf8)
+        return Data(Redaction.redactReport(text, key: key).utf8)
     }
 
     /// 写 report.json 和 report.md，返回两个文件的路径。
@@ -106,9 +108,10 @@ public struct ProbeReport: Codable, Sendable {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let json = directory.appendingPathComponent("report.json")
         let markdown = directory.appendingPathComponent("report.md")
-        try jsonData(redact: redact).write(to: json, options: .atomic)
+        let key = SymmetricKey(size: .bits256)
+        try jsonData(redact: redact, key: key).write(to: json, options: .atomic)
         let text = MarkdownRenderer.render(self)
-        try (redact ? Redaction.maskBluetoothAddresses(text) : text).write(to: markdown, atomically: true, encoding: .utf8)
+        try (redact ? Redaction.redactReport(text, key: key) : text).write(to: markdown, atomically: true, encoding: .utf8)
         return [json, markdown]
     }
 }
