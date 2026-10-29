@@ -2,6 +2,9 @@ import VoxPalmEngine
 #if VOXPALM_PRIVATE
 import VoxPalmDJI
 import VoxPalmMarks
+#if VOXPALM_EXPERIMENTAL_AUDIO
+import VoxPalmAudioExtension
+#endif
 #endif
 
 /// 闭源模块的接入点。开源版编译时这些模块不存在，这里全部返回空，App 照样完整可用。
@@ -15,7 +18,11 @@ enum PrivateModules {
 
     static func controlSources() -> [ControlSource] {
         #if VOXPALM_PRIVATE
-        return DJIModule.controlSources()
+        var sources = DJIModule.controlSources()
+        #if VOXPALM_EXPERIMENTAL_AUDIO
+        sources += AudioExtensionModule.controlSources()
+        #endif
+        return sources
         #else
         return []
         #endif

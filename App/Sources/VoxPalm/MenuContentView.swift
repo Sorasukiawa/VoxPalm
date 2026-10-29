@@ -102,6 +102,8 @@ struct MenuContentView: View {
                             LevelWave(level: model.micLevel).frame(width: 44, height: 12)
                         } else if missing {
                             StatusPill(text: "没连上", color: .orange)
+                        } else if let external = model.selectedExternalMic {
+                            Text(external.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         } else if let recording = model.recordingMic {
                             Text(DevicesPane.transportName(recording)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
@@ -113,7 +115,7 @@ struct MenuContentView: View {
                 }
             }
             .buttonStyle(TileButtonStyle())
-            .help(model.micRoute.unavailableUID != nil ? "选定的手柄麦克风没连上，重新连接 USB 或改选收音设备" :
+            .help(model.usesExternalMic ? (model.selectedExternalMic?.problem ?? "外部麦克风：按说话键后收音，仅支持内置转写") : model.micRoute.unavailableUID != nil ? "选定的手柄麦克风没连上，重新连接 USB 或改选收音设备" :
                     model.selectedMicMissing ? "选的麦没连上，先用系统默认输入收音。点开换收音设备" : "点开换收音设备")
         }
         // 两块一样高：哪块多一行、少一行（没连上、没有采样率）都按高的那块拉齐

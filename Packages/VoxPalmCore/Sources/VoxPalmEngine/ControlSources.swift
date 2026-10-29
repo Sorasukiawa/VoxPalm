@@ -30,6 +30,8 @@ public protocol ControlSource: AnyObject {
     /// 接管这台设备的按键时会被静音的收音设备（音频设备 UID）。有的无线麦，收按键用的控制通道一打开，它自己的麦就没声音了；
     /// 录音会避开这些麦（见 VoxPalmVoice 的 MicRouting）。
     func mutedInputs(for deviceID: String) -> Set<String>
+    /// 该来源负责统一接管的 HID 设备，通用来源应排除它。
+    func ownsHIDDevice(_ device: HIDDeviceInfo) -> Bool
 }
 
 public extension ControlSource {
@@ -40,6 +42,7 @@ public extension ControlSource {
     func retry(_ deviceID: String) {}
     func reportsDoubleTap(_ deviceID: String) -> Bool { true }
     func mutedInputs(for deviceID: String) -> Set<String> { [] }
+    func ownsHIDDevice(_ device: HIDDeviceInfo) -> Bool { false }
 
     func shutdown(completion: @escaping () -> Void) {
         activate([])
@@ -64,6 +67,9 @@ public final class HIDControlSource: ControlSource {
     private var buttonState = HIDButtonState()
     private var profiles: [String: HIDDeviceProfile] = [:]
 
+    /// 已由扩展来源统一接管的设备不能再由通用 HID 来源重复监听。
+    public var excludesDevice: (HIDDeviceInfo) -> Bool = { _ in false }
+
     public init() {}
 
     public static func deviceID(_ info: HIDDeviceInfo) -> String { "hid:" + info.controlKey }
@@ -72,7 +78,7 @@ public final class HIDControlSource: ControlSource {
         var seen = Set<String>()
         var result: [ControlDevice] = []
         profiles.removeAll()
-        let all = HIDMonitor.snapshot().filter { !$0.isBuiltIn }
+        let all = HIDMonitor.snapshot().filter { !$0.isBuiltIn && !excludesDevice($0) }
         for info in all where seen.insert(info.controlKey).inserted {
             profiles[Self.deviceID(info)] = info.profile
             let siblings = all.filter { $0.controlKey == info.controlKey }
@@ -97,7 +103,10 @@ public final class HIDControlSource: ControlSource {
         }
         if monitor == nil {
             let monitor = HIDMonitor()
-            monitor.deviceFilter = { [weak self] info in self?.active.contains(Self.deviceID(info)) ?? false }
+            monitor.deviceFilter = { [weak self] info in
+                guard let self else { return false }
+                return self.active.contains(Self.deviceID(info)) && !self.excludesDevice(info)
+            }
             monitor.onValue = { [weak self] value in self?.handle(value) }
             monitor.recordsRawReports = true
             monitor.rawReportFilter = { $0.profile?.isGamepad == true }

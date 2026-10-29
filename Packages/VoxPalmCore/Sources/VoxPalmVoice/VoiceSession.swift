@@ -109,6 +109,11 @@ public final class VoiceSession: VoiceActionHandler {
     }
 
     private let capture = AudioCapture()
+    private let externalInputs: () -> [ExternalAudioInput]
+    private var externalCapture: (input: ExternalAudioInput, id: UUID)?
+    private var externalStopping: UUID?
+    /// 和缓冲写入使用同一把锁，取消后的旧 PCM 不能进入下一轮。
+    private var externalBufferID: UUID?
     /// 诊断日志：录音用的哪个设备、每半秒的音量（只记数字，不记内容），查「声音录不进来」用
     private let logger = Logger(subsystem: "com.sorasukiawa.VoxPalm", category: "voice")
     private let lock = NSLock()
@@ -148,13 +153,14 @@ public final class VoiceSession: VoiceActionHandler {
     }
     private let dependencies: Dependencies
 
-    public convenience init(settings: Settings = Settings()) {
-        self.init(settings: settings, dependencies: Dependencies())
+    public convenience init(settings: Settings = Settings(), externalInputs: @escaping () -> [ExternalAudioInput] = { [] }) {
+        self.init(settings: settings, dependencies: Dependencies(), externalInputs: externalInputs)
     }
 
-    init(settings: Settings, dependencies: Dependencies) {
+    init(settings: Settings, dependencies: Dependencies, externalInputs: @escaping () -> [ExternalAudioInput] = { [] }) {
         self.settings = settings
         self.dependencies = dependencies
+        self.externalInputs = externalInputs
         capture.onBuffer = { [weak self] in self?.received($0) }
         if let path = ProcessInfo.processInfo.environment["VOXPALM_DEBUG_AUDIO_FILE"], !path.isEmpty {
             debugAudioFile = URL(fileURLWithPath: path)
@@ -170,7 +176,8 @@ public final class VoiceSession: VoiceActionHandler {
 
     /// 这次录音用哪支麦（选的那支被控制设备静音了就换一支，见 MicRouting）
     public func micRoute() -> MicRouting.Route {
-        MicRouting.resolve(selectedUID: settings.micUID, inputs: dependencies.inputDevices(), muted: mutedInputs())
+        if usesExternalInput { return MicRouting.Route(device: nil, avoided: nil, unavailableUID: settings.micUID) }
+        return MicRouting.resolve(selectedUID: settings.micUID, inputs: dependencies.inputDevices(), muted: mutedInputs())
     }
 
     /// 录音用的设备；nil = 系统默认输入
@@ -179,10 +186,10 @@ public final class VoiceSession: VoiceActionHandler {
     // MARK: - VoiceActionHandler
 
     public var isVoiceActive: Bool { state == .listening || state == .armed }
-    public var canStartVoice: Bool { state == .idle }
+    public var canStartVoice: Bool { state == .idle && externalStopping == nil }
 
     public func voiceArm(_ request: VoiceRequest) {
-        guard state == .idle else { return }
+        guard canStartVoice else { return }
         invalidatePendingWork()
         let generation = generation
         self.request = request
@@ -197,7 +204,7 @@ public final class VoiceSession: VoiceActionHandler {
         switch settings.mode {
         case .builtIn:
             lock.lock()
-            sessionBuffers = settings.keepMicWarm ? ring : []
+            sessionBuffers = settings.keepMicWarm && !usesExternalInput ? ring : []
             collecting = true
             lock.unlock()
             guard startCaptureIfNeeded() else {
@@ -294,17 +301,22 @@ public final class VoiceSession: VoiceActionHandler {
             self.preview = nil
             lock.unlock()
             preview?.stop()
-            stopCaptureUnlessWarm()
-            let seconds = AudioConversion.duration(buffers)
-            logLevels(buffers)
-            guard seconds >= settings.minimumSeconds else {
-                onMessage?(buffers.isEmpty ? "没录到声音：检查收音设备和麦克风权限" : String(format: "录音太短（%.1f 秒），当成误触", seconds))
-                onOutcome?(buffers.isEmpty ? .noAudio : .tooShort(threshold: settings.minimumSeconds))
-                state = .idle
-                return
+            if !settings.keepMicWarm { capture.stop() }
+            if externalCapture != nil {
+                let token = generation
+                state = .transcribing
+                stopExternalCapture { [weak self] result in
+                    guard let self, self.generation == token else { return }
+                    switch result {
+                    case .success: self.finishRecording(buffers)
+                    case let .failure(error):
+                        self.voiceCancel()
+                        self.onOutcome?(.failed(error.localizedDescription))
+                    }
+                }
+            } else {
+                finishRecording(buffers)
             }
-            state = .transcribing
-            transcribe(buffers, sendReturn: request.sendReturn, target: target)
         }
     }
 
@@ -315,6 +327,14 @@ public final class VoiceSession: VoiceActionHandler {
     /// 音频清单变化时结束丢失手柄麦的录音；松手后已开始的转写继续保留。
     public func inputDevicesChanged() {
         guard debugAudioFile == nil else { return }
+        if usesExternalInput {
+            let missing = selectedExternalInput == nil || selectedExternalInput?.device.problem != nil
+            if missing, isVoiceActive || externalStopping != nil {
+                voiceCancel()
+                onOutcome?(.failed("选定的外部麦克风已断开，本次说话已取消"))
+            }
+            return
+        }
         let route = micRoute()
         let missingInput = route.unavailableUID != nil
         var wrongInput = false
@@ -362,7 +382,67 @@ public final class VoiceSession: VoiceActionHandler {
         request = VoiceRequest()
         target = nil
         state = .idle
+        stopExternalCapture()
         if !activeSettings.keepMicWarm || activeSettings.mode != .builtIn { capture.stop() }
+    }
+
+    private func finishRecording(_ buffers: [AVAudioPCMBuffer]) {
+        let seconds = AudioConversion.duration(buffers)
+        logLevels(buffers)
+        guard seconds >= settings.minimumSeconds else {
+            onMessage?(buffers.isEmpty ? "没录到声音：检查收音设备和麦克风权限" : String(format: "录音太短（%.1f 秒），当成误触", seconds))
+            onOutcome?(buffers.isEmpty ? .noAudio : .tooShort(threshold: settings.minimumSeconds))
+            state = .idle
+            return
+        }
+        state = .transcribing
+        transcribe(buffers, sendReturn: request.sendReturn, target: target)
+    }
+
+    private var usesExternalInput: Bool { ExternalAudioDevice.isExternal(settings.micUID) }
+    private var selectedExternalInput: ExternalAudioInput? {
+        externalInputs().first { $0.device.uid == settings.micUID }
+    }
+
+    private func startExternalCapture() -> Bool {
+        capture.stop()
+        guard let input = selectedExternalInput, input.device.problem == nil else {
+            onMessage?(selectedExternalInput?.device.problem ?? "选定的外部麦克风未连接，不会改用其他麦克风")
+            return false
+        }
+        let id = UUID()
+        externalCapture = (input, id)
+        lock.lock()
+        externalBufferID = id
+        ring.removeAll()
+        lock.unlock()
+        input.start(sessionID: id, onBuffer: { [weak self] buffer in
+            self?.received(buffer, externalID: id)
+        }, onFailure: { [weak self] message in
+            DispatchQueue.main.async {
+                guard let self, self.externalCapture?.id == id || self.externalStopping == id else { return }
+                self.voiceCancel()
+                self.onMessage?(message)
+                self.onOutcome?(.failed(message))
+            }
+        })
+        return true
+    }
+
+    private func stopExternalCapture(completion: ((Result<Void, Error>) -> Void)? = nil) {
+        guard let active = externalCapture else { return }
+        externalCapture = nil
+        externalStopping = active.id
+        lock.lock()
+        externalBufferID = nil
+        lock.unlock()
+        active.input.stop(sessionID: active.id) { [weak self] result in
+            DispatchQueue.main.async {
+                guard let self, self.externalStopping == active.id else { return }
+                self.externalStopping = nil
+                completion?(result)
+            }
+        }
     }
 
     // MARK: - 内置转写
@@ -483,15 +563,18 @@ public final class VoiceSession: VoiceActionHandler {
     }
 
     /// 收音源的 PCM 入口，在模块内可独立验证预录与会话缓冲，不依赖真实麦克风。
-    func received(_ buffer: AVAudioPCMBuffer) {
+    func received(_ buffer: AVAudioPCMBuffer) { received(buffer, externalID: nil) }
+
+    private func received(_ buffer: AVAudioPCMBuffer, externalID: UUID?) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard externalID == externalBufferID else { return }
         let now = CFAbsoluteTimeGetCurrent()
         if onLevel != nil, now - lastLevelTime > 0.05 {
             lastLevelTime = now
             let level = Self.level(of: buffer)
             DispatchQueue.main.async { [weak self] in self?.onLevel?(level) }
         }
-        lock.lock()
-        defer { lock.unlock() }
         if collecting {
             sessionBuffers.append(buffer)
             preview?.append(buffer)
@@ -562,6 +645,7 @@ public final class VoiceSession: VoiceActionHandler {
     @discardableResult
     private func startCaptureIfNeeded() -> Bool {
         guard debugAudioFile == nil else { return true }
+        if usesExternalInput { return startExternalCapture() }
         let route = micRoute()
         guard route.unavailableUID == nil else {
             capture.stop()
@@ -595,6 +679,7 @@ public final class VoiceSession: VoiceActionHandler {
     }
 
     private func stopCaptureUnlessWarm() {
+        stopExternalCapture()
         guard !settings.keepMicWarm else { return }
         capture.stop()
     }
@@ -613,9 +698,9 @@ public final class VoiceSession: VoiceActionHandler {
     private func applyWarm() {
         lock.lock()
         let seconds = settings.warmSeconds.isFinite ? min(3, max(0, settings.warmSeconds)) : 1
-        warmDuration = settings.keepMicWarm && settings.mode == .builtIn ? seconds : nil
+        warmDuration = settings.keepMicWarm && settings.mode == .builtIn && !usesExternalInput ? seconds : nil
         lock.unlock()
-        if settings.keepMicWarm, settings.mode == .builtIn {
+        if settings.keepMicWarm, settings.mode == .builtIn, !usesExternalInput {
             if !startCaptureIfNeeded() {
                 lock.lock()
                 ring.removeAll()
@@ -632,6 +717,10 @@ public final class VoiceSession: VoiceActionHandler {
     // MARK: - 外部输入法：临时切换系统默认输入
 
     private func switchDefaultInput() -> Bool {
+        guard !usesExternalInput else {
+            onMessage?("这支外部麦克风仅支持掌声内置转写，请切换出字方式")
+            return false
+        }
         restoreWork?.cancel()
         restoreWork = nil
         // 跟随系统默认、而默认输入会被控制设备静音时，也临时切到换上的那支
