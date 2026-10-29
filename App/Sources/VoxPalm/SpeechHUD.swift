@@ -146,6 +146,7 @@ final class SpeechHUDController {
     /// 副标题只写设备名；收音是蓝牙通话音质时才多一句提醒（2026-10-19 本人定）。
     /// 选的麦会被控制设备静音、这次换了一支时，说清楚换成了哪支。
     private var subtitle: String {
+        if model.usesExternalMic { return model.selectedExternalMic?.name ?? "选定的外部麦克风未连接" }
         let device = model.activeShortName ?? "按键"
         let route = model.micRoute
         if let avoided = route.avoided {

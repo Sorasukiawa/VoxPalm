@@ -374,17 +374,17 @@ struct VoicePane: View {
     }
 
     private var prebufferCard: some View {
-        SettingsCard("防吞字", subtitle: "按下的瞬间就开始录，第一个字不会丢。", symbol: "waveform.path", color: Brand.coralBottom) {
+        SettingsCard("防吞字", subtitle: model.usesExternalMic ? "这支麦按键后才准备收音，请看到音量后再说话；不提供预热。" : "按下时开始预录，减少开头漏录。", symbol: "waveform.path", color: Brand.coralBottom) {
             VStack(spacing: 0) {
-                PrebufferTimeline(warm: model.config.voice.keepMicWarm, warmSeconds: model.config.voice.warmSeconds,
+                PrebufferTimeline(warm: model.config.voice.keepMicWarm && !model.usesExternalMic, warmSeconds: model.config.voice.warmSeconds,
                                   threshold: model.config.timing.longPressThreshold)
                     .frame(height: 74)
                     .padding(.bottom, 8)
                 RowDivider()
                 SettingRow("一直开着麦克风（预热）", detail: "蓝牙麦开麦要半秒以上时打开：按键前的声音也算进去，代价是麦克风指示灯常亮") {
-                    Toggle("预热", isOn: model.binding(\.voice.keepMicWarm)).toggleStyle(.switch).labelsHidden()
+                    Toggle("预热", isOn: model.binding(\.voice.keepMicWarm)).toggleStyle(.switch).labelsHidden().disabled(model.usesExternalMic)
                 }
-                if model.config.voice.keepMicWarm {
+                if model.config.voice.keepMicWarm && !model.usesExternalMic {
                     RowDivider()
                     SettingRow("保留按键前") {
                         SnapSlider(value: model.binding(\.voice.warmSeconds), in: 0.5...3, step: 0.5).frame(width: 180)

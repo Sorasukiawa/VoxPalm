@@ -50,6 +50,19 @@ struct AppConfigTests {
         #expect(config.controlDeviceIDs == [Self.otherEdge])
     }
 
+    @Test func 外部音频来源导出不含身份且导入只认唯一设备() {
+        var config = AppConfig()
+        let uid = "external-audio:" + Self.edge
+        config.voice.micUID = uid
+        var imported = config.sharable()
+        #expect(imported.voice.micUID == "external-audio:hid:0x054C:0x0DF2|<redacted>|Bluetooth")
+        let ambiguous = imported.resolveDevicePlaceholders(connected: [], mics: [uid, "external-audio:" + Self.otherEdge])
+        #expect(!ambiguous)
+        let unique = imported.resolveDevicePlaceholders(connected: [], mics: [uid])
+        #expect(unique)
+        #expect(imported.voice.micUID == uid)
+    }
+
     @Test func 导入后同型号的USB麦恰好一支才认回() {
         var config = AppConfig()
         config.voice.micUID = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:1150000:2"

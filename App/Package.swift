@@ -21,6 +21,12 @@ if let privateDir = ProcessInfo.processInfo.environment["VOXPALM_PRIVATE_DIR"], 
     appDependencies.append(.product(name: "VoxPalmDJI", package: "dji"))
     appDependencies.append(.product(name: "VoxPalmMarks", package: "marks"))
     swiftSettings.append(.define("VOXPALM_PRIVATE"))
+    // 本机实验扩展须单独启用，普通官方版不会带上实验依赖。
+    if ProcessInfo.processInfo.environment["VOXPALM_EXPERIMENTAL_AUDIO"] == "1" {
+        dependencies.append(.package(path: "\(privateDir)/audio-input"))
+        appDependencies.append(.product(name: "VoxPalmAudioExtension", package: "audio-input"))
+        swiftSettings.append(.define("VOXPALM_EXPERIMENTAL_AUDIO"))
+    }
 }
 
 let package = Package(

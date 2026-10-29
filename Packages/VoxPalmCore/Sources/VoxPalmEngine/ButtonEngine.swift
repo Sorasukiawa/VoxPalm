@@ -173,7 +173,7 @@ public final class ButtonEngine {
 
     /// 认设备时额外听的设备
     public static func identifiableDeviceIDs(_ devices: [ControlDevice]) -> Set<String> {
-        Set(devices.filter { $0.sourceID == "hid" }.map(\.id)).union([SystemKeysControlSource.mediaDeviceID])
+        Set(devices.filter { $0.sourceID == "hid" || $0.id.hasPrefix("hid:") }.map(\.id)).union([SystemKeysControlSource.mediaDeviceID])
     }
 
     private func applyActivation() {

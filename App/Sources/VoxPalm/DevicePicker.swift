@@ -93,6 +93,7 @@ extension AppModel {
     }
 
     func category(for device: ControlDevice, art: DeviceDiagram) -> PickerDevice.Category {
+        if art.id == DeviceDiagram.dualSense.id || art.id == DeviceDiagram.dualSenseEdge.id { return .gamepad }
         switch device.sourceID {
         case "system-keys": return .keyboard
         case "now-playing": return .headphones
@@ -178,6 +179,12 @@ extension AppModel {
                                        rowNote: mic.isLowRateBluetoothInput ? "通话音质" : nil))
             }
         }
+        for mic in externalMicDevices {
+            let art = mic.controlDeviceID.flatMap { id in pickerDevices.first { $0.id == id }?.art } ?? PickerArt.receiver
+            items.append(PickerMic(id: mic.uid, uid: mic.uid, name: mic.name, shortName: mic.name, group: "外接",
+                                   art: art, detail: mic.detail, warning: mic.problem ?? "仅支持内置转写；按说话键后开麦，不提供预热",
+                                   rowNote: mic.problem == nil ? "按键后收音" : "暂不可用"))
+        }
         let order = ["系统", "这台 Mac", "无线麦", "外接", "蓝牙", "iPhone", "其他"]
         return items.sorted { (order.firstIndex(of: $0.group) ?? 9) < (order.firstIndex(of: $1.group) ?? 9) }
     }
@@ -198,11 +205,13 @@ extension AppModel {
 
     /// 选了某支麦、它现在没连上（录音落到系统默认输入上）
     var selectedMicMissing: Bool {
-        config.voice.micUID != nil && selectedMic == nil
+        if usesExternalMic { return selectedExternalMic == nil || selectedExternalMic?.problem != nil }
+        return config.voice.micUID != nil && selectedMic == nil
     }
 
     /// 这次录音避开了被控制设备静音的麦时，给人看的一句话；没避开就是 nil
     var micAvoidNote: String? {
+        if usesExternalMic { return selectedExternalMic?.problem ?? (selectedExternalMic == nil ? "选定的外部麦克风未连接，不会改用其他麦克风" : nil) }
         let route = micRoute
         guard let avoided = route.avoided else { return nil }
         guard let device = route.device else {
@@ -873,7 +882,7 @@ final class MicMeter {
 
     func start(uid: String?, after delay: Double = 0) {
         stop()
-        guard MicrophoneAccess.status == .authorized, !UIPreview.isRendering else { return }
+        guard !ExternalAudioDevice.isExternal(uid), MicrophoneAccess.status == .authorized, !UIPreview.isRendering else { return }
         let work = DispatchWorkItem { [weak self] in self?.open(uid: uid) }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)

@@ -19,6 +19,7 @@ final class AppModel {
     private(set) var configBackupURL: URL?
     private(set) var devices: [ControlDevice] = []
     private(set) var micDevices: [AudioDeviceInfo] = []
+    private(set) var externalMicDevices: [ExternalAudioDevice] = []
     /// 控制设备连着但用不了的原因（适配模块报的，比如 DJI 接管按键失败）；面板顶上显示成提醒
     private(set) var controlProblem: String?
     /// 控制设备接管按键时会被静音的收音设备（音频设备 UID）：录音避开它们，改用 Mac 麦
@@ -94,11 +95,16 @@ final class AppModel {
         // 下载的 whisper.cpp 模型放在配置文件旁边：用 VOXPALM_CONFIG 调试时跟着测试配置走
         WhisperModel.directory = AppConfig.fileURL.deletingLastPathComponent().appendingPathComponent("Models", isDirectory: true)
         whisperModels.refresh()
-        let sources: [ControlSource] = [HIDControlSource(), SystemKeysControlSource(), NowPlayingControlSource()] + PrivateModules.controlSources()
+        let extensions = PrivateModules.controlSources()
+        let hid = HIDControlSource()
+        hid.excludesDevice = { info in extensions.contains { $0.ownsHIDDevice(info) } }
+        let sources: [ControlSource] = [hid, SystemKeysControlSource(), NowPlayingControlSource()] + extensions
         engine = ButtonEngine(sources: sources, keyMap: config.keyMap)
         engine.timing = config.timing
         engine.textMethod = config.voice.textMethod
-        voice = VoiceSession(settings: Self.runtimeVoiceSettings(config.voice, isPreview: isPreview))
+        voice = VoiceSession(settings: Self.runtimeVoiceSettings(config.voice, isPreview: isPreview), externalInputs: {
+            sources.compactMap { $0 as? ExternalAudioInputProvider }.flatMap(\.audioInputs)
+        })
         engine.voice = voice
         store.onSaveResult = { [weak self] problem in
             self?.configProblem = problem
@@ -275,8 +281,9 @@ final class AppModel {
     func refreshDevices() {
         devices = engine.allDevices()
         micDevices = AudioDevices.inputs()
+        externalMicDevices = engine.sources.compactMap { $0 as? ExternalAudioInputProvider }.flatMap(\.audioInputs).map(\.device)
         // 导入时没连着的设备，连上后再认回
-        let (connected, mics) = (devices.map(\.id), micDevices.map(\.uid))
+        let (connected, mics) = (devices.map(\.id), micDevices.map(\.uid) + externalMicDevices.map(\.uid))
         update { _ = $0.resolveDevicePlaceholders(connected: connected, mics: mics) }
         if !isPreview { voice.inputDevicesChanged() }
         let problem = activeDevice.flatMap { engine.problem(of: $0.id) }
@@ -349,14 +356,19 @@ final class AppModel {
         return micDevices.first(where: \.isDefaultInput)
     }
 
+    var usesExternalMic: Bool { ExternalAudioDevice.isExternal(config.voice.micUID) }
+    var selectedExternalMic: ExternalAudioDevice? { externalMicDevices.first { $0.uid == config.voice.micUID } }
+
     /// 录音实际用哪支麦：选的那支（或跟随的系统默认输入）会被控制设备静音时，换成 Mac 麦（见 MicRouting）
     var micRoute: MicRouting.Route {
-        MicRouting.resolve(selectedUID: config.voice.micUID, inputs: micDevices, muted: mutedMicUIDs)
+        if usesExternalMic { return MicRouting.Route(device: nil, avoided: nil, unavailableUID: config.voice.micUID) }
+        return MicRouting.resolve(selectedUID: config.voice.micUID, inputs: micDevices, muted: mutedMicUIDs)
     }
 
     /// 这次录音真正用的麦
     var recordingMic: AudioDeviceInfo? {
-        micRoute.device ?? selectedMic
+        if usesExternalMic { return nil }
+        return micRoute.device ?? selectedMic
     }
 
     /// 外部输入法模式下选择外接麦时，提醒检查输入法自己的麦克风设置，不推断它当前实际用了哪支麦。
