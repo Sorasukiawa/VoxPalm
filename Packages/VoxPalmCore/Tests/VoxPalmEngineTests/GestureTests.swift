@@ -171,6 +171,11 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
     #expect(map.action(for: button, gesture: .single) == .shortcut(.returnKey))
 }
 
+/// 等引擎后台任务做完：云端机器卡顿时固定睡 0.1 秒不够，按条件等，最多 5 秒。
+@MainActor private func waitUntil(_ condition: () -> Bool) async throws {
+    for _ in 0..<500 where !condition() { try await Task.sleep(nanoseconds: 10_000_000) }
+}
+
 @Test @MainActor func 切完对话直接说话再按同一个键结束() async throws {
     let scheduler = ManualScheduler()
     let engine = ButtonEngine(sources: [FakeSource()], scheduler: scheduler)
@@ -180,11 +185,13 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
     engine.voice = voice
     engine.activate(["fake:1"])
     engine.handle(event(.down, 0)); engine.handle(event(.up, 0.1))
-    try await Task.sleep(nanoseconds: 100_000_000)
+    try await waitUntil { !voice.log.isEmpty }
     #expect(voice.log == ["begin"])
     #expect(voice.lastRequest?.sendReturn == true)
     // 再按一次同一个键：结束说话，不会再执行一次动作、也不会再开始说话。
     engine.handle(event(.down, 5)); engine.handle(event(.up, 5.1))
+    try await waitUntil { voice.log.count >= 2 }
+    // 再多等一会儿，确认后面没有多出一次开始说话
     try await Task.sleep(nanoseconds: 100_000_000)
     #expect(voice.log == ["begin", "end"])
 }
