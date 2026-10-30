@@ -64,6 +64,11 @@ cp "$ROOT/THIRD-PARTY-NOTICES.md" "$APP/Contents/Resources/"
 cp "$ROOT/brand/icon/VoxPalm.icns" "$APP/Contents/Resources/"
 cp "$ROOT/brand/menubar/MenuBarIconTemplate.png" "$ROOT/brand/menubar/MenuBarIconTemplate@2x.png" "$APP/Contents/Resources/"
 
+# 私有模块可在暂存包内装配额外资源；入口失败时同样保留旧包，后续签名和整包检查照常执行。
+if [[ -n "${VOXPALM_PRIVATE_DIR:-}" && -f "$VOXPALM_PRIVATE_DIR/scripts/stage-app.sh" ]]; then
+  bash "$VOXPALM_PRIVATE_DIR/scripts/stage-app.sh" "$APP"
+fi
+
 # 签名：有 Developer ID 或 Apple Development 证书就用它，这样重新编译后系统权限不会失效；没有就临时签名。
 IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning 2>/dev/null | grep -E '"(Developer ID Application|Apple Development):' | head -1 | sed -E 's/.*"(.*)"/\1/' || true)}"
 # 正式证书启用强化运行时；临时签名没有 Team ID，启用后会在加载 whisper 时被库验证拦下。
@@ -73,6 +78,11 @@ if [[ -z "$IDENTITY" || "$IDENTITY" == "-" ]]; then
 fi
 # 先签里面的框架再签 App，显式覆盖编译产物可能保留的旧签名选项。
 codesign --force --options "$SIGN_OPTIONS" --sign "${IDENTITY:--}" "$APP/Contents/Frameworks/whisper.framework"
+for CODE in "$APP"/Contents/Frameworks/*.dylib "$APP"/Contents/Helpers/*; do
+  [[ -f "$CODE" && ! -L "$CODE" ]] || continue
+  if [[ "$CONFIG" == "release" ]]; then strip -S -no_code_signature_warning "$CODE"; fi
+  codesign --force --options "$SIGN_OPTIONS" --sign "${IDENTITY:--}" "$CODE"
+done
 codesign --force --options "$SIGN_OPTIONS" --entitlements "$ROOT/App/VoxPalm.entitlements" --sign "${IDENTITY:--}" "$APP"
 codesign --verify --deep --strict "$APP"
 # 发布包签完名再整包查一遍本机路径：strip -S 去不掉写进程序的 #filePath、#file 和写死的路径，查到就失败、保留旧包。
