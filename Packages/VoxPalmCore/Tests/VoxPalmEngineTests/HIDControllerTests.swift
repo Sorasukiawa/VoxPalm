@@ -114,6 +114,9 @@ private func names(_ names: [String]) -> Set<ButtonID> { Set(names.map(DualSense
         var isVoiceActive = false
         var begun = false
         var request = VoiceRequest()
+        var checks = 0
+        var atReadyCheck: ((Int) -> Void)?
+        var canStartVoice: Bool { let ready = !isVoiceActive; checks += 1; atReadyCheck?(checks); return ready }
         func voiceArm(_ request: VoiceRequest) { isVoiceActive = true; self.request = request }
         func voiceDisarm(tooShortFor threshold: Double?) { isVoiceActive = false }
         func voiceBegin(_ request: VoiceRequest) { begun = true; isVoiceActive = true; self.request = request }
@@ -127,11 +130,14 @@ private func names(_ names: [String]) -> Set<ButtonID> { Set(names.map(DualSense
     ])
     let scheduler = ManualScheduler(), voice = ArmedVoice()
     let engine = ButtonEngine(sources: [FakeSource()], keyMap: map, scheduler: scheduler)
-    engine.voice = voice; engine.talkAfterDelay = 0.08; engine.activate(["fake:1"])
+    engine.voice = voice; engine.talkAfterDelay = 0; engine.activate(["fake:1"])
+    voice.atReadyCheck = { count in
+        // 延迟说话刚查完、正要开始等：这时按下另一个键，不用墙钟时间猜谁先谁后。
+        if count == 1 { engine.handle(ButtonEvent(deviceID: "fake:1", button: second, label: "R1", phase: .down, time: 0.02)) }
+    }
     engine.handle(ButtonEvent(deviceID: "fake:1", button: first, label: "叉键", phase: .trigger, time: 0))
-    try await Task.sleep(nanoseconds: 20_000_000)
-    engine.handle(ButtonEvent(deviceID: "fake:1", button: second, label: "R1", phase: .down, time: 0.02))
-    try await Task.sleep(nanoseconds: 120_000_000)
+    // 第 2 次是另一个键预录时查的，第 3 次才是延迟说话等完后的复查。
+    try await waitUntil { voice.checks >= 3 }
     #expect(voice.isVoiceActive)
     #expect(!voice.begun)
     #expect(!voice.request.sendReturn)

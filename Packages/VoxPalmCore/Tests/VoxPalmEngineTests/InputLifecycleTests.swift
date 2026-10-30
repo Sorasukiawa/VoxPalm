@@ -115,19 +115,13 @@ private func input(_ engine: ButtonEngine, _ phase: ButtonEvent.Phase, button: B
         KeyBinding(button: talkButton, buttonLabel: "说话", gesture: .single, action: .none, talkAfter: true),
     ])
     voice.log.removeAll()
-    await withCheckedContinuation { continuation in
-        voice.atReadyCheck = { count in
-            if count == 1 {
-                // 已通过任务入口的代次检查，在延迟开始前改映射，命中延迟后的二次检查。
-                engine.keyMap = KeyMap()
-            } else if count == 2 {
-                voice.atReadyCheck = nil
-                // 当前 MainActor 任务完成最后的检查后再断言，避免用墙钟时间猜调度顺序。
-                Task { @MainActor in continuation.resume() }
-            }
-        }
-        input(engine, .trigger)
+    voice.atReadyCheck = { count in
+        // 已通过任务入口的代次检查，在延迟开始前改映射，命中延迟后的二次检查。
+        if count == 1 { engine.keyMap = KeyMap() }
     }
+    input(engine, .trigger)
+    // 按条件等，引擎少查一次时是测试失败，而不是永远挂住。
+    try await waitUntil { voice.checks >= 2 }
     #expect(voice.checks == 2)
     #expect(voice.log == ["cancel"])
 }
@@ -169,7 +163,8 @@ private final class PendingDeliveryVoice: VoiceActionHandler {
     let resultAfterEnd: Pending
     var pending: Pending?
     var isVoiceActive = false
-    var canStartVoice: Bool { !isVoiceActive && pending != .transcribing }
+    var checks = 0
+    var canStartVoice: Bool { checks += 1; return !isVoiceActive && pending != .transcribing }
     var starts = 0
     var arms = 0
     var cancels = 0
@@ -298,8 +293,10 @@ private func pendingEngine(_ pending: PendingDeliveryVoice.Pending, gesture: Ges
     let (engine, voice, _) = pendingEngine(.transcribing)
     engine.talkAfterDelay = 0
     _ = await engine.perform(.toggleDictation)
+    let checks = voice.checks
     input(engine, .trigger, button: delayedTalkButton, deviceID: "fake:2")
-    try await Task.sleep(nanoseconds: 20_000_000)
+    // 等后台任务真的查过；没等到就往下走，后面的取消会让它直接退出，这条测试等于没测。
+    try await waitUntil { voice.checks > checks }
     #expect(voice.starts == 1 && voice.pending == .transcribing)
     engine.cancelInput(deviceID: "fake:2")
     #expect(voice.cancels == 0)
