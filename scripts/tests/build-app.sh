@@ -137,6 +137,41 @@ mkdir -p "$TEST_DIR/private"
 : > "$TEST_DIR/tool-calls"
 VOXPALM_PRIVATE_DIR="$TEST_DIR/private" UNIVERSAL=1 SIGN_IDENTITY=fixture-identity OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/official.log" 2>&1
 assert_release_stripped 官方发布组合
+# 私有装配仍在原子替换之前；额外代码逐个签名，资源也受整包泄漏检查约束。
+cat > "$TEST_DIR/private/scripts-stage.tmp" <<'SH'
+#!/bin/bash
+set -euo pipefail
+APP="$1"
+[[ "${FAIL_STAGE:-0}" != 1 ]] || exit 1
+mkdir -p "$APP/Contents/Helpers"
+printf 'helper\n' > "$APP/Contents/Helpers/FixtureHost"
+printf 'dylib\n' > "$APP/Contents/Frameworks/libfixture.dylib"
+if [[ "${LEAK_STAGE:-0}" == 1 ]]; then
+  printf '/Users/fixture/private/source.mm\n' > "$APP/Contents/Resources/private-resource"
+fi
+SH
+mkdir -p "$TEST_DIR/private/scripts"
+mv "$TEST_DIR/private/scripts-stage.tmp" "$TEST_DIR/private/scripts/stage-app.sh"
+if VOXPALM_PRIVATE_DIR="$TEST_DIR/private" FAIL_STAGE=1 OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/stage.log" 2>&1; then
+  echo '私有装配失败应保留旧包' >&2; exit 1
+fi
+test ! -e output/VoxPalm.app/Contents/Helpers/FixtureHost
+test "$(cat output/VoxPalm.app/Contents/MacOS/VoxPalm)" = 'new executable'
+: > "$TEST_DIR/tool-calls"
+VOXPALM_PRIVATE_DIR="$TEST_DIR/private" OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/nested.log" 2>&1
+test -f output/VoxPalm.app/Contents/Helpers/FixtureHost
+for code in Frameworks/libfixture.dylib Helpers/FixtureHost; do
+  grep -q -F -- "/Contents/$code" "$TEST_DIR/tool-calls"
+  if ! sed -n "\|/Contents/$code$|p" "$TEST_DIR/tool-calls" | grep -q '^codesign --force'; then
+    echo '嵌套代码没有签名' >&2; exit 1
+  fi
+done
+assert_release_stripped 私有嵌套代码
+if VOXPALM_PRIVATE_DIR="$TEST_DIR/private" LEAK_STAGE=1 OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/stage-leak.log" 2>&1; then
+  echo '私有装配资源中的本机路径应被拦截' >&2; exit 1
+fi
+grep -q -F '/Users/fixture/private/source.mm' "$TEST_DIR/stage-leak.log"
+test ! -e output/VoxPalm.app/Contents/Resources/private-resource
 # strip -S 去不掉写进程序的路径（#filePath、#file、写死的路径），strip 没生效时调试符号条目里的路径也不一定含 /Users/。
 # 签名后的整包自检要拦下这些，打包失败并保留旧包。
 expect_leak_rejected() {
