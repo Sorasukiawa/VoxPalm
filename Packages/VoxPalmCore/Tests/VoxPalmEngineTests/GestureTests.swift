@@ -40,6 +40,9 @@ final class FakeVoice: VoiceActionHandler {
     var log: [String] = []
     var isVoiceActive = false
     var lastRequest: VoiceRequest?
+    /// 引擎问过几次能不能开始说话：后台任务每走一遍动作至少问一次
+    private(set) var checks = 0
+    var canStartVoice: Bool { checks += 1; return !isVoiceActive }
     func voiceArm(_ request: VoiceRequest) { log.append("arm"); lastRequest = request }
     var shortThreshold: Double?
     func voiceDisarm(tooShortFor threshold: Double?) { log.append("disarm"); shortThreshold = threshold }
@@ -171,9 +174,13 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
     #expect(map.action(for: button, gesture: .single) == .shortcut(.returnKey))
 }
 
-/// 等引擎后台任务做完：云端机器卡顿时固定睡 0.1 秒不够，按条件等，最多 5 秒。
-@MainActor private func waitUntil(_ condition: () -> Bool) async throws {
-    for _ in 0..<500 where !condition() { try await Task.sleep(nanoseconds: 10_000_000) }
+/// 等引擎后台任务走到某一步：测试开跑时 MainActor 可能被别的测试占住，睡固定时间等不到，按条件等，最多 5 秒。
+@MainActor func waitUntil(_ condition: () -> Bool, sourceLocation: SourceLocation = #_sourceLocation) async throws {
+    for _ in 0..<500 {
+        if condition() { return }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+    Issue.record("等了 5 秒条件还没满足", sourceLocation: sourceLocation)
 }
 
 @Test @MainActor func 切完对话直接说话再按同一个键结束() async throws {
@@ -189,11 +196,12 @@ private func recognizer(bindings: Set<GestureKind>) -> (GestureRecognizer, Manua
     #expect(voice.log == ["begin"])
     #expect(voice.lastRequest?.sendReturn == true)
     // 再按一次同一个键：结束说话，不会再执行一次动作、也不会再开始说话。
+    let checks = voice.checks
     engine.handle(event(.down, 5)); engine.handle(event(.up, 5.1))
-    try await waitUntil { voice.log.count >= 2 }
-    // 再多等一会儿，确认后面没有多出一次开始说话
-    try await Task.sleep(nanoseconds: 100_000_000)
     #expect(voice.log == ["begin", "end"])
+    // 要是又执行了动作，它的后台任务已排在 MainActor 上；这个空任务排在它后面，跑完时它一定已经问过一次。
+    await Task { @MainActor in }.value
+    #expect(voice.checks == checks)
 }
 
 @Test func 按住说话带回车发送的要求() {
