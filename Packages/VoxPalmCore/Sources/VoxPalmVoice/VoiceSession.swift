@@ -150,6 +150,10 @@ public final class VoiceSession: VoiceActionHandler {
         var inputDevices: () -> [AudioDeviceInfo] = AudioDevices.inputs
         var defaultInputID: () -> AudioObjectID = { AudioDevices.defaultInputID }
         var setDefaultInput: (AudioObjectID) -> Bool = AudioDevices.setDefaultInput
+        var prepareDelivery: @MainActor (TextTarget?) async throws -> Void = { try await TextTarget.waitForAccessibility(since: $0) }
+        var insertText: @MainActor (String, TextInserter.Method, TextTarget?) -> (result: TextDelivery.Result, target: TextTarget?) = {
+            TextDelivery.insert($0, method: $1, since: $2)
+        }
     }
     private let dependencies: Dependencies
 
@@ -481,7 +485,7 @@ public final class VoiceSession: VoiceActionHandler {
                 result = .failure(error)
             }
             guard let self, self.generation == generation, !Task.isCancelled else { return }
-            self.transcriptionTask = nil
+            defer { if self.generation == generation { self.transcriptionTask = nil } }
             switch result {
             case let .success(text):
                 let elapsed = Date().timeIntervalSince(started)
@@ -496,7 +500,10 @@ public final class VoiceSession: VoiceActionHandler {
                         self.onMessage?("调试：出字目标检查 → " + (block.map { "不贴（\($0.pasteMessage)）" } ?? "会贴到「\(now?.appName ?? "前台 App")」"))
                         self.onOutcome?(.inserted(characters: text.count, appName: "调试文件"))
                     } else {
-                        let (result, pasted) = TextDelivery.insert(text, method: settings.textMethod, since: target)
+                        do { try await self.dependencies.prepareDelivery(target) }
+                        catch { return }
+                        guard self.generation == generation, !Task.isCancelled else { return }
+                        let (result, pasted) = self.dependencies.insertText(text, settings.textMethod, target)
                         switch result {
                         case let .copied(block):
                             // 贴不进去：字不丢，留在剪贴板里，浮窗告诉用户为什么、怎么补救。诊断日志记下当时的目标（不记字）。
