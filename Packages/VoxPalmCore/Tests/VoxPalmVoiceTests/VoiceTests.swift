@@ -568,3 +568,35 @@ func 手柄仍在线但输入法默认麦被外部改变时取消且不覆盖外
     #expect(InputMethodMic.name(ignoringDefaultInput: "com.bytedance.inputmethod.doubaoime.pinyin") == nil)
     #expect(InputMethodMic.name(ignoringDefaultInput: "com.apple.inputmethod.SCIM.ITABC") == nil)
 }
+
+@Test @MainActor func 等待输入框就绪期间取消会终止等待且不投递() async throws {
+    struct ReadyTranscriber: Transcriber {
+        let name = "测试转写"
+        func transcribe(_ buffers: [AVAudioPCMBuffer], locale: Locale) async throws -> String { "测试" }
+    }
+    let file = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-delivery-\(UUID().uuidString).wav")
+    defer { try? FileManager.default.removeItem(at: file) }
+    let audio = sine(seconds: 0.4, rate: 16_000, channels: 1)
+    try AVAudioFile(forWriting: file, settings: audio.format.settings).write(from: audio)
+    var started = false, cancelled = false, deliveries = 0
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.currentTarget = { nil }
+    dependencies.makePreview = { _, _, _ in nil }
+    dependencies.makeTranscriber = { _, _ in ReadyTranscriber() }
+    dependencies.prepareDelivery = { _ in
+        started = true
+        do { try await Task.sleep(nanoseconds: 5_000_000_000) }
+        catch { cancelled = true; throw error }
+    }
+    dependencies.insertText = { _, _, _ in deliveries += 1; return (.inserted(appName: "假目标"), nil) }
+    var settings = VoiceSession.Settings(); settings.transcriber = .appleSpeech
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    session.debugAudioFile = file; session.debugTranscriptFile = nil
+    session.voiceBegin(VoiceRequest()); session.voiceEnd()
+    let deadline = Date().addingTimeInterval(2)
+    while !started, Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+    #expect(started)
+    session.voiceCancel()
+    while !cancelled, Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+    #expect(cancelled && deliveries == 0 && session.state == .idle)
+}

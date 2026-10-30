@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import os
 
 // 出字、按回车之前先看一眼目标。思路来自 MicVibe 原型：只往能打字、不是密码的输入框贴字、按回车；
 // 按下说话键那一刻记下目标（前台 App + 焦点所在的输入框），转写完目标变了就不贴，字留在剪贴板里。
@@ -70,6 +71,11 @@ public enum FieldKind: Equatable, Sendable {
 public enum DeliveryRule {
     static let textRoles: Set<String> = ["AXTextField", "AXTextArea", "AXComboBox"]
 
+    static func stillForeground(expectedPID: Int32?, currentPID: Int32?) -> Bool {
+        guard let expectedPID else { return false }
+        return expectedPID == currentPID
+    }
+
     /// 焦点所在的元素算哪一类；读不到（nil）当成不能打字。
     public static func kind(_ field: FieldFacts?) -> FieldKind {
         guard let field else { return .notEditable }
@@ -119,6 +125,43 @@ public enum DeliveryRule {
     }
 }
 
+/// 焦点接口的读取策略。Electron 可延迟公开辅助功能树；没有焦点时按官方接口请求后重读。
+/// 此步骤只恢复可读性，不替代 DeliveryRule 的输入框、密码框及目标检查。
+enum FocusReader {
+    static func read<Value>(patient: Bool, copy: (Float) -> (AXError, Value?),
+                            requestAccessibility: () -> AXError) -> (AXError, Value?) {
+        var result = copy(0.5)
+        if result.0 == .noValue, requestAccessibility() == .success {
+            result = copy(0.5)
+        }
+        if result.0 == .cannotComplete, patient { result = copy(1.5) }
+        return result
+    }
+}
+
+/// Electron 会延迟启用，重复请求还会重置计时。按进程本次启动去重，不阻塞主线程。
+struct AccessibilityActivation {
+    struct Application: Hashable {
+        let pid: Int32
+        let launchedAt: Date?
+    }
+    private var requestedAt: [Application: TimeInterval] = [:]
+    static let settlingSeconds: TimeInterval = 2.25
+
+    mutating func request(for application: Application, now: () -> TimeInterval,
+                          activate: () -> AXError) -> AXError {
+        if requestedAt[application] != nil { return .success }
+        let result = activate()
+        if result == .success { requestedAt[application] = now() }
+        return result
+    }
+
+    func remaining(for application: Application, now: TimeInterval) -> TimeInterval {
+        guard let started = requestedAt[application] else { return 0 }
+        return min(Self.settlingSeconds, max(0, started + Self.settlingSeconds - now))
+    }
+}
+
 /// 某一刻的出字目标：前台 App 和它焦点所在的元素。
 public struct TextTarget {
     public let pid: Int32
@@ -132,14 +175,21 @@ public struct TextTarget {
     public var readError: Int32?
     /// 焦点本来不在输入框上，是掌声把光标放进了那一块里唯一的输入框
     public var refocused = false
+    /// 对方接受了公开辅助功能树的请求，但仍需实际读到输入框才能投递。
+    public var requestedAccessibility = false
 
-    init(pid: Int32, appName: String?, field: FieldFacts?, element: AnyObject?, bundleID: String? = nil, readError: Int32? = nil) {
+    private static let logger = Logger(subsystem: "com.sorasukiawa.VoxPalm", category: "delivery")
+    @MainActor private static var activation = AccessibilityActivation()
+
+    init(pid: Int32, appName: String?, field: FieldFacts?, element: AnyObject?, bundleID: String? = nil, readError: Int32? = nil,
+         requestedAccessibility: Bool = false) {
         self.pid = pid
         self.appName = appName
         self.field = field
         self.element = element
         self.bundleID = bundleID
         self.readError = readError
+        self.requestedAccessibility = requestedAccessibility
     }
 
     /// 写进诊断日志的一句：哪个 App、焦点是什么元素、读失败的错误码（不含输入框里的字）
@@ -148,6 +198,7 @@ public struct TextTarget {
         if let field { parts.append("焦点 \(field.role ?? "?")/\(field.subrole ?? "-") 可写=\(field.valueSettable)") } else { parts.append("没读到焦点") }
         if let readError { parts.append("错误 \(readError)") }
         if refocused { parts.append("已把光标放进那一块里唯一的输入框") }
+        if requestedAccessibility { parts.append("已请求目标提供辅助功能树") }
         return parts.joined(separator: "，")
     }
 
@@ -155,6 +206,13 @@ public struct TextTarget {
     public func sameElement(as other: TextTarget) -> Bool? {
         guard let element, let otherElement = other.element else { return nil }
         return CFEqual(element, otherElement)
+    }
+
+    /// 读取中换了 App：丢弃旧输入框，但保留原 PID，下一步仍能判断目标变化。
+    func confirmingForeground(_ currentPID: Int32?) -> TextTarget {
+        guard currentPID != pid else { return self }
+        return TextTarget(pid: pid, appName: appName, field: nil, element: nil, bundleID: bundleID,
+                          readError: readError, requestedAccessibility: requestedAccessibility)
     }
 
     /// 读现在的前台 App 和焦点。readText：要不要读输入框里的字（只有按回车前要，终端的整屏内容可能很长）。
@@ -171,21 +229,47 @@ public struct TextTarget {
         guard KeyPoster.canPost else { return TextTarget(pid: pid, appName: app.localizedName, field: nil, element: nil, bundleID: app.bundleIdentifier) }
         let root = AXUIElementCreateApplication(pid)
         // 目标 App 卡住时最多等半秒，免得按键那一下把掌声也卡住。电脑很忙时（比如刚开机）半秒不够，贴字前再等 1.5 秒读一次。
-        AXUIElementSetMessagingTimeout(root, 0.5)
-        var focused: CFTypeRef?
-        var status = AXUIElementCopyAttributeValue(root, kAXFocusedUIElementAttribute as CFString, &focused)
-        if status == .cannotComplete, patient {
-            AXUIElementSetMessagingTimeout(root, 1.5)
-            status = AXUIElementCopyAttributeValue(root, kAXFocusedUIElementAttribute as CFString, &focused)
+        var requestedAccessibility = false
+        let (status, focused): (AXError, CFTypeRef?) = FocusReader.read(patient: patient, copy: { timeout in
+            AXUIElementSetMessagingTimeout(root, timeout)
+            var value: CFTypeRef?
+            let result = AXUIElementCopyAttributeValue(root, kAXFocusedUIElementAttribute as CFString, &value)
+            return (result, value)
+        }, requestAccessibility: {
+            // Electron 官方支持第三方辅助工具用此属性请求提供辅助功能树：
+            // https://www.electronjs.org/docs/latest/tutorial/accessibility
+            // 不支持该属性或请求失败时维持原来的禁止投递结果，不改系统授权。
+            let key = AccessibilityActivation.Application(pid: pid, launchedAt: app.launchDate)
+            let result = activation.request(for: key, now: { ProcessInfo.processInfo.systemUptime }) {
+                AXUIElementSetAttributeValue(root, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+            }
+            requestedAccessibility = result == .success
+            return result
+        })
+        if requestedAccessibility {
+            logger.notice("已请求目标提供辅助功能树，焦点读取状态 \(status.rawValue)")
         }
         guard status == .success, let focused, CFGetTypeID(focused) == AXUIElementGetTypeID() else {
             return TextTarget(pid: pid, appName: app.localizedName, field: nil, element: nil, bundleID: app.bundleIdentifier,
-                              readError: status == .success ? nil : status.rawValue)
+                              readError: status == .success ? nil : status.rawValue, requestedAccessibility: requestedAccessibility)
         }
         let element = focused as! AXUIElement
         AXUIElementSetMessagingTimeout(element, patient ? 1.5 : 0.5)
-        return TextTarget(pid: pid, appName: app.localizedName, field: facts(of: element, readText: readText), element: element,
-                          bundleID: app.bundleIdentifier)
+        let field = facts(of: element, readText: readText)
+        // 远端 AX 调用可能花时间；不能拿旧 App 的检查结果给已经切到的新 App 发键。
+        return TextTarget(pid: pid, appName: app.localizedName, field: field, element: element,
+                          bundleID: app.bundleIdentifier, requestedAccessibility: requestedAccessibility)
+            .confirmingForeground(NSWorkspace.shared.frontmostApplication?.processIdentifier)
+    }
+
+    /// 只等待本轮已请求的目标，最长约 2.25 秒；醒来后仍须重新检查真实焦点和会话代次。
+    @MainActor
+    public static func waitForAccessibility(since captured: TextTarget?) async throws {
+        guard let captured, let app = NSWorkspace.shared.frontmostApplication,
+              app.processIdentifier == captured.pid else { return }
+        let key = AccessibilityActivation.Application(pid: app.processIdentifier, launchedAt: app.launchDate)
+        let seconds = activation.remaining(for: key, now: ProcessInfo.processInfo.systemUptime)
+        if seconds > 0 { try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000)) }
     }
 
     private static func facts(of element: AXUIElement, readText: Bool) -> FieldFacts {
@@ -292,7 +376,11 @@ public enum TextDelivery {
     /// 能贴就贴；贴不了就把字留在剪贴板里，交给用户按 ⌘V。返回结果和贴字时的目标（之后按回车拿它比）。
     @MainActor
     public static func insert(_ text: String, method: TextInserter.Method, since captured: TextTarget?) -> (result: Result, target: TextTarget?) {
-        let (block, now) = checkPaste(since: captured)
+        var (block, now) = checkPaste(since: captured)
+        if block == nil, !DeliveryRule.stillForeground(expectedPID: now?.pid,
+                                                      currentPID: NSWorkspace.shared.frontmostApplication?.processIdentifier) {
+            block = .targetChanged
+        }
         if let block {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
@@ -311,6 +399,10 @@ public enum TextDelivery {
         if block == .notEditable, let refocused = now?.focusSoleInput(readText: true) {
             now = refocused
             block = DeliveryRule.sendReturn(trusted: KeyPoster.canPost, field: refocused.field, changed: false)
+        }
+        if block == nil, !DeliveryRule.stillForeground(expectedPID: now?.pid,
+                                                      currentPID: NSWorkspace.shared.frontmostApplication?.processIdentifier) {
+            block = .targetChanged
         }
         if let block { return block.returnMessage }
         KeyPoster.post(.returnKey)
