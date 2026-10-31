@@ -73,7 +73,7 @@ Whether a device's buttons can be read by the Mac is tested on each device; we n
 | Presenters, foot pedals and other generic button devices | Planned | Open source |
 | iPhone / iPad / Apple Watch (VoxPalm mobile: trackpad + hold to talk) | Planned | Open source |
 
-These new integrations are currently source-only and are not in the beta.2 download. See [remote and controller support](docs/设备兼容/遥控器与手柄.md) (Simplified Chinese) for scope, setup and hardware checks.
+Public Beta 3 (`v0.1.0-beta.3`) includes these button integrations and USB controller input selection. Select the USB controller mic separately under Recording device (收音设备); unplugging it will not silently switch recording to the Mac mic. Audio from the controller's own Bluetooth mic is not included in the download. DS5 and Siri Remote still require hardware verification. See [remote and controller support](docs/设备兼容/遥控器与手柄.md) (Simplified Chinese) for scope, setup and hardware checks.
 
 Your device isn't listed? Test its buttons and audio with the [device probe](tools/probe/README.md) (Chinese) and post the report in an issue; see [Contributing](#contributing).
 

@@ -146,6 +146,9 @@ extension AppModel {
 
     var pickerMics: [PickerMic] {
         func kind(_ mic: AudioDeviceInfo) -> (String, DeviceDiagram) {
+            if let profile = mic.controllerProfile {
+                return ("游戏手柄", profile == .dualSenseEdge ? .dualSenseEdge : .dualSense)
+            }
             // 认识的无线麦（比如 DJI）画它自己的样子，不画成蓝牙耳机
             if let known = PrivateModules.micModel(named: mic.name) { return ("无线麦", known.diagram) }
             if mic.transport == "Built-in" { return ("这台 Mac", PickerArt.laptop) }
@@ -185,7 +188,7 @@ extension AppModel {
                                    art: art, detail: mic.detail, warning: mic.problem ?? "仅支持内置转写；按说话键后开麦，不提供预热",
                                    rowNote: mic.problem == nil ? "按键后收音" : "暂不可用"))
         }
-        let order = ["系统", "这台 Mac", "无线麦", "外接", "蓝牙", "iPhone", "其他"]
+        let order = ["系统", "这台 Mac", "游戏手柄", "无线麦", "外接", "蓝牙", "iPhone", "其他"]
         return items.sorted { (order.firstIndex(of: $0.group) ?? 9) < (order.firstIndex(of: $1.group) ?? 9) }
     }
 
@@ -200,7 +203,10 @@ extension AppModel {
 
     /// 收音设备的短名：认识的无线麦用型号（「DJI Mic 2」），Mac 自带的叫「Mac 麦克风」
     func micShortName(_ mic: AudioDeviceInfo) -> String {
-        PrivateModules.micModel(named: mic.name)?.shortName ?? (mic.transport == "Built-in" ? "Mac 麦克风" : mic.name)
+        if let profile = mic.controllerProfile {
+            return profile == .dualSenseEdge ? "DSE 麦克风（USB）" : "DS5 麦克风（USB）"
+        }
+        return PrivateModules.micModel(named: mic.name)?.shortName ?? (mic.transport == "Built-in" ? "Mac 麦克风" : mic.name)
     }
 
     /// 选了某支麦、它现在没连上（录音落到系统默认输入上）
@@ -731,6 +737,15 @@ struct ControlDevicePicker: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+            if item?.category == .gamepad {
+                Text("用手柄收音：接 USB，再到「收音设备」选它。蓝牙按键请搭配 Mac 或其他麦克风。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 3)
+            }
             PageDots(count: model.pickerDevices.count, index: model.pickerDevices.firstIndex { $0.id == item?.id } ?? 0)
                 .padding(.top, 4)
         }
@@ -889,7 +904,13 @@ final class MicMeter {
     }
 
     private func open(uid: String?) {
-        let id = uid.flatMap { uid in AudioDevices.inputs().first { $0.uid == uid }?.id }
+        let id: UInt32?
+        do {
+            id = try Self.requestedDeviceID(uid: uid) { uid in AudioDevices.inputs().first { $0.uid == uid }?.id }
+        } catch {
+            // 明确选中的麦克风已消失时，不用 nil 开麦，避免把预览落到系统默认输入。
+            return
+        }
         let capture = AudioCapture()
         capture.onBuffer = { [weak self] buffer in
             let value = Self.loudness(buffer)
@@ -904,6 +925,12 @@ final class MicMeter {
         } catch {
             log.error("量音量开麦失败：\(String(describing: error), privacy: .public)")
         }
+    }
+
+    static func requestedDeviceID(uid: String?, lookup: (String) -> UInt32?) throws -> UInt32? {
+        guard let uid else { return nil }
+        guard let id = lookup(uid), id != 0 else { throw AudioCapture.CaptureError.noDevice }
+        return id
     }
 
     func stop() {

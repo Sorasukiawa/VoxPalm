@@ -37,8 +37,8 @@ public enum MicRouting {
         return Route(device: fallback, avoided: intended)
     }
 
-    /// 当前已实测的 DSE USB 音频身份。其他麦克风保留现有的默认输入回退策略。
+    /// 明确选定的两款手柄 USB 输入都执行缺麦保护；型号识别不等于真机收音验收。
     public static func isControllerInput(_ uid: String) -> Bool {
-        uid.hasPrefix("AppleUSBAudioEngine:") && uid.localizedCaseInsensitiveContains(":DualSense Edge Wireless Controller:")
+        HIDDeviceProfile.isControllerUSBInput(uid: uid)
     }
 }

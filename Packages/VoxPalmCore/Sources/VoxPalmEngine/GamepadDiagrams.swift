@@ -74,7 +74,7 @@ public extension DeviceDiagram {
         }
         return DeviceDiagram(id: edge ? "dualsense-edge" : "dualsense", title: edge ? "DualSense Edge（DSE）" : "DualSense（DS5）",
                              width: 160, height: edge ? 192 : 124, parts: parts, spots: spots,
-                             note: "按键适配待真机验证；触摸板这里只读按下，不移动鼠标。" +
+                             note: "触摸板只读按下，不移动鼠标。收音要在「收音设备」另选；USB 可选择系统列出的手柄输入，蓝牙请选 Mac 或其他麦克风。" +
                                 (edge ? "Fn、背键和静音键需要完整输入报告；板载配置可能同时触发其他键。" : "蓝牙静音键需要完整输入报告。") +
                                 "掌声不独占手柄，游戏仍会收到按键，用游戏时请暂停监听")
     }
