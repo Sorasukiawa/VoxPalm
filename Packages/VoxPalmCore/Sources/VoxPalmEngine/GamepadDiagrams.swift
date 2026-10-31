@@ -26,19 +26,25 @@ public extension DeviceDiagram {
             }
         }
         let face: Style = edge ? .blackKey : .lightKey
+        // 由两款官方正视说明图按外壳宽高归一化；左右键组同高，方向键比右侧四键更紧凑。
+        let dpadX = edge ? 31.5 : 31.3
+        let faceX = edge ? 128.0 : 128.5
+        let buttonY = edge ? 45.2 : 45.8
+        let dpadRadius = 8.2
+        let faceRadius = 11.3
         var spots: [Spot] = [
             key("l2", .center(25, 5, 27, 8), .rounded(3), text: "L2"),
             key("r2", .center(135, 5, 27, 8), .rounded(3), text: "R2"),
             key("l1", .center(25, 14, 32, 7), .rounded(2), text: "L1"),
             key("r1", .center(135, 14, 32, 7), .rounded(2), text: "R1"),
-            key("up", .center(30, 38, 8, 10), .directional(0), style: face, symbol: "arrowtriangle.up.fill"),
-            key("left", .center(20, 48, 10, 8), .directional(3), style: face, symbol: "arrowtriangle.left.fill"),
-            key("right", .center(40, 48, 10, 8), .directional(1), style: face, symbol: "arrowtriangle.right.fill"),
-            key("down", .center(30, 58, 8, 10), .directional(2), style: face, symbol: "arrowtriangle.down.fill"),
-            key("triangle", .circle(130, 36, 11), style: face, symbol: "triangle"),
-            key("square", .circle(118, 48, 11), style: face, symbol: "square"),
-            key("circle", .circle(142, 48, 11), style: face, symbol: "circle"),
-            key("cross", .circle(130, 60, 11), style: face, symbol: "xmark"),
+            key("up", .center(dpadX, buttonY - dpadRadius, 7.3, 8.5), .directional(0), style: face, symbol: "arrowtriangle.up.fill"),
+            key("left", .center(dpadX - dpadRadius, buttonY, 8.5, 7.3), .directional(3), style: face, symbol: "arrowtriangle.left.fill"),
+            key("right", .center(dpadX + dpadRadius, buttonY, 8.5, 7.3), .directional(1), style: face, symbol: "arrowtriangle.right.fill"),
+            key("down", .center(dpadX, buttonY + dpadRadius, 7.3, 8.5), .directional(2), style: face, symbol: "arrowtriangle.down.fill"),
+            key("triangle", .circle(faceX, buttonY - faceRadius, 10.5), style: face, symbol: "triangle"),
+            key("square", .circle(faceX - faceRadius, buttonY, 10.5), style: face, symbol: "square"),
+            key("circle", .circle(faceX + faceRadius, buttonY, 10.5), style: face, symbol: "circle"),
+            key("cross", .circle(faceX, buttonY + faceRadius, 10.5), style: face, symbol: "xmark"),
             key("touchpad", Box(49, 18, 62, 33), .touchpad, style: edge ? .blackKey : .lightKey),
             key("create", .center(43, 27, 3.5, 7), .capsule, style: .lightKey),
             key("options", .center(117, 27, 3.5, 7), .capsule, style: .lightKey),

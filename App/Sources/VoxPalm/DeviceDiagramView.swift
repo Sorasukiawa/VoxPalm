@@ -555,6 +555,19 @@ struct DeviceArt: View {
 
     private func drawLegend(_ text: String, in rect: CGRect, color: Color, context: inout GraphicsContext) {
         guard showsSymbols else { return }
+        if let name = DiagramMarks.systemSymbolName(text),
+           let image = NSImage(systemSymbolName: name, accessibilityDescription: nil) {
+            var resolved = context.resolve(Image(nsImage: image).renderingMode(.template))
+            let size = resolved.size
+            if size.width > 0 && size.height > 0 {
+                let scale = min(rect.width / size.width, rect.height / size.height) * 0.92
+                let target = CGRect(x: rect.midX - size.width * scale / 2, y: rect.midY - size.height * scale / 2,
+                                    width: size.width * scale, height: size.height * scale)
+                resolved.shading = .color(color)
+                context.draw(resolved, in: target)
+                return
+            }
+        }
         context.draw(Text(text).font(.system(size: max(5, rect.height * 0.6), weight: .medium)).foregroundStyle(color), at: CGPoint(x: rect.midX, y: rect.midY))
     }
 
