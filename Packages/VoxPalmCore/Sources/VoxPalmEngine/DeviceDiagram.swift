@@ -31,11 +31,16 @@ public struct DeviceDiagram: Hashable, Sendable, Identifiable {
         case circle
         case capsule
         case gamepad
+        case gamepadPanel, gamepadRearPanel, touchpad, functionKey, backPaddle
+        /// 方向键的朝向：上、右、下、左分别为 0～3。
+        case directional(Int)
     }
 
     public enum Style: String, Hashable, Sendable {
         /// 机身：银色铝、深灰塑料
         case aluminum, graphite
+        /// 手柄白色外壳、亮黑面板和带凹面的橡胶摇杆。
+        case shell, glossy, stick
         /// 背夹
         case clip
         /// 按键：黑色、浅色、录制键（红圈）、侧面按键
@@ -79,9 +84,11 @@ public struct DeviceDiagram: Hashable, Sendable, Identifiable {
         public let button: ButtonID?
         /// 被设备固件占用的手势，例如「长按 3 秒：切模式」
         public let reserved: [String]
+        /// 没有对应图标时印在键上的短文字。
+        public let text: String?
 
         public init(_ id: String, _ name: String, _ box: Box, _ shape: Shape = .circle, _ style: Style = .blackKey,
-                    symbol: String? = nil, button: ButtonID? = nil, reserved: [String] = []) {
+                    symbol: String? = nil, button: ButtonID? = nil, reserved: [String] = [], text: String? = nil) {
             self.id = id
             self.name = name
             self.box = box
@@ -90,6 +97,7 @@ public struct DeviceDiagram: Hashable, Sendable, Identifiable {
             self.symbol = symbol
             self.button = button
             self.reserved = reserved
+            self.text = text
         }
     }
 
