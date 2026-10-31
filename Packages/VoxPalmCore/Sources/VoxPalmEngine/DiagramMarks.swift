@@ -50,6 +50,7 @@ public struct MarkShape: Sendable {
 
 public enum DiagramMarks {
     nonisolated(unsafe) private static var shapes: [String: MarkShape] = [:]
+    nonisolated(unsafe) private static var systemSymbols: [String: String] = [:]
 
     /// 登记一个品牌标志，`name` 和示意图里印字部件的文字一致（比如 "dji"、"xiaomi"）。启动时在主线程调。
     public static func register(_ name: String, _ shape: MarkShape) {
@@ -57,4 +58,11 @@ public enum DiagramMarks {
     }
 
     public static func shape(_ name: String) -> MarkShape? { shapes[name] }
+
+    /// 官方版也可登记系统自带的标志符号，不在仓库中复制其图形。启动时在主线程调。
+    public static func registerSystemSymbol(_ name: String, systemName: String) {
+        systemSymbols[name] = systemName
+    }
+
+    public static func systemSymbolName(_ name: String) -> String? { systemSymbols[name] }
 }
