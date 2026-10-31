@@ -14,9 +14,9 @@ public extension DeviceDiagram {
             Part(Box(0, 16, 160, 104), .gamepad, .shell),
             Part(Box(0, 16, 160, 104), .gamepadPanel, edge ? .glossy : .graphite),
             Part(Box(47.5, 17, 65, 36), .touchpad, .port),
-            Part(.circle(55, 72, 29), .circle, .port),
-            Part(.circle(105, 72, 29), .circle, .port),
-            Part(.center(80, 88, 4, 1.4), .capsule, .port),
+            Part(.circle(55, 68, 27), .circle, .port),
+            Part(.circle(105, 68, 27), .circle, .port),
+            Part(.center(80, 83, 3.4, 1.2), .capsule, .port),
             Part(.center(80, 7, 38, 7), .rounded(0), .caption, text: "肩键（展开）"),
         ]
         // 扬声器是两排小孔，不是接口或长条按钮。
@@ -42,15 +42,15 @@ public extension DeviceDiagram {
             key("touchpad", Box(49, 18, 62, 33), .touchpad, style: edge ? .blackKey : .lightKey),
             key("create", .center(43, 27, 3.5, 7), .capsule, style: .lightKey),
             key("options", .center(117, 27, 3.5, 7), .capsule, style: .lightKey),
-            key("l3", .circle(55, 72, 23), style: .stick),
-            key("r3", .circle(105, 72, 23), style: .stick),
-            key("ps", .center(80, 70, 9, 8), .rounded(2), text: "PS"),
-            key("mute", .center(80, 83, 9, 2.5), .capsule),
+            key("l3", .circle(55, 68, 23), style: .stick),
+            key("r3", .circle(105, 68, 23), style: .stick),
+            key("ps", .center(80, 66, 9, 8), .rounded(2), style: .zone, text: "PS"),
+            key("mute", .center(80, 77, 9, 2.5), .capsule),
         ]
         if edge {
             spots += [
-                key("fnLeft", .center(55, 91, 12, 6), .functionKey, text: "Fn"),
-                key("fnRight", .center(105, 91, 12, 6), .functionKey, text: "Fn"),
+                key("fnLeft", .center(55, 86, 12, 6), .functionKey, text: "Fn"),
+                key("fnRight", .center(105, 86, 12, 6), .functionKey, text: "Fn"),
                 // 背面视角下，握持时的左背键位于图右，右背键位于图左。
                 key("backLeft", .center(96, 151, 10, 12), .backPaddle, text: "L"),
                 key("backRight", .center(64, 151, 10, 12), .backPaddle, text: "R"),
