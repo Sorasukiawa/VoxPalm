@@ -378,8 +378,9 @@ private func mic(_ id: AudioObjectID, _ uid: String, _ transport: String, isDefa
     #expect(MicRouting.resolve(selectedUID: nil, inputs: [dji, virtual], muted: ["DJI"]) == .init(device: nil, avoided: dji))
 }
 
-@Test func 手柄麦克风掉线不能回退成Mac麦但重连后仍可选择() {
-    let uid = "AppleUSBAudioEngine:Sony Interactive Entertainment:DualSense Edge Wireless Controller:test-port:2"
+@Test(arguments: ["DualSense Wireless Controller", "DualSense Edge Wireless Controller"])
+func 手柄麦克风掉线不能回退成Mac麦但重连后仍可选择(_ model: String) {
+    let uid = "AppleUSBAudioEngine:Sony Interactive Entertainment:\(model):test-port:2"
     let builtIn = mic(1, "Mac", "Built-in", isDefault: true)
     let controller = mic(2, uid, "USB")
     #expect(MicRouting.resolve(selectedUID: uid, inputs: [builtIn], muted: []) ==
@@ -389,6 +390,28 @@ private func mic(_ id: AudioObjectID, _ uid: String, _ transport: String, isDefa
     // 普通麦克风继续遵循已有的系统默认回退，不扩大本次行为改动。
     #expect(MicRouting.resolve(selectedUID: "missing-usb-mic", inputs: [builtIn], muted: []) ==
             .init(device: nil, avoided: nil))
+}
+
+@Test func 手柄音频只识别USB身份中的完整型号且不扩大到其他麦() {
+    for (name, profile) in [("DualSense Wireless Controller", HIDDeviceProfile.dualSense),
+                            ("DualSense Edge Wireless Controller", .dualSenseEdge)] {
+        let uid = "AppleUSBAudioEngine:Sony Interactive Entertainment:\(name):test-port:2"
+        #expect(mic(2, uid, "USB").controllerProfile == profile)
+        #expect(mic(2, uid, "Bluetooth").controllerProfile == nil)
+    }
+    for uid in ["DualSense Edge Wireless Controller", "AppleUSBAudioEngine:Other:USB Mic:DualSense Edge Wireless Controller:2",
+                "AppleUSBAudioEngine:Sony:DualSense Wireless Controller Extra:test:2",
+                "AppleUSBAudioEngine:Sony:Wireless Controller:test:2",
+                "AppleUSBAudioEngine:Sony:DualSense Edge Wireless Controller"] {
+        #expect(!MicRouting.isControllerInput(uid))
+        #expect(MicRouting.resolve(selectedUID: uid, inputs: [mic(1, "Mac", "Built-in", isDefault: true)], muted: []) ==
+                .init(device: nil, avoided: nil))
+    }
+    let generic = "AppleUSBAudioEngine:Sony Interactive Entertainment:Wireless Controller:test:2"
+    #expect(MicRouting.isControllerInput(generic))
+    #expect(HIDDeviceProfile.identifyUSBInput(uid: generic) == nil)
+    #expect(MicRouting.resolve(selectedUID: generic, inputs: [mic(1, "Mac", "Built-in", isDefault: true)], muted: []) ==
+            .init(device: nil, avoided: nil, unavailableUID: generic))
 }
 
 @Test(arguments: [VoiceSession.Mode.builtIn, .inputMethod]) @MainActor

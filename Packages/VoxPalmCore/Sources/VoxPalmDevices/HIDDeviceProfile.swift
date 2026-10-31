@@ -17,6 +17,25 @@ public enum HIDDeviceProfile: String, Codable, Sendable {
 
     public var isGamepad: Bool { self == .dualSense || self == .dualSenseEdge }
 
+    /// CoreAudio USB 身份中的明确型号。仅供界面分类与缺麦保护，不代表实物收音已经验收。
+    public static func identifyUSBInput(uid: String) -> Self? {
+        let fields = uid.split(separator: ":", omittingEmptySubsequences: false)
+        guard fields.count >= 5, fields[0] == "AppleUSBAudioEngine" else { return nil }
+        switch fields[2].lowercased() {
+        case "dualsense wireless controller": return .dualSense
+        case "dualsense edge wireless controller": return .dualSenseEdge
+        default: return nil
+        }
+    }
+
+    /// 部分 Sony 手柄只报告泛名，不能据此区分 DS4／DS5，但明确选择后同样不得回退收音。
+    public static func isControllerUSBInput(uid: String) -> Bool {
+        if identifyUSBInput(uid: uid) != nil { return true }
+        let fields = uid.split(separator: ":", omittingEmptySubsequences: false)
+        return fields.count >= 5 && fields[0] == "AppleUSBAudioEngine" &&
+            fields[1].lowercased() == "sony interactive entertainment" && fields[2].lowercased() == "wireless controller"
+    }
+
     public var name: String {
         switch self {
         case .siriRemote1: return "Siri Remote（第一代）"
@@ -25,6 +44,13 @@ public enum HIDDeviceProfile: String, Codable, Sendable {
         case .dualSense: return "DualSense（DS5）"
         case .dualSenseEdge: return "DualSense Edge（DSE）"
         }
+    }
+}
+
+public extension AudioDeviceInfo {
+    var controllerProfile: HIDDeviceProfile? {
+        guard transport == "USB", hasInput else { return nil }
+        return HIDDeviceProfile.identifyUSBInput(uid: uid)
     }
 }
 
