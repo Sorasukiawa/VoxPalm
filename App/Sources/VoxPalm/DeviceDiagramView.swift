@@ -375,11 +375,11 @@ struct DeviceArt: View {
         Canvas { context, _ in
             context.drawLayer { layer in
                 layer.addFilter(.shadow(color: .black.opacity(0.25), radius: 8, y: 4))
-                for part in diagram.parts where part.style == .aluminum || part.style == .graphite || part.style == .shell {
+                for part in diagram.parts where castsBodyShadow(part) {
                     draw(part.box, part.shape, part.style, symbol: nil, text: nil, in: &layer)
                 }
             }
-            for part in diagram.parts where part.style != .aluminum && part.style != .graphite && part.style != .shell {
+            for part in diagram.parts where !castsBodyShadow(part) {
                 draw(part.box, part.shape, part.style, symbol: part.symbol, text: part.text, in: &context)
             }
             for spot in diagram.spots {
@@ -413,6 +413,11 @@ struct DeviceArt: View {
         }
     }
 
+    private func castsBodyShadow(_ part: DeviceDiagram.Part) -> Bool {
+        part.style == .aluminum || part.style == .shell ||
+            (part.style == .graphite && part.shape != .gamepadPanel && part.shape != .gamepadRearPanel)
+    }
+
     private func path(_ box: DeviceDiagram.Box, _ shape: DeviceDiagram.Shape) -> Path {
         let rect = layout.frame(box)
         switch shape {
@@ -440,24 +445,32 @@ struct DeviceArt: View {
             context.fill(path, with: vertical(Self.aluminum))
             context.stroke(path, with: .color(Color(white: 0.6)), lineWidth: 0.8)
         case .shell:
-            let finish = Gradient(colors: [Color(white: 0.98), Color(red: 0.85, green: 0.865, blue: 0.90), Color(red: 0.68, green: 0.70, blue: 0.76)])
+            let finish = Gradient(colors: [Color(white: 0.965), Color(red: 0.87, green: 0.88, blue: 0.91), Color(red: 0.73, green: 0.75, blue: 0.80)])
             context.fill(path, with: .linearGradient(finish, startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.maxX, y: rect.maxY)))
             context.stroke(path, with: .color(Color(white: 0.65)), lineWidth: 0.7)
         case .glossy:
-            let finish = Gradient(stops: [.init(color: Color(white: 0.08), location: 0), .init(color: Color(white: 0.22), location: 0.42), .init(color: Color(white: 0.035), location: 0.56), .init(color: Color(white: 0.12), location: 1)])
+            let finish = Gradient(stops: [.init(color: Color(white: 0.11), location: 0), .init(color: Color(white: 0.16), location: 0.35), .init(color: Color(white: 0.075), location: 0.72), .init(color: Color(white: 0.055), location: 1)])
             context.fill(path, with: vertical(finish))
-            context.stroke(path, with: .color(.white.opacity(0.16)), lineWidth: 0.6)
+            context.fill(path, with: .radialGradient(Gradient(colors: [.white.opacity(0.13), .clear]), center: CGPoint(x: rect.minX + rect.width * 0.40, y: rect.minY + rect.height * 0.38), startRadius: 0, endRadius: rect.width * 0.42))
+            context.stroke(path, with: .color(.white.opacity(0.12)), lineWidth: 0.5)
         case .stick:
             context.fill(path, with: vertical(Self.graphite))
-            context.stroke(path, with: .color(.black.opacity(0.85)), lineWidth: max(1, layout.scale * 0.8))
+            context.stroke(path, with: .color(.black.opacity(0.65)), lineWidth: max(0.6, layout.scale * 0.35))
             let ring = rect.insetBy(dx: rect.width * 0.085, dy: rect.height * 0.085)
             context.stroke(Path(ellipseIn: ring), with: .color(Color(white: 0.32)), style: StrokeStyle(lineWidth: max(0.5, layout.scale * 0.7), dash: [max(0.4, layout.scale * 0.5), max(0.4, layout.scale * 0.5)]))
             let center = rect.insetBy(dx: rect.width * 0.18, dy: rect.height * 0.18)
             context.fill(Path(ellipseIn: center), with: .linearGradient(Gradient(colors: [Color(white: 0.12), Color(white: 0.20)]), startPoint: center.origin, endPoint: CGPoint(x: center.midX, y: center.maxY)))
             context.stroke(Path(ellipseIn: center), with: .color(.black.opacity(0.3)), lineWidth: 0.5)
         case .graphite:
-            context.fill(path, with: vertical(Self.graphite))
-            context.stroke(path, with: .color(.white.opacity(0.14)), lineWidth: 0.8)
+            if shape == .gamepadPanel || shape == .gamepadRearPanel {
+                let finish = Gradient(colors: [Color(red: 0.16, green: 0.17, blue: 0.19), Color(red: 0.09, green: 0.10, blue: 0.12)])
+                context.fill(path, with: vertical(finish))
+                context.fill(path, with: .radialGradient(Gradient(colors: [.white.opacity(0.045), .clear]), center: CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.36), startRadius: 0, endRadius: rect.width * 0.48))
+                context.stroke(path, with: .color(.white.opacity(0.08)), lineWidth: 0.5)
+            } else {
+                context.fill(path, with: vertical(Self.graphite))
+                context.stroke(path, with: .color(.white.opacity(0.14)), lineWidth: 0.8)
+            }
         case .clip:
             context.fill(path, with: .color(Color(white: 0.17)))
         case .blackKey:
@@ -535,7 +548,7 @@ struct DeviceArt: View {
         case .zone:
             if let symbol { drawSymbol(symbol, in: rect, color: Self.symbolOnDark, context: &context) }
         }
-        if let text, style == .blackKey || style == .lightKey {
+        if let text, style == .blackKey || style == .lightKey || style == .zone {
             drawLegend(text, in: rect, color: style == .lightKey ? Self.symbolOnLight : Self.symbolOnDark, context: &context)
         }
     }
