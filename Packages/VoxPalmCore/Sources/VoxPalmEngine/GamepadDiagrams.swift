@@ -6,53 +6,68 @@ public extension DeviceDiagram {
 
     /// 按 Sony 官方正面/背面说明图独立绘制；顶部肩键、底部背键展开，方便逐键点选。
     private static func gamepad(edge: Bool) -> DeviceDiagram {
-        func key(_ id: String, _ box: Box, _ shape: Shape = .circle, symbol: String? = nil) -> Spot {
+        func key(_ id: String, _ box: Box, _ shape: Shape = .circle, style: Style = .blackKey, symbol: String? = nil, text: String? = nil) -> Spot {
             let button = DualSenseInput.button(id)
-            return Spot(id, DualSenseInput.label(button), box, shape, .blackKey, symbol: symbol, button: button)
+            return Spot(id, DualSenseInput.label(button), box, shape, style, symbol: symbol, button: button, text: text)
         }
         var parts: [Part] = [
-            Part(Box(0, 20, 160, 98), .gamepad, .aluminum),
-            Part(Box(51, 26, 58, 32), .rounded(7), edge ? .blackKey : .lightKey),
-            Part(.circle(31, 57, 33), .circle, .recess),
-            Part(.circle(129, 57, 33), .circle, .recess),
-            Part(.circle(54, 79, 27), .circle, .recess),
-            Part(.circle(106, 79, 27), .circle, .recess),
-            Part(.center(80, 64, 15, 2), .capsule, .grille),
-            Part(.center(80, 97, 22, 2), .capsule, .port),
-            Part(.center(80, 9, 38, 7), .rounded(0), .caption, text: "肩键（展开）"),
+            Part(Box(0, 16, 160, 104), .gamepad, .shell),
+            Part(Box(0, 16, 160, 104), .gamepadPanel, edge ? .glossy : .graphite),
+            Part(Box(47.5, 17, 65, 36), .touchpad, .port),
+            Part(.circle(55, 72, 29), .circle, .port),
+            Part(.circle(105, 72, 29), .circle, .port),
+            Part(.center(80, 88, 4, 1.4), .capsule, .port),
+            Part(.center(80, 7, 38, 7), .rounded(0), .caption, text: "肩键（展开）"),
         ]
+        // 扬声器是两排小孔，不是接口或长条按钮。
+        for (row, count) in [(0, 6), (1, 5)] {
+            for column in 0..<count {
+                parts.append(Part(.circle(80 + (Double(column) - Double(count - 1) / 2) * 2.1, 57 + Double(row) * 2, 1.3), .circle, .port))
+            }
+        }
+        let face: Style = edge ? .blackKey : .lightKey
         var spots: [Spot] = [
-            key("l2", .center(24, 5, 20, 9), .rounded(3), symbol: "l2.button.roundedtop.horizontal"),
-            key("r2", .center(136, 5, 20, 9), .rounded(3), symbol: "r2.button.roundedtop.horizontal"),
-            key("l1", .center(24, 16, 24, 9), .rounded(3), symbol: "l1.button.roundedbottom.horizontal"),
-            key("r1", .center(136, 16, 24, 9), .rounded(3), symbol: "r1.button.roundedbottom.horizontal"),
-            key("up", .center(31, 47, 8, 10), .rounded(2), symbol: "arrowtriangle.up.fill"),
-            key("left", .center(21, 57, 10, 8), .rounded(2), symbol: "arrowtriangle.left.fill"),
-            key("right", .center(41, 57, 10, 8), .rounded(2), symbol: "arrowtriangle.right.fill"),
-            key("down", .center(31, 67, 8, 10), .rounded(2), symbol: "arrowtriangle.down.fill"),
-            key("triangle", .circle(129, 46, 10), symbol: "triangle"),
-            key("square", .circle(118, 57, 10), symbol: "square"),
-            key("circle", .circle(140, 57, 10), symbol: "circle"),
-            key("cross", .circle(129, 68, 10), symbol: "xmark"),
-            key("touchpad", .center(80, 41, 51, 27), .rounded(5)),
-            key("create", .center(45, 35, 4, 10), .capsule, symbol: "line.3.horizontal"),
-            key("options", .center(115, 35, 4, 10), .capsule, symbol: "line.3.horizontal"),
-            key("l3", .circle(54, 79, 19), symbol: "l.joystick.press.down"),
-            key("r3", .circle(106, 79, 19), symbol: "r.joystick.press.down"),
-            key("ps", .circle(80, 76, 8), symbol: "house"),
-            key("mute", .center(80, 88, 10, 4), .capsule, symbol: "mic.slash"),
+            key("l2", .center(25, 5, 27, 8), .rounded(3), text: "L2"),
+            key("r2", .center(135, 5, 27, 8), .rounded(3), text: "R2"),
+            key("l1", .center(25, 14, 32, 7), .rounded(2), text: "L1"),
+            key("r1", .center(135, 14, 32, 7), .rounded(2), text: "R1"),
+            key("up", .center(30, 38, 8, 10), .directional(0), style: face, symbol: "arrowtriangle.up.fill"),
+            key("left", .center(20, 48, 10, 8), .directional(3), style: face, symbol: "arrowtriangle.left.fill"),
+            key("right", .center(40, 48, 10, 8), .directional(1), style: face, symbol: "arrowtriangle.right.fill"),
+            key("down", .center(30, 58, 8, 10), .directional(2), style: face, symbol: "arrowtriangle.down.fill"),
+            key("triangle", .circle(130, 36, 11), style: face, symbol: "triangle"),
+            key("square", .circle(118, 48, 11), style: face, symbol: "square"),
+            key("circle", .circle(142, 48, 11), style: face, symbol: "circle"),
+            key("cross", .circle(130, 60, 11), style: face, symbol: "xmark"),
+            key("touchpad", Box(49, 18, 62, 33), .touchpad, style: edge ? .blackKey : .lightKey),
+            key("create", .center(43, 27, 3.5, 7), .capsule, style: .lightKey),
+            key("options", .center(117, 27, 3.5, 7), .capsule, style: .lightKey),
+            key("l3", .circle(55, 72, 23), style: .stick),
+            key("r3", .circle(105, 72, 23), style: .stick),
+            key("ps", .center(80, 70, 9, 8), .rounded(2), text: "PS"),
+            key("mute", .center(80, 83, 9, 2.5), .capsule),
         ]
         if edge {
             spots += [
-                key("fnLeft", .center(54, 96, 9, 7), .rounded(2)),
-                key("fnRight", .center(106, 96, 9, 7), .rounded(2)),
-                key("backLeft", .center(53, 132, 24, 10), .capsule),
-                key("backRight", .center(107, 132, 24, 10), .capsule),
+                key("fnLeft", .center(55, 91, 12, 6), .functionKey, text: "Fn"),
+                key("fnRight", .center(105, 91, 12, 6), .functionKey, text: "Fn"),
+                // 背面视角下，握持时的左背键位于图右，右背键位于图左。
+                key("backLeft", .center(96, 151, 10, 12), .backPaddle, text: "L"),
+                key("backRight", .center(64, 151, 10, 12), .backPaddle, text: "R"),
             ]
-            parts.append(Part(.center(80, 132, 25, 8), .rounded(0), .caption, text: "背键（展开）"))
+            parts += [
+                Part(Box(40, 126, 80, 52), .gamepad, .shell),
+                Part(Box(40, 126, 80, 52), .gamepadRearPanel, .graphite),
+                Part(.center(53, 128, 13, 5), .rounded(2), .blackKey),
+                Part(.center(107, 128, 13, 5), .rounded(2), .blackKey),
+                Part(.center(59, 137, 1.8, 6), .capsule, .blackKey),
+                Part(.center(101, 137, 1.8, 6), .capsule, .blackKey),
+                Part(.center(80, 164, 8, 1), .capsule, .port),
+                Part(.center(80, 185, 62, 7), .rounded(0), .caption, text: "背面 · 左右背键"),
+            ]
         }
         return DeviceDiagram(id: edge ? "dualsense-edge" : "dualsense", title: edge ? "DualSense Edge（DSE）" : "DualSense（DS5）",
-                             width: 160, height: edge ? 144 : 120, parts: parts, spots: spots,
+                             width: 160, height: edge ? 192 : 124, parts: parts, spots: spots,
                              note: "按键适配待真机验证；触摸板这里只读按下，不移动鼠标。" +
                                 (edge ? "Fn、背键和静音键需要完整输入报告；板载配置可能同时触发其他键。" : "蓝牙静音键需要完整输入报告。") +
                                 "掌声不独占手柄，游戏仍会收到按键，用游戏时请暂停监听")

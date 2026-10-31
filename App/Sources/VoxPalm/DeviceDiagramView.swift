@@ -100,7 +100,9 @@ struct DeviceDiagramView: View {
                 }
                 .allowsHitTesting(false)
                 ForEach(diagram.spots) { spot in
-                    let frame = layout.frame(spot.box).insetBy(dx: -3, dy: -3)
+                    // 手柄的面键、肩键间距很小，不扩张到邻键；旁边的标注仍是较大的点击入口。
+                    let halo: CGFloat = diagram.id.hasPrefix("dualsense") ? 0 : 3
+                    let frame = layout.frame(spot.box).insetBy(dx: -halo, dy: -halo)
                     Color.clear
                         .contentShape(Rectangle())
                         .frame(width: frame.width, height: frame.height)
@@ -373,15 +375,26 @@ struct DeviceArt: View {
         Canvas { context, _ in
             context.drawLayer { layer in
                 layer.addFilter(.shadow(color: .black.opacity(0.25), radius: 8, y: 4))
-                for part in diagram.parts where part.style == .aluminum || part.style == .graphite {
+                for part in diagram.parts where part.style == .aluminum || part.style == .graphite || part.style == .shell {
                     draw(part.box, part.shape, part.style, symbol: nil, text: nil, in: &layer)
                 }
             }
-            for part in diagram.parts where part.style != .aluminum && part.style != .graphite {
+            for part in diagram.parts where part.style != .aluminum && part.style != .graphite && part.style != .shell {
                 draw(part.box, part.shape, part.style, symbol: part.symbol, text: part.text, in: &context)
             }
             for spot in diagram.spots {
-                draw(spot.box, spot.shape, spot.style, symbol: spot.symbol, text: nil, in: &context)
+                draw(spot.box, spot.shape, spot.style, symbol: spot.symbol, text: spot.text, in: &context)
+                if spot.id == "touchpad", diagram.id == "dualsense-edge", showsSymbols {
+                    var texture = context
+                    texture.clip(to: path(spot.box, spot.shape))
+                    let rect = layout.frame(spot.box), step = 3.2 * layout.scale
+                    for row in 0..<8 {
+                        for column in 0..<18 {
+                            let dot = CGRect(x: rect.minX + CGFloat(column + 1) * step, y: rect.minY + CGFloat(row + 1) * step, width: layout.scale * 0.45, height: layout.scale * 0.45)
+                            texture.fill(Path(ellipseIn: dot), with: .color(.white.opacity(0.12)))
+                        }
+                    }
+                }
                 if let highlight = highlighted[spot.id] {
                     let path = self.path(spot.box, spot.shape)
                     if highlight == .pressed {
@@ -394,6 +407,7 @@ struct DeviceArt: View {
                     }
                     context.stroke(path, with: .color(Brand.coralTop), lineWidth: 1.8)
                     if let symbol = spot.symbol { drawSymbol(symbol, in: layout.frame(spot.box), color: .white, context: &context) }
+                    if let text = spot.text { drawLegend(text, in: layout.frame(spot.box), color: .white, context: &context) }
                 }
             }
         }
@@ -405,26 +419,19 @@ struct DeviceArt: View {
         case let .rounded(radius): return Path(roundedRect: rect, cornerRadius: min(radius * layout.scale, min(rect.width, rect.height) / 2), style: .continuous)
         case .circle: return Path(ellipseIn: rect)
         case .capsule: return Path(roundedRect: rect, cornerRadius: min(rect.width, rect.height) / 2, style: .continuous)
-        case .gamepad:
-            // 归一化轮廓：顶部横梁、两侧握把和下方中央凹口。
-            func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: rect.minX + x * rect.width, y: rect.minY + y * rect.height) }
-            var path = Path()
-            path.move(to: point(0.15, 0.08))
-            path.addCurve(to: point(0.85, 0.08), control1: point(0.30, 0), control2: point(0.70, 0))
-            path.addCurve(to: point(0.97, 0.96), control1: point(0.95, 0.30), control2: point(1.05, 0.83))
-            path.addCurve(to: point(0.75, 0.68), control1: point(0.91, 1.10), control2: point(0.84, 0.77))
-            path.addCurve(to: point(0.25, 0.68), control1: point(0.62, 0.57), control2: point(0.38, 0.57))
-            path.addCurve(to: point(0.03, 0.96), control1: point(0.16, 0.77), control2: point(0.09, 1.10))
-            path.addCurve(to: point(0.15, 0.08), control1: point(-0.05, 0.83), control2: point(0.05, 0.30))
-            path.closeSubpath()
-            return path
+        case .gamepad, .gamepadPanel, .gamepadRearPanel, .touchpad, .functionKey, .backPaddle, .directional(_):
+            return ControllerPaths.path(shape, in: rect, mirrored: shape == .backPaddle && box.midX < diagram.width / 2)
         }
     }
 
     private func draw(_ box: DeviceDiagram.Box, _ shape: DeviceDiagram.Shape, _ style: DeviceDiagram.Style,
-                      symbol: String?, text: String?, in context: inout GraphicsContext) {
+                      symbol: String?, text: String?, in parent: inout GraphicsContext) {
+        var context = parent
         let rect = layout.frame(box)
         let path = self.path(box, shape)
+        if shape == .gamepadPanel || shape == .gamepadRearPanel {
+            context.clip(to: ControllerPaths.path(.gamepad, in: rect))
+        }
         func vertical(_ gradient: Gradient) -> GraphicsContext.Shading {
             .linearGradient(gradient, startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.midX, y: rect.maxY))
         }
@@ -432,6 +439,22 @@ struct DeviceArt: View {
         case .aluminum:
             context.fill(path, with: vertical(Self.aluminum))
             context.stroke(path, with: .color(Color(white: 0.6)), lineWidth: 0.8)
+        case .shell:
+            let finish = Gradient(colors: [Color(white: 0.98), Color(red: 0.85, green: 0.865, blue: 0.90), Color(red: 0.68, green: 0.70, blue: 0.76)])
+            context.fill(path, with: .linearGradient(finish, startPoint: CGPoint(x: rect.midX, y: rect.minY), endPoint: CGPoint(x: rect.maxX, y: rect.maxY)))
+            context.stroke(path, with: .color(Color(white: 0.65)), lineWidth: 0.7)
+        case .glossy:
+            let finish = Gradient(stops: [.init(color: Color(white: 0.08), location: 0), .init(color: Color(white: 0.22), location: 0.42), .init(color: Color(white: 0.035), location: 0.56), .init(color: Color(white: 0.12), location: 1)])
+            context.fill(path, with: vertical(finish))
+            context.stroke(path, with: .color(.white.opacity(0.16)), lineWidth: 0.6)
+        case .stick:
+            context.fill(path, with: vertical(Self.graphite))
+            context.stroke(path, with: .color(.black.opacity(0.85)), lineWidth: max(1, layout.scale * 0.8))
+            let ring = rect.insetBy(dx: rect.width * 0.085, dy: rect.height * 0.085)
+            context.stroke(Path(ellipseIn: ring), with: .color(Color(white: 0.32)), style: StrokeStyle(lineWidth: max(0.5, layout.scale * 0.7), dash: [max(0.4, layout.scale * 0.5), max(0.4, layout.scale * 0.5)]))
+            let center = rect.insetBy(dx: rect.width * 0.18, dy: rect.height * 0.18)
+            context.fill(Path(ellipseIn: center), with: .linearGradient(Gradient(colors: [Color(white: 0.12), Color(white: 0.20)]), startPoint: center.origin, endPoint: CGPoint(x: center.midX, y: center.maxY)))
+            context.stroke(Path(ellipseIn: center), with: .color(.black.opacity(0.3)), lineWidth: 0.5)
         case .graphite:
             context.fill(path, with: vertical(Self.graphite))
             context.stroke(path, with: .color(.white.opacity(0.14)), lineWidth: 0.8)
@@ -512,13 +535,22 @@ struct DeviceArt: View {
         case .zone:
             if let symbol { drawSymbol(symbol, in: rect, color: Self.symbolOnDark, context: &context) }
         }
+        if let text, style == .blackKey || style == .lightKey {
+            drawLegend(text, in: rect, color: style == .lightKey ? Self.symbolOnLight : Self.symbolOnDark, context: &context)
+        }
+    }
+
+    private func drawLegend(_ text: String, in rect: CGRect, color: Color, context: inout GraphicsContext) {
+        guard showsSymbols else { return }
+        context.draw(Text(text).font(.system(size: max(5, rect.height * 0.6), weight: .medium)).foregroundStyle(color), at: CGPoint(x: rect.midX, y: rect.midY))
     }
 
     /// 按键上的图标：和实物一样细、占键面三分之一左右。
     private func drawSymbol(_ name: String, in rect: CGRect, color: Color, context: inout GraphicsContext) {
         guard showsSymbols else { return }
         let side = min(rect.width, rect.height)
-        let text = Text(Image(systemName: name)).font(.system(size: max(6, side * 0.32), weight: .regular)).foregroundStyle(color)
+        let faceSymbol = ["triangle", "square", "circle", "xmark"].contains(name) && diagram.id.hasPrefix("dualsense")
+        let text = Text(Image(systemName: name)).font(.system(size: max(6, side * (faceSymbol ? 0.65 : 0.32)), weight: .regular)).foregroundStyle(color)
         context.draw(text, at: CGPoint(x: rect.midX, y: rect.midY))
     }
 }
