@@ -50,6 +50,7 @@ struct MenuContentView: View {
         }
         .padding(14)
         .frame(width: 340)
+        .disabled(model.firmwareUpdates.isInstalling)
         // 和引导、设置窗口一样，左上角透一点珊瑚色的光
         .background(BrandBackdrop(opaque: false))
         .tint(Brand.coralBottom)
@@ -78,7 +79,12 @@ struct MenuContentView: View {
                     } else if model.config.controlDeviceIDs.isEmpty {
                         StatusPill(text: "去选一个", color: .orange)
                     } else if model.activeDeviceConnected {
-                        StatusPill(text: "已连接", color: .tileGreen)
+                        HStack(spacing: 5) {
+                            StatusPill(text: "已连接", color: .tileGreen)
+                            if let id = model.activeDevice?.id, let battery = model.hardwareStatus(for: id)?.battery {
+                                DeviceBatteryBadge(battery: battery)
+                            }
+                        }
                     } else {
                         StatusPill(text: "没连上", color: .orange)
                     }

@@ -66,6 +66,13 @@ struct SettingsView: View {
                 .padding(.vertical, 10)
                 .ignoresSafeArea(.container, edges: .top)
             VStack(spacing: 0) {
+                if let progress = model.firmwareUpdates.installationProgress {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(progress.message).font(.callout.weight(.medium))
+                        if progress.total > 0 { ProgressView(value: Double(progress.completed), total: Double(progress.total)) }
+                        else { ProgressView().controlSize(.small) }
+                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if let problem = model.configProblem {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -96,6 +103,7 @@ struct SettingsView: View {
             .animation(Motion.pick(Motion.smooth), value: navigation.pane)
         }
         .background(BrandBackdrop())
+        .disabled(model.firmwareUpdates.isInstalling)
         .tint(Brand.coralBottom)
         .frame(minWidth: 860, minHeight: 640)
     }
@@ -282,13 +290,17 @@ struct DevicesPane: View {
             }
             .frame(height: 440)
             .staggerIn(2)
+            DeviceStatusPanel(id: showsMics ? model.config.voice.micUID : model.config.controlDeviceIDs.first,
+                              name: showsMics ? (model.pickerMics.first { $0.uid == model.config.voice.micUID }?.name ?? "收音设备")
+                                             : (model.activeDevice?.name ?? "控制设备"))
             Hint(showsMics
                  ? "掌声直接从这里录音，不改系统的默认输入。蓝牙耳机的麦是通话音质（16 kHz），转写会差一些。"
                  : "没连上的型号是灰的：先在系统设置 › 蓝牙 里配对，连上后会自己出现在列表里。")
                 .staggerIn(3)
         }
         .animation(Motion.pick(Motion.smooth), value: showsMics)
-        .onAppear(perform: applyFocus)
+        .onAppear { applyFocus(); model.deviceStatusPageVisible = true }
+        .onDisappear { model.deviceStatusPageVisible = false }
         .onChange(of: model.settingsFocus) { _, _ in applyFocus() }
     }
 

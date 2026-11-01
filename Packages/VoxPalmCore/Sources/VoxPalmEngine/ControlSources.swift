@@ -32,6 +32,10 @@ public protocol ControlSource: AnyObject {
     func mutedInputs(for deviceID: String) -> Set<String>
     /// 该来源负责统一接管的 HID 设备，通用来源应排除它。
     func ownsHIDDevice(_ device: HIDDeviceInfo) -> Bool
+    /// 适配器补充已读取的状态；不得为显示状态而启用麦克风或改变设备工作模式。
+    @MainActor func hardwareStatus(for deviceID: String) -> DeviceHardwareStatus?
+    /// 此控制来源对应的系统收音设备，用于在两处显示同一台硬件的状态。
+    func associatedAudioUID(for deviceID: String) -> String?
 }
 
 public extension ControlSource {
@@ -43,6 +47,8 @@ public extension ControlSource {
     func reportsDoubleTap(_ deviceID: String) -> Bool { true }
     func mutedInputs(for deviceID: String) -> Set<String> { [] }
     func ownsHIDDevice(_ device: HIDDeviceInfo) -> Bool { false }
+    @MainActor func hardwareStatus(for deviceID: String) -> DeviceHardwareStatus? { nil }
+    func associatedAudioUID(for deviceID: String) -> String? { nil }
 
     func shutdown(completion: @escaping () -> Void) {
         activate([])

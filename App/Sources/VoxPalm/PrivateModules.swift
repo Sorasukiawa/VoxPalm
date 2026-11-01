@@ -1,7 +1,9 @@
 import VoxPalmEngine
+import VoxPalmDevices
 #if VOXPALM_PRIVATE
 import VoxPalmDJI
 import VoxPalmMarks
+import VoxPalmFirmware
 #if VOXPALM_EXPERIMENTAL_AUDIO
 import VoxPalmAudioExtension
 #endif
@@ -9,6 +11,18 @@ import VoxPalmAudioExtension
 
 /// 闭源模块的接入点。开源版编译时这些模块不存在，这里全部返回空，App 照样完整可用。
 enum PrivateModules {
+    static func firmwareProvider() -> (any DeviceFirmwareProvider)? {
+        #if VOXPALM_PRIVATE
+        #if VOXPALM_EXPERIMENTAL_FIRMWARE
+        return ControllerFirmwareProvider(experimentalInstallation: true)
+        #else
+        return ControllerFirmwareProvider()
+        #endif
+        #else
+        return nil
+        #endif
+    }
+
     /// 启动时调一次：官方版登记第三方品牌标志（开源版示意图用普通字体印品牌名）。
     static func setUp() {
         #if VOXPALM_PRIVATE

@@ -18,6 +18,11 @@ final class AppModel {
     private(set) var configProblem: String?
     private(set) var configBackupURL: URL?
     private(set) var devices: [ControlDevice] = []
+    let deviceStatus = DeviceStatusStore()
+    let firmwareUpdates = FirmwareUpdateStore(provider: PrivateModules.firmwareProvider())
+    @ObservationIgnored var deviceStatusPageVisible = false
+    @ObservationIgnored var deviceStatusPageSelection: String?
+    var isDeviceStatusPreview: Bool { isPreview }
     private(set) var micDevices: [AudioDeviceInfo] = []
     private(set) var externalMicDevices: [ExternalAudioDevice] = []
     /// 控制设备连着但用不了的原因（适配模块报的，比如 DJI 接管按键失败）；面板顶上显示成提醒
@@ -132,6 +137,7 @@ final class AppModel {
                 // 选设备时新连上的蓝牙设备要及时出现在列表里
                 if self?.isIdentifying == true { self?.refreshDevices() }
                 if self?.panelVisible == true { self?.refreshMicHolders() }
+                if self?.shouldRefreshHardwareStatus == true { self?.refreshHardwareStatus() }
             }
         }
         // 晚一点没关系：让系统把这次唤醒和别的合在一起
@@ -233,7 +239,7 @@ final class AppModel {
     }
 
     private func apply(_ new: AppConfig, save: Bool) {
-        guard new != config else { return }
+        guard !firmwareUpdates.isInstalling, new != config else { return }
         let old = config
         config = new
         if new.keyMap != old.keyMap { engine.keyMap = new.keyMap }
@@ -282,6 +288,9 @@ final class AppModel {
         devices = engine.allDevices()
         micDevices = AudioDevices.inputs()
         externalMicDevices = engine.sources.compactMap { $0 as? ExternalAudioInputProvider }.flatMap(\.audioInputs).map(\.device)
+        let targets = hardwareTargets()
+        deviceStatus.configure(targets)
+        firmwareUpdates.configure(targets.compactMapValues { if case .hid(let info) = $0 { return info }; return nil })
         // 导入时没连着的设备，连上后再认回
         let (connected, mics) = (devices.map(\.id), micDevices.map(\.uid) + externalMicDevices.map(\.uid))
         update { _ = $0.resolveDevicePlaceholders(connected: connected, mics: mics) }
@@ -298,7 +307,7 @@ final class AppModel {
     private func activateEngine(_ ids: [String]) {
         guard !isPreview else { return }
         // 还没认回的导入标识不是真设备，不交给适配模块
-        engine.activate(ids.filter { !$0.contains(Redaction.identityPlaceholder) })
+        engine.activate(firmwareUpdates.isInstalling ? [] : ids.filter { !$0.contains(Redaction.identityPlaceholder) })
         refreshMuted()
     }
 
@@ -433,6 +442,7 @@ final class AppModel {
 
     /// 学示意图上某个位置对应的键；spotID 传 "+" 表示给通用外形加一个新键。
     func startLearning(spot spotID: String, purpose: String? = nil, completion: ((ButtonEvent) -> Void)? = nil) {
+        guard !firmwareUpdates.isInstalling else { return }
         guard let device = activeDevice else {
             message = "先选一个控制设备"
             return
@@ -463,7 +473,7 @@ final class AppModel {
 
     /// 引导选设备那步：按一下任意一台设备就认出来（引擎同时听所有 HID 设备和媒体键，不执行动作）。
     func startIdentifying(_ handler: @escaping (ControlDevice) -> Void) {
-        guard !isPreview else { return }
+        guard !isPreview, !firmwareUpdates.isInstalling else { return }
         engine.identifyHandler = { [weak self] event in
             guard let self else { return }
             self.highlight(event)
@@ -545,6 +555,7 @@ final class AppModel {
     // MARK: - 面板、浮窗用的说明
 
     func setPaused(_ paused: Bool) {
+        guard paused || !firmwareUpdates.isInstalling else { return }
         isPaused = paused
         activateEngine(paused ? [] : config.controlDeviceIDs)
     }
@@ -565,7 +576,7 @@ final class AppModel {
 
     func consumeSettingsFocus() { settingsFocus = nil }
     func closePanel() { closePanelHandler?() }
-    func openOnboarding() { openOnboardingHandler?() }
+    func openOnboarding() { if !firmwareUpdates.isInstalling { openOnboardingHandler?() } }
 
     func finishOnboarding() {
         update { $0.onboardingDone = true }
@@ -711,14 +722,14 @@ final class AppModel {
 
     /// 不按键直接试一次转写（菜单里的「试一下」）：开始 3 秒后结束。
     func tryVoice() {
-        guard !isPreview else { return }
+        guard !isPreview, !firmwareUpdates.isInstalling else { return }
         voice.voiceBegin(VoiceRequest())
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.voice.voiceEnd() }
     }
 
     /// 面板上「按住试一下」：按下开麦，松手出字（不管说话键是哪个）。
     func tryPress(_ down: Bool) {
-        guard !isPreview else { return }
+        guard !isPreview, !firmwareUpdates.isInstalling else { return }
         if down {
             voice.voiceArm(VoiceRequest())
             voice.voiceBegin(VoiceRequest())

@@ -674,7 +674,7 @@ struct ControlDevicePicker: View {
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5))
 
             GroupedPickerList(items: items, group: { $0.category.title }, selection: $focusID) { item, selected in
-                PickerRow(art: item.art, title: item.name, detail: item.connected ? item.detail : "没连上", dimmed: !item.connected,
+                PickerRow(art: item.art, title: item.name, detail: item.connected ? [item.detail, model.hardwareStatus(for: item.id)?.battery?.title].compactMap { $0 }.joined(separator: " · ") : "没连上", dimmed: !item.connected,
                           isNew: newIDs.contains(item.id), selected: selected)
             }
         }
@@ -842,9 +842,13 @@ struct MicPicker: View {
             focusID = model.config.voice.micUID ?? "default"
         }
         .onChange(of: focusID) { _, new in
+            guard !model.firmwareUpdates.isInstalling else { meter.stop(); return }
             let uid = new == "default" ? nil : new
             if model.config.voice.micUID != uid { model.update { $0.voice.micUID = uid } }
             meter.start(uid: uid, after: 0.5)
+        }
+        .onChange(of: model.firmwareUpdates.isInstalling) { _, installing in
+            if installing { meter.stop() }
         }
         .onDisappear { meter.stop() }
     }
@@ -893,19 +897,38 @@ private struct ExpandingRing: View {
 @MainActor
 @Observable
 final class MicMeter {
+    private final class WeakMeter {
+        weak var value: MicMeter?
+        init(_ value: MicMeter) { self.value = value }
+    }
+    private static var meters: [WeakMeter] = []
+    private static var suspendedForFirmware = false
     private(set) var level: Float = 0
     @ObservationIgnored private var capture: AudioCapture?
     @ObservationIgnored private var pending: DispatchWorkItem?
 
+    init() {
+        Self.meters.removeAll { $0.value == nil }
+        Self.meters.append(WeakMeter(self))
+    }
+
+    static func suspendForFirmwareUpdate(_ suspended: Bool) {
+        suspendedForFirmware = suspended
+        if suspended { for item in meters { item.value?.stop() } }
+    }
+
+    var isActive: Bool { pending != nil || capture?.isRunning == true }
+
     func start(uid: String?, after delay: Double = 0) {
         stop()
-        guard !ExternalAudioDevice.isExternal(uid), MicrophoneAccess.status == .authorized, !UIPreview.isRendering else { return }
+        guard !Self.suspendedForFirmware, !ExternalAudioDevice.isExternal(uid), MicrophoneAccess.status == .authorized, !UIPreview.isRendering else { return }
         let work = DispatchWorkItem { [weak self] in self?.open(uid: uid) }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     private func open(uid: String?) {
+        guard !Self.suspendedForFirmware else { return }
         let id: UInt32?
         do {
             id = try Self.requestedDeviceID(uid: uid) { uid in AudioDevices.inputs().first { $0.uid == uid }?.id }
