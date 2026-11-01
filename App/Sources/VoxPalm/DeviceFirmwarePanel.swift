@@ -29,7 +29,7 @@ struct DeviceFirmwarePanel: View {
                 }
             }.buttonStyle(.borderless).font(.caption)
             if busy, model.firmwareUpdates.busyID == id {
-                HStack { ProgressView().controlSize(.small); Text(model.firmwareUpdates.preparing ? "正在下载并校验官方固件…" : "正在读取手柄与官方版本…") }
+                HStack { ProgressView().controlSize(.small); Text(model.firmwareUpdates.isInstalling ? "正在更新手柄固件…" : model.firmwareUpdates.preparing ? "正在下载并校验官方固件…" : "正在读取手柄与官方版本…") }
                     .font(.caption).foregroundStyle(.secondary)
             }
             if let version = result?.installedVersion {
@@ -66,7 +66,7 @@ struct DeviceFirmwarePanel: View {
             Button("确认升级并保持 USB 连接") { if let id { model.installFirmware(for: id) } }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("将当前手柄从 \(result?.check?.installed ?? "未知") 升至 \(result?.package?.version ?? "未知")。这是掌声的首次实物写入验收，可能需要数分钟；中断可能导致设备无法正常使用。开始后不要拔线、关机或强制退出。")
+            Text("将当前手柄从 \(result?.check?.installed ?? "未知") 升至 \(result?.package?.version ?? "未知")。这是实验性固件升级，可能需要数分钟；中断可能导致设备无法正常使用。开始后不要拔线、关机或强制退出。")
         }
     }
 }
