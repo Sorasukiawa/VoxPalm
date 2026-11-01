@@ -78,7 +78,12 @@ struct MenuContentView: View {
                     } else if model.config.controlDeviceIDs.isEmpty {
                         StatusPill(text: "去选一个", color: .orange)
                     } else if model.activeDeviceConnected {
-                        StatusPill(text: "已连接", color: .tileGreen)
+                        HStack(spacing: 5) {
+                            StatusPill(text: "已连接", color: .tileGreen)
+                            if let id = model.activeDevice?.id, let battery = model.hardwareStatus(for: id)?.battery {
+                                DeviceBatteryBadge(battery: battery)
+                            }
+                        }
                     } else {
                         StatusPill(text: "没连上", color: .orange)
                     }

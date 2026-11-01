@@ -18,6 +18,10 @@ final class AppModel {
     private(set) var configProblem: String?
     private(set) var configBackupURL: URL?
     private(set) var devices: [ControlDevice] = []
+    let deviceStatus = DeviceStatusStore()
+    @ObservationIgnored var deviceStatusPageVisible = false
+    @ObservationIgnored var deviceStatusPageSelection: String?
+    var isDeviceStatusPreview: Bool { isPreview }
     private(set) var micDevices: [AudioDeviceInfo] = []
     private(set) var externalMicDevices: [ExternalAudioDevice] = []
     /// 控制设备连着但用不了的原因（适配模块报的，比如 DJI 接管按键失败）；面板顶上显示成提醒
@@ -132,6 +136,7 @@ final class AppModel {
                 // 选设备时新连上的蓝牙设备要及时出现在列表里
                 if self?.isIdentifying == true { self?.refreshDevices() }
                 if self?.panelVisible == true { self?.refreshMicHolders() }
+                if self?.shouldRefreshHardwareStatus == true { self?.refreshHardwareStatus() }
             }
         }
         // 晚一点没关系：让系统把这次唤醒和别的合在一起
@@ -282,6 +287,7 @@ final class AppModel {
         devices = engine.allDevices()
         micDevices = AudioDevices.inputs()
         externalMicDevices = engine.sources.compactMap { $0 as? ExternalAudioInputProvider }.flatMap(\.audioInputs).map(\.device)
+        deviceStatus.configure(hardwareTargets())
         // 导入时没连着的设备，连上后再认回
         let (connected, mics) = (devices.map(\.id), micDevices.map(\.uid) + externalMicDevices.map(\.uid))
         update { _ = $0.resolveDevicePlaceholders(connected: connected, mics: mics) }
