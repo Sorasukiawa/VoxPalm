@@ -83,6 +83,10 @@ public struct DeviceHardwareStatus: Equatable, Sendable {
 public enum DeviceStatusValues {
     public static func rssi(_ value: Int) -> Int? { (-127...126).contains(value) ? value : nil }
 
+    /// 系统 getter 没有成功标志；零值无法与未就绪的占位区分，保守显示未知。
+    /// 带有效性信息的其他来源仍可使用 rssi(_:) 接收真实的零值。
+    public static func systemRSSI(_ value: Int) -> Int? { value == 0 ? nil : rssi(value) }
+
     public static func controllerBattery(report: [UInt8]) -> DeviceBattery? {
         let position: Int
         switch (report.first, report.count) {

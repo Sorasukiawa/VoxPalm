@@ -96,7 +96,7 @@ public enum DeviceStatusReader {
 
     public static func bluetoothRSSI(address: String) -> Int? {
         guard let device = IOBluetoothDevice(addressString: address), device.isConnected() else { return nil }
-        return DeviceStatusValues.rssi(Int(device.rawRSSI()))
+        return DeviceStatusValues.systemRSSI(Int(device.rawRSSI()))
     }
 
     private static func read(_ device: IOHIDDevice, type: IOHIDReportType, id: Int) -> [UInt8]? {
