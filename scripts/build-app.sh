@@ -15,7 +15,9 @@ OUTPUT="$(cd "$OUTPUT" && pwd)"
 # 官方版和开源版用不同的编译目录，免得互相残留模块。
 SCRATCH="$ROOT/App/.build"
 if [[ -n "${VOXPALM_PRIVATE_DIR:-}" ]]; then
-  export VOXPALM_PRIVATE_DIR="$(cd "$VOXPALM_PRIVATE_DIR" && pwd)"
+  # 赋值和 export 分开写：写在一行时 cd 失败不算错，路径写错会悄悄打成开源版。
+  VOXPALM_PRIVATE_DIR="$(cd "$VOXPALM_PRIVATE_DIR" && pwd)"
+  export VOXPALM_PRIVATE_DIR
   SCRATCH="$ROOT/App/.build-private"
 fi
 
@@ -92,6 +94,19 @@ if [[ "$CONFIG" == "release" ]]; then
   EXTRA_PATHS=("$ROOT" "$(cd "$ROOT" && pwd -P)")
   if [[ -n "${VOXPALM_PRIVATE_DIR:-}" ]]; then
     EXTRA_PATHS+=("$VOXPALM_PRIVATE_DIR" "$(cd "$VOXPALM_PRIVATE_DIR" && pwd -P)")
+    # 私有模块的「模块/文件名」也不能进包：assumeIsolated、fatalError 这类调用默认带 #fileID，strip -S 去不掉。
+    # 只查带斜杠的写法，光有模块名不算，类型元数据里本来就有。
+    MODULE_COUNT=0
+    for MODULE in "$VOXPALM_PRIVATE_DIR"/*/Sources/*/; do
+      if [[ -d "$MODULE" ]]; then
+        EXTRA_PATHS+=("$(basename "$MODULE")/")
+        MODULE_COUNT=$((MODULE_COUNT + 1))
+      fi
+    done
+    if (( MODULE_COUNT == 0 )); then
+      echo "私有目录里没找到 <包>/Sources/<模块> 结构的模块，查不了私有文件名，保留旧包" >&2
+      exit 1
+    fi
   fi
   if ! LEAKS="$(bash "$ROOT/scripts/lib/local-paths.sh" "$APP" "${EXTRA_PATHS[@]}")"; then
     echo "整包本机路径自检没能查完，保留旧包。已查到的：" >&2
@@ -99,7 +114,7 @@ if [[ "$CONFIG" == "release" ]]; then
     exit 1
   fi
   if [[ -n "$LEAKS" ]]; then
-    printf '发布包里查到 %s 处本机路径，保留旧包。写进程序的路径只能放在 #if DEBUG 里：\n' "$(grep -c '' <<< "$LEAKS")" >&2
+    printf '发布包里查到 %s 处本机路径或私有文件名，保留旧包。写进程序的路径只能放在 #if DEBUG 里；私有模块里 assumeIsolated、fatalError 要显式传 file:，try! 改成 do/catch：\n' "$(grep -c '' <<< "$LEAKS")" >&2
     head -20 <<< "$LEAKS" >&2
     exit 1
   fi
