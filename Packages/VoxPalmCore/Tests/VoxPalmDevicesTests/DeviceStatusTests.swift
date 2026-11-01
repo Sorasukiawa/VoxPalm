@@ -54,6 +54,14 @@ import Testing
     #expect(DeviceBattery(percent: 101, state: .unknown) == nil)
 }
 
+@Test func 系统信号零值不当作已确认的强信号() {
+    #expect(DeviceStatusValues.systemRSSI(0) == nil)
+    #expect(DeviceStatusValues.systemRSSI(127) == nil)
+    #expect(DeviceStatusValues.systemRSSI(-128) == nil)
+    #expect(DeviceStatusValues.systemRSSI(-54) == -54)
+    #expect(DeviceStatusValues.rssi(0) == 0)
+}
+
 @Test func 同型号多设备不共享猜测的系统电量() throws {
     let battery = try #require(DeviceBattery(percent: 85, state: .charging, approximate: true))
     let reading = ControllerBatteryReading(name: "DualSense Edge Wireless Controller", battery: battery)
