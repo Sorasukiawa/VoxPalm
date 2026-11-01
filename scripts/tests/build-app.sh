@@ -133,7 +133,7 @@ SIGN_IDENTITY=fixture-identity OUTPUT_DIR=output bash "$FIXTURE/scripts/build-ap
 test "$(grep -c -- '--options runtime' "$TEST_DIR/codesign-arguments")" = 2
 assert_release_stripped 证书签名
 # 官方发布包：带私有目录、通用版、证书签名。
-mkdir -p "$TEST_DIR/private"
+mkdir -p "$TEST_DIR/private/adapter/Sources/PrivateAdapter" "$TEST_DIR/private/zeta/Sources/SecondAdapter"
 : > "$TEST_DIR/tool-calls"
 VOXPALM_PRIVATE_DIR="$TEST_DIR/private" UNIVERSAL=1 SIGN_IDENTITY=fixture-identity OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/official.log" 2>&1
 assert_release_stripped 官方发布组合
@@ -202,15 +202,32 @@ expect_leak_rejected 仓库路径 "$repository" UNIVERSAL=0
 repository="$(cd "$FIXTURE" && pwd -P)/App/Sources/VoxPalm/AppConfig.swift"
 printf 'leaky executable\n%s\n' "$repository" > "$TEST_DIR/products/VoxPalm"
 expect_leak_rejected 仓库真实路径 "$repository" UNIVERSAL=0
-mkdir -p "$TEST_DIR/外置盘/private"
+mkdir -p "$TEST_DIR/外置盘/private/adapter/Sources/PrivateAdapter"
 private_source="$(cd "$TEST_DIR/外置盘/private" && pwd)/Sources/Adapter.swift"
 printf 'leaky executable\n%s\n' "$private_source" > "$TEST_DIR/products/VoxPalm"
 expect_leak_rejected 私有仓库路径 "$private_source" VOXPALM_PRIVATE_DIR="$TEST_DIR/外置盘/private"
+# 私有模块的「模块/文件名」（默认带 #fileID 的调用写进程序的）strip -S 也去不掉，自检要按模块名查。
+printf 'leaky executable\nPrivateAdapter/AdapterSource.swift\n' > "$TEST_DIR/products/VoxPalm"
+expect_leak_rejected 私有模块文件名 PrivateAdapter/AdapterSource.swift VOXPALM_PRIVATE_DIR="$TEST_DIR/private"
+printf 'leaky executable\nSecondAdapter/AdapterSource.swift\n' > "$TEST_DIR/products/VoxPalm"
+expect_leak_rejected 另一个私有模块文件名 SecondAdapter/AdapterSource.swift VOXPALM_PRIVATE_DIR="$TEST_DIR/private"
+# 模块不是约定的目录结构时查不了私有文件名，不能当成没问题。
+mkdir -p "$TEST_DIR/没有模块/private"
+printf 'leaky executable\n' > "$TEST_DIR/products/VoxPalm"
+expect_leak_rejected 私有目录没有模块 '私有目录里没找到' VOXPALM_PRIVATE_DIR="$TEST_DIR/没有模块/private"
 # 读不了的文件、扫描出错都当成查到；没能查完也要失败并保留旧包。
 printf 'leaky executable\n' > "$TEST_DIR/products/VoxPalm"
 expect_leak_rejected 读不了的文件 '读不了：./Contents/Resources/THIRD-PARTY-NOTICES.md' UNREADABLE_AFTER_SIGN=1
 expect_leak_rejected 扫描出错 '读不了：./Contents/Resources/THIRD-PARTY-NOTICES.md' GREP_FAILS=1
 expect_leak_rejected 没能查完 '自检没能查完' FIND_FAILS=1
+# 光有模块名（类型元数据里本来就有）不算泄漏，官方版要能打成。
+printf 'new executable\nPrivateAdapter.AdapterSource\n' > "$TEST_DIR/products/VoxPalm"
+VOXPALM_PRIVATE_DIR="$TEST_DIR/private" OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/module-name.log" 2>&1
+grep -q '^PrivateAdapter\.AdapterSource$' output/VoxPalm.app/Contents/MacOS/VoxPalm
+# 私有目录写错不能悄悄打成开源版。
+if VOXPALM_PRIVATE_DIR="$TEST_DIR/不存在的目录" OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/missing-private.log" 2>&1; then
+  echo '私有目录写错应返回失败' >&2; exit 1
+fi
 if UNIVERSAL=invalid OUTPUT_DIR=output bash "$FIXTURE/scripts/build-app.sh" > "$TEST_DIR/invalid.log" 2>&1; then
   echo '无效的 UNIVERSAL 应返回失败' >&2; exit 1
 fi
