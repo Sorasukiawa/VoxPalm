@@ -66,6 +66,13 @@ struct SettingsView: View {
                 .padding(.vertical, 10)
                 .ignoresSafeArea(.container, edges: .top)
             VStack(spacing: 0) {
+                if let progress = model.firmwareUpdates.installationProgress {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(progress.message).font(.callout.weight(.medium))
+                        if progress.total > 0 { ProgressView(value: Double(progress.completed), total: Double(progress.total)) }
+                        else { ProgressView().controlSize(.small) }
+                    }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if let problem = model.configProblem {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
@@ -96,6 +103,7 @@ struct SettingsView: View {
             .animation(Motion.pick(Motion.smooth), value: navigation.pane)
         }
         .background(BrandBackdrop())
+        .disabled(model.firmwareUpdates.isInstalling)
         .tint(Brand.coralBottom)
         .frame(minWidth: 860, minHeight: 640)
     }

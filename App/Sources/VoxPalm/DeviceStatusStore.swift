@@ -30,6 +30,7 @@ struct DeviceStatusReadRequest: Sendable {
     private(set) var isBusy = false
     private(set) var problem: String?
     @ObservationIgnored private var identities: [String: String] = [:]
+    @ObservationIgnored private var targets: [String: HardwareStatusTarget] = [:]
     @ObservationIgnored private var epoch = UUID()
     @ObservationIgnored private var lastRefresh = Date.distantPast
     @ObservationIgnored private var lastUSBQueryIdentity: String?
@@ -42,6 +43,7 @@ struct DeviceStatusReadRequest: Sendable {
     }
 
     func configure(_ targets: [String: HardwareStatusTarget]) {
+        self.targets = targets
         let next = targets.mapValues(\.identity)
         guard next != identities else { return }
         values = values.filter { next[$0.key] == identities[$0.key] }
@@ -49,6 +51,8 @@ struct DeviceStatusReadRequest: Sendable {
         lastUSBQueryIdentity = nil
         isRefreshing = false
     }
+
+    func target(for id: String) -> HardwareStatusTarget? { targets[id] }
 
     func refresh(targets: [String: HardwareStatusTarget], batteries: [ControllerBatteryReading],
                  supplements: [String: DeviceHardwareStatus], queryUSBDeviceID: String?, force: Bool) {
