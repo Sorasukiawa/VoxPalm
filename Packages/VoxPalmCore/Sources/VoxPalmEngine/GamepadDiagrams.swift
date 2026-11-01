@@ -4,6 +4,24 @@ public extension DeviceDiagram {
     static let dualSense = gamepad(edge: false)
     static let dualSenseEdge = gamepad(edge: true)
 
+    /// 小图只展示手柄正面机身；展开的肩键、背面和说明仍保留在完整按键图里。
+    var thumbnail: DeviceDiagram {
+        guard id == "dualsense" || id == "dualsense-edge",
+              let body = parts.first(where: { $0.shape == .gamepad })?.box else { return self }
+        func inside(_ box: Box) -> Bool {
+            box.x >= body.x && box.y >= body.y && box.x + box.w <= body.x + body.w && box.y + box.h <= body.y + body.h
+        }
+        func shifted(_ box: Box) -> Box { Box(box.x - body.x, box.y - body.y, box.w, box.h) }
+        return DeviceDiagram(id: id, title: title, width: body.w, height: body.h,
+                             parts: parts.filter { $0.style != .caption && inside($0.box) }.map {
+                                 Part(shifted($0.box), $0.shape, $0.style, symbol: $0.symbol, text: $0.text)
+                             },
+                             spots: spots.filter { inside($0.box) }.map {
+                                 Spot($0.id, $0.name, shifted($0.box), $0.shape, $0.style,
+                                      symbol: $0.symbol, button: $0.button, reserved: $0.reserved, text: $0.text)
+                             }, reportsRelease: reportsRelease, note: note)
+    }
+
     /// 按 Sony 官方正面/背面说明图独立绘制；顶部肩键、底部背键展开，方便逐键点选。
     private static func gamepad(edge: Bool) -> DeviceDiagram {
         func key(_ id: String, _ box: Box, _ shape: Shape = .circle, style: Style = .blackKey, symbol: String? = nil, text: String? = nil) -> Spot {

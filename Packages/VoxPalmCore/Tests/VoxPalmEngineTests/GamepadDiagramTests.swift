@@ -25,3 +25,19 @@ import Testing
     #expect(left.button == DualSenseInput.button("backLeft"))
     #expect(right.button == DualSenseInput.button("backRight"))
 }
+
+@Test func 手柄缩略图只留正面且不改变完整映射() {
+    for (diagram, count) in [(DeviceDiagram.dualSense, 19), (.dualSenseEdge, 23)] {
+        let thumbnail = diagram.thumbnail
+        #expect(thumbnail.width > thumbnail.height)
+        #expect(thumbnail.parts.filter { $0.shape == .gamepad }.count == 1)
+        #expect(!thumbnail.parts.contains { $0.style == .caption })
+        #expect(!thumbnail.spots.contains { ["l1", "r1", "l2", "r2", "backLeft", "backRight"].contains($0.id) })
+        for box in thumbnail.parts.map(\.box) + thumbnail.spots.map(\.box) {
+            #expect(box.x >= 0 && box.y >= 0 && box.x + box.w <= thumbnail.width && box.y + box.h <= thumbnail.height)
+        }
+        #expect(diagram.spots.count == count)
+    }
+    #expect(DeviceDiagram.siriRemote.thumbnail == .siriRemote)
+    #expect(DeviceDiagram.dualSenseEdge.thumbnail.spots.contains { $0.id == "fnLeft" })
+}
