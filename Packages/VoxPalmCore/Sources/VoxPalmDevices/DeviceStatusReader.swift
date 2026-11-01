@@ -50,7 +50,7 @@ public enum DeviceStatusReader {
     public static func hid(_ info: HIDDeviceInfo, queryUSBReports: Bool = false) -> DeviceHardwareStatus {
         var result = DeviceHardwareStatus(transport: info.transport ?? "未知", observedAt: Date())
         if info.profile?.isGamepad == true {
-            result.updateGuide = DeviceFirmwareGuide(summary: "当前可通过 PS5 或 Windows 的 PlayStation Accessories 更新；掌声暂不支持直接升级。",
+            result.updateGuide = DeviceFirmwareGuide(summary: "也可通过 PS5 或 Windows 的 PlayStation Accessories 更新；掌声内可用的更新操作以检查结果为准。",
                 url: URL(string: "https://controller.dl.playstation.net/controller/lang/en/2100004.html")!)
             result.firmwareNote = result.isBluetooth ? "连接 USB 后读取固件版本" : "选择设备或点刷新读取版本"
         }
