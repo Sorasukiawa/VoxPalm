@@ -38,8 +38,9 @@ extension AppModel {
     }
 
     func refreshHardwareStatus(deviceID: String? = nil, force: Bool = false) {
-        guard !isDeviceStatusPreview, voiceState == .idle else { return }
+        guard !isDeviceStatusPreview, voiceState == .idle, firmwareUpdates.busyID == nil else { return }
         let targets = hardwareTargets()
+        firmwareUpdates.configure(targets.compactMapValues { if case .hid(let info) = $0 { return info }; return nil })
         var supplements: [String: DeviceHardwareStatus] = [:]
         for device in devices {
             guard let source = engine.sources.first(where: { $0.sourceID == device.sourceID }),

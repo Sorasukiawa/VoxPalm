@@ -18,9 +18,14 @@ var appDependencies: [Target.Dependency] = [
 if let privateDir = ProcessInfo.processInfo.environment["VOXPALM_PRIVATE_DIR"], !privateDir.isEmpty {
     dependencies.append(.package(path: "\(privateDir)/dji"))
     dependencies.append(.package(path: "\(privateDir)/marks"))
+    dependencies.append(.package(path: "\(privateDir)/firmware-update"))
     appDependencies.append(.product(name: "VoxPalmDJI", package: "dji"))
     appDependencies.append(.product(name: "VoxPalmMarks", package: "marks"))
+    appDependencies.append(.product(name: "VoxPalmFirmware", package: "firmware-update"))
     swiftSettings.append(.define("VOXPALM_PRIVATE"))
+    if ProcessInfo.processInfo.environment["VOXPALM_EXPERIMENTAL_FIRMWARE"] == "1" {
+        swiftSettings.append(.define("VOXPALM_EXPERIMENTAL_FIRMWARE"))
+    }
     // 本机实验扩展须单独启用，普通官方版不会带上实验依赖。
     if ProcessInfo.processInfo.environment["VOXPALM_EXPERIMENTAL_AUDIO"] == "1" {
         dependencies.append(.package(path: "\(privateDir)/audio-input"))

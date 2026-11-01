@@ -54,6 +54,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     /// 退出前等控制设备收尾：接管了设备按键的来源要先让设备恢复普通按键。
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if AppModel.shared.firmwareUpdates.isInstalling {
+            showSettings(.devices)
+            let alert = NSAlert()
+            alert.messageText = "正在更新手柄固件"
+            alert.informativeText = "请保持 USB 连接并等待结果。更新期间不能退出掌声。"
+            alert.addButton(withTitle: "继续等待")
+            alert.runModal()
+            return .terminateCancel
+        }
         do {
             try AppModel.shared.flushConfig()
         } catch {
@@ -139,6 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func showOnboarding() {
+        guard !AppModel.shared.firmwareUpdates.isInstalling else { return }
         status?.closePopover()
         // 每次打开都从第一步开始
         if onboardingWindow?.isVisible != true {

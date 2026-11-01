@@ -16,7 +16,7 @@ struct DeviceStatusPanel: View {
                 Spacer()
                 if model.deviceStatus.isRefreshing { ProgressView().controlSize(.small) }
                 Button("刷新", systemImage: "arrow.clockwise") { model.refreshHardwareStatus(deviceID: id, force: true) }
-                    .buttonStyle(.borderless).disabled(id == nil || model.deviceStatus.isBusy || model.voiceState != .idle)
+                    .buttonStyle(.borderless).disabled(id == nil || model.deviceStatus.isBusy || model.firmwareUpdates.busyID != nil || model.voiceState != .idle)
             }
             if let value {
                 HStack(alignment: .top, spacing: 14) {
@@ -25,18 +25,7 @@ struct DeviceStatusPanel: View {
                     field("固件", value.firmware ?? "未提供", detail: value.firmwareNote ?? "未读取到设备固件版本", symbol: "cpu")
                 }
                 Divider()
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("固件更新").font(.subheadline.weight(.medium))
-                        Text(value.updateGuide?.summary ?? "当前设备暂不支持在掌声内直接升级固件。")
-                            .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 12)
-                    if let guide = value.updateGuide {
-                        Button("官方升级说明", systemImage: "arrow.up.right") { NSWorkspace.shared.open(guide.url) }
-                            .buttonStyle(.borderless).font(.caption)
-                    }
-                }
+                DeviceFirmwarePanel(id: id, guide: value.updateGuide)
                 if let problem = value.problem { Text(problem).font(.caption).foregroundStyle(.secondary) }
                 if let at = value.observedAt {
                     Text("最近读取 \(at.formatted(date: .omitted, time: .standard)) · \(value.transport)")
