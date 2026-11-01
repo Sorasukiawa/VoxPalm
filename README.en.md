@@ -75,6 +75,8 @@ Whether a device's buttons can be read by the Mac is tested on each device; we n
 
 Public Beta 4 (`v0.1.0-beta.4`) includes these button integrations and USB controller input selection. Select the USB controller mic separately under Recording device (收音设备); unplugging it will not silently switch recording to the Mac mic. Audio from the controller's own Bluetooth mic is not included in the download. DS5 and Siri Remote still require hardware verification. See [remote and controller support](docs/设备兼容/遥控器与手柄.md) (Simplified Chinese) for scope, setup and hardware checks.
 
+The current source adds Device status: battery level, charging state, Bluetooth signal and firmware information when actually provided by the device, with unavailable fields labeled explicitly. Battery and firmware reads have been tested on USB DSE; other devices and Bluetooth signal still need hardware verification. Firmware updates currently link to official instructions; direct updating within VoxPalm is not implemented. This feature is not in the beta.4 download above.
+
 Your device isn't listed? Test its buttons and audio with the [device probe](tools/probe/README.md) (Chinese) and post the report in an issue; see [Contributing](#contributing).
 
 ## Build from source

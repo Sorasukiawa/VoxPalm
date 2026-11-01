@@ -25,6 +25,8 @@ let package = Package(
                 .linkedFramework("AppKit"),
                 .linkedFramework("MediaPlayer"),
                 .linkedFramework("Accelerate"),
+                .linkedFramework("GameController"),
+                .linkedFramework("IOBluetooth"),
             ]
         ),
         .target(name: "VoxPalmEngine", dependencies: ["VoxPalmDevices"]),

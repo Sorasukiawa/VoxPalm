@@ -674,7 +674,7 @@ struct ControlDevicePicker: View {
             .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).strokeBorder(Color.primary.opacity(0.07), lineWidth: 0.5))
 
             GroupedPickerList(items: items, group: { $0.category.title }, selection: $focusID) { item, selected in
-                PickerRow(art: item.art, title: item.name, detail: item.connected ? item.detail : "没连上", dimmed: !item.connected,
+                PickerRow(art: item.art, title: item.name, detail: item.connected ? [item.detail, model.hardwareStatus(for: item.id)?.battery?.title].compactMap { $0 }.joined(separator: " · ") : "没连上", dimmed: !item.connected,
                           isNew: newIDs.contains(item.id), selected: selected)
             }
         }
