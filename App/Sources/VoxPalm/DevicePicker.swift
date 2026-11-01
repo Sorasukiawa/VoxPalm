@@ -67,8 +67,8 @@ extension AppModel {
         (.xiaomiRemote2, .remote, "小米遥控器 2"),
         (.siriRemote, .remote, "Siri Remote"),
         (.siriRemote1, .remote, "Siri Remote 一代"),
-        (.dualSense, .gamepad, "DualSense"),
-        (.dualSenseEdge, .gamepad, "DualSense Edge"),
+        (.dualSense, .gamepad, "DS5"),
+        (.dualSenseEdge, .gamepad, "DSE"),
     ] + PrivateModules.knownModels().map { ($0.diagram, .mic, $0.shortName) }
 
     static func shortName(for device: ControlDevice, art: DeviceDiagram) -> String {
@@ -204,7 +204,7 @@ extension AppModel {
     /// 收音设备的短名：认识的无线麦用型号（「DJI Mic 2」），Mac 自带的叫「Mac 麦克风」
     func micShortName(_ mic: AudioDeviceInfo) -> String {
         if let profile = mic.controllerProfile {
-            return profile == .dualSenseEdge ? "DSE 麦克风（USB）" : "DS5 麦克风（USB）"
+            return profile == .dualSenseEdge ? "DSE 麦克风" : "DS5 麦克风"
         }
         return PrivateModules.micModel(named: mic.name)?.shortName ?? (mic.transport == "Built-in" ? "Mac 麦克风" : mic.name)
     }
@@ -305,15 +305,17 @@ struct DeviceFigure: View {
     var onTap: ((String) -> Void)?
 
     var body: some View {
+        // 无标注的小图按机身比例取景；可交互或高亮的图保留完整布局。
+        let displayed = !showsSymbols && onTap == nil && lit == nil && highlighted.isEmpty ? diagram.thumbnail : diagram
         GeometryReader { geometry in
-            let layout = DiagramLayout.fitting(diagram, in: geometry.size)
+            let layout = DiagramLayout.fitting(displayed, in: geometry.size)
             ZStack(alignment: .topLeading) {
-                DeviceArt(diagram: diagram, layout: layout, highlighted: highlighted, showsSymbols: showsSymbols)
-                if let lit, let spot = diagram.spots.first(where: { $0.id == lit }) {
+                DeviceArt(diagram: displayed, layout: layout, highlighted: highlighted, showsSymbols: showsSymbols)
+                if let lit, let spot = displayed.spots.first(where: { $0.id == lit }) {
                     LitRing(frame: layout.frame(spot.box), isCircle: spot.shape == .circle)
                 }
                 if let onTap {
-                    ForEach(diagram.spots) { spot in
+                    ForEach(displayed.spots) { spot in
                         let frame = layout.frame(spot.box).insetBy(dx: -3, dy: -3)
                         Color.clear
                             .contentShape(Rectangle())
@@ -325,7 +327,7 @@ struct DeviceFigure: View {
                 }
             }
         }
-        .aspectRatio(CGFloat(diagram.width / diagram.height), contentMode: .fit)
+        .aspectRatio(CGFloat(displayed.width / displayed.height), contentMode: .fit)
     }
 }
 

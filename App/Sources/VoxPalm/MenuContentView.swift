@@ -197,13 +197,15 @@ struct DeviceTile<Status: View>: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 DeviceFigure(diagram: art, showsSymbols: false)
-                    .frame(width: 28, height: 30)
+                    .frame(width: 32, height: 30)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(label).font(.caption).foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Text(label).font(.caption).foregroundStyle(.secondary)
+                        Spacer(minLength: 0)
+                        Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
+                    }
                     Text(name).font(.callout.weight(.semibold)).lineLimit(1)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.down").font(.caption2.weight(.bold)).foregroundStyle(.tertiary)
             }
             // 状态行固定高度（状态胶囊的高度）：胶囊、采样率小标签、声波、空着都占一样高，两块磁贴的状态行对齐
             status().frame(height: 22, alignment: .leading)
