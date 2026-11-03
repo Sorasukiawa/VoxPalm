@@ -9,7 +9,8 @@ public struct LinkFramer: Sendable {
     public var bufferedByteCount: Int { header.count + body.count }
     public init() {}
 
-    /// 网络适配每次最多读取 16 KiB；输出完整消息体，接着交给 LinkSession.receive。
+    /// 独立使用时输出完整消息体，交给 LinkCodec.decode；每次最多读取 16 KiB。
+    /// 使用 LinkSession 时直接传入原始流片段，由会话内部完成分帧，不要再次去掉前缀。
     public mutating func append(_ bytes: Data) throws -> [Data] {
         guard !failed else { throw LinkError.decoderFailed }
         do {
