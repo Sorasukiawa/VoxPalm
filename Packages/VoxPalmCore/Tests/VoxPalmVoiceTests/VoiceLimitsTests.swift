@@ -56,9 +56,11 @@ private final class LimitInput: ExternalAudioInput {
     let name = "可控转写"
     var durations: [Double] = []
     var wait = false
+    var resultDelay: Duration = .zero
     var cancellations = 0
     func transcribe(_ buffers: [AVAudioPCMBuffer], locale: Locale) async throws -> String {
         durations.append(AudioConversion.duration(buffers))
+        if resultDelay > .zero { try await Task.sleep(for: resultDelay) }
         if wait {
             do { try await Task.sleep(for: .seconds(30)) }
             catch { cancellations += 1; throw error }
@@ -93,93 +95,94 @@ private final class LimitInput: ExternalAudioInput {
     }
 }
 
-@MainActor private func eventually(_ condition: () -> Bool) async {
-    let deadline = ContinuousClock.now + .seconds(3)
-    while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+// 等待行为完成，不把 CI 的主线程调度耗时当成功能时限。
+// 每个使用者都有 Testing 的一分钟超时；取消会抛出，禁止继续读取未完成的结果。
+@MainActor private func eventually(_ condition: () -> Bool) async throws {
+    while !condition() { try await Task.sleep(for: .milliseconds(5)) }
     #expect(condition())
 }
 
-@Test @MainActor func 到限先等外部关麦再转写且禁止自动发送() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func 到限先等外部关麦再转写且禁止自动发送() async throws {
     var limits = VoiceLimits(); limits.recordingBytes = 32_000
     let f = LimitFixture(limits)
     f.session.voiceBegin(VoiceRequest(sendReturn: true)); f.input.feeds[0](audio(1))
-    await eventually { f.input.stops.count == 1 }
+    try await eventually { f.input.stops.count == 1 }
     #expect(f.transcriber.durations.isEmpty && !f.session.canStartVoice)
     #expect(f.outcomes.contains { if case .recordingLimitReached = $0 { return true }; return false })
     f.input.feeds[0](audio(1)) // 关麦回调前仍到来的 PCM 不得继续占用缓冲。
     f.input.stops[0](.success(()))
-    await eventually { f.session.state == .idle }
+    try await eventually { f.session.state == .idle }
     #expect(f.transcriber.durations == [0.5] && f.insertions == 1)
-    try? await Task.sleep(for: .milliseconds(400))
+    try await Task.sleep(for: .milliseconds(400))
     #expect(f.returns == 0)
     f.session.voiceBegin(VoiceRequest()); f.input.feeds[0](audio(2)); f.input.feeds[1](audio(0.25))
     f.session.voiceEnd(); f.input.stops[1](.success(()))
-    await eventually { f.session.state == .idle }
+    try await eventually { f.session.state == .idle }
     #expect(f.transcriber.durations == [0.5, 0.25])
 }
 
-@Test @MainActor func 到限通知排队时手动松手也不发送() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func 到限通知排队时手动松手也不发送() async throws {
     var limits = VoiceLimits(); limits.recordingBytes = 16_000
     let f = LimitFixture(limits)
     f.session.voiceBegin(VoiceRequest(sendReturn: true)); f.input.feeds[0](audio(1))
     f.session.voiceEnd() // 抢在到限的主线程回调之前。
     f.input.stops[0](.success(()))
-    await eventually { f.session.state == .idle }
-    try? await Task.sleep(for: .milliseconds(400))
+    try await eventually { f.session.state == .idle }
+    try await Task.sleep(for: .milliseconds(400))
     #expect(f.insertions == 1 && f.returns == 0)
 }
 
-@Test @MainActor func 没有音频回调也会到时关麦且旧计时器不结束新录音() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func 没有音频回调也会到时关麦且旧计时器不结束新录音() async throws {
     var limits = VoiceLimits(); limits.recordingSeconds = 0.08
     let f = LimitFixture(limits)
     f.session.voiceArm(VoiceRequest())
-    await eventually { f.input.stops.count == 1 }
+    try await eventually { f.input.stops.count == 1 }
     f.input.stops[0](.success(()))
-    await eventually { f.session.canStartVoice }
+    try await eventually { f.session.canStartVoice }
     f.session.voiceBegin(VoiceRequest()); f.session.voiceCancel()
     f.input.stops[1](.success(()))
-    await eventually { f.session.canStartVoice }
+    try await eventually { f.session.canStartVoice }
     f.session.voiceBegin(VoiceRequest())
-    try? await Task.sleep(for: .milliseconds(25))
+    try await Task.sleep(for: .milliseconds(25))
     #expect(f.session.state == .listening)
     f.session.voiceCancel(); f.input.stops[2](.success(()))
 }
 
-@Test @MainActor func 转写超时取消底层并可立即开始下一轮() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func 转写超时取消底层并可立即开始下一轮() async throws {
     var limits = VoiceLimits(); limits.transcriptionSeconds = 0.08
     let f = LimitFixture(limits); f.transcriber.wait = true
     f.session.voiceBegin(VoiceRequest()); f.input.feeds[0](audio(0.5)); f.session.voiceEnd()
     f.input.stops[0](.success(()))
-    await eventually { f.transcriber.cancellations == 1 }
+    try await eventually { f.transcriber.cancellations == 1 }
     #expect(f.session.canStartVoice && f.insertions == 0)
     #expect(f.outcomes.contains { if case let .failed(text) = $0 { return text.contains("超时") }; return false })
     f.transcriber.wait = false
     f.session.voiceBegin(VoiceRequest()); f.input.feeds[1](audio(0.25)); f.session.voiceEnd()
     f.input.stops[1](.success(()))
-    await eventually { f.insertions == 1 }
+    try await eventually { f.insertions == 1 }
     #expect(f.session.state == .idle)
 }
 
 // 同步模拟主线程繁忙：越过截止时间，仍让松手先于排队的计时器 continuation 执行。
 @MainActor private func occupyMainThread() { Thread.sleep(forTimeInterval: 0.08) }
 
-@Test @MainActor func 时间到限但计时器尚未执行时松手仍不发送() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func 时间到限但计时器尚未执行时松手仍不发送() async throws {
     var limits = VoiceLimits(); limits.recordingSeconds = 0.04
     let f = LimitFixture(limits)
     f.session.voiceBegin(VoiceRequest(sendReturn: true)); f.input.feeds[0](audio(0.01))
     occupyMainThread()
     f.session.voiceEnd(); f.input.stops[0](.success(()))
-    await eventually { f.session.state == .idle }
-    try? await Task.sleep(for: .milliseconds(400))
+    try await eventually { f.session.state == .idle }
+    try await Task.sleep(for: .milliseconds(400))
     #expect(f.insertions == 1 && f.returns == 0)
     #expect(f.outcomes.contains { if case .recordingLimitReached = $0 { return true }; return false })
     let normal = LimitFixture(VoiceLimits())
     normal.session.voiceBegin(VoiceRequest(sendReturn: true)); normal.input.feeds[0](audio(0.01))
     normal.session.voiceEnd(); normal.input.stops[0](.success(()))
-    await eventually { normal.returns == 1 }
+    try await eventually { normal.returns == 1 }
 }
 
-@Test @MainActor func 预热录音到限后丢弃旧预录和晚到回调() async throws {
+@Test(.timeLimit(.minutes(1))) @MainActor func 预热录音到限后丢弃旧预录和晚到回调() async throws {
     let empty = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-limit-warm-\(UUID().uuidString).wav")
     defer { try? FileManager.default.removeItem(at: empty) }
     do { _ = try AVAudioFile(forWriting: empty, settings: audio(0.01).format.settings) }
@@ -195,17 +198,17 @@ private final class LimitInput: ExternalAudioInput {
     session.settings.keepMicWarm = true
     session.received(audio(0.025)) // 真实地进入闲置预录，而不是本轮录音缓冲。
     session.voiceBegin(VoiceRequest()); session.received(audio(0.2))
-    await eventually { session.state == .idle }
+    try await eventually { session.state == .idle }
     #expect(transcriber.durations == [0.1])
     session.received(audio(0.04)) // 停采后的晚到系统回调也不得填回旧预录。
     session.voiceBegin(VoiceRequest()); session.received(audio(0.025)); session.voiceEnd()
-    await eventually { session.state == .idle }
+    try await eventually { session.state == .idle }
     #expect(transcriber.durations.count == 2)
     #expect(abs(transcriber.durations.last! - 0.025) < 0.0001)
     session.settings.keepMicWarm = false
 }
 
-@Test @MainActor func 外部输入法到时只松键不回车() async {
+@Test(.timeLimit(.minutes(1))) @MainActor func 外部输入法到时只松键不回车() async throws {
     var dependencies = VoiceSession.Dependencies()
     dependencies.limits.recordingSeconds = 0.04
     dependencies.currentTarget = { nil }; dependencies.inputDevices = { [] }
@@ -217,7 +220,7 @@ private final class LimitInput: ExternalAudioInput {
     var settings = VoiceSession.Settings(); settings.mode = .inputMethod; settings.inputMethodSendDelay = 0
     let session = VoiceSession(settings: settings, dependencies: dependencies)
     session.voiceBegin(VoiceRequest(sendReturn: true))
-    await eventually { session.state == .idle }
+    try await eventually { session.state == .idle }
     session.voiceEnd()
     #expect(downs == 1 && ups == 1 && returns == 0)
 }
@@ -261,4 +264,26 @@ private final class LimitInput: ExternalAudioInput {
         for _ in 0..<8 { group.addTask { await cleanup.start().value } }
     }
     #expect(await count.count == 1)
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func 慢转写未超时仍须等待完成并只投递一次() async throws {
+    let f = LimitFixture(VoiceLimits())
+    f.transcriber.resultDelay = .milliseconds(3200)
+    defer { f.session.voiceCancel() }
+    f.session.voiceBegin(VoiceRequest()); f.input.feeds[0](audio(0.5)); f.session.voiceEnd()
+    f.input.stops[0](.success(()))
+    try await eventually { f.session.state == .idle }
+    #expect(f.insertions == 1 && f.transcriber.durations == [0.5])
+    #expect(f.transcriber.cancellations == 0)
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func 等待条件响应取消且不读取未完成结果() async throws {
+    var reachedAssertions = false
+    let waiting = Task { @MainActor in
+        try await eventually { false }
+        reachedAssertions = true
+    }
+    waiting.cancel()
+    await #expect(throws: CancellationError.self) { try await waiting.value }
+    #expect(!reachedAssertions)
 }
