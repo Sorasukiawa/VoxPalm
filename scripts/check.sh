@@ -11,6 +11,7 @@ for script in scripts/build-app.sh scripts/lib/local-paths.sh scripts/tests/buil
 done
 plutil -lint App/Info.plist App/VoxPalm.entitlements
 bash scripts/tests/build-app.sh
+swift test --package-path Packages/VoxPalmLink --jobs "$JOBS"
 swift test --package-path Packages/VoxPalmCore --jobs "$JOBS"
 swift test --package-path tools/probe --jobs "$JOBS"
 swift test --package-path App --jobs "$JOBS"
