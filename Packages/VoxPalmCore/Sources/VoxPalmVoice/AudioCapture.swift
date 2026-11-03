@@ -104,6 +104,7 @@ public enum AudioConversion {
         var output: [AVAudioPCMBuffer] = []
         let ratio = target.sampleRate / source.sampleRate
         while true {
+            try Task.checkCancellation()
             let capacity = AVAudioFrameCount(Double(4096) * ratio) + 64
             guard let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: capacity) else { break }
             var error: NSError?
@@ -197,6 +198,7 @@ public enum AudioConversion {
         guard let mono = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false) else { return [] }
         var samples: [Float] = []
         for buffer in try convert(buffers, to: mono) {
+            try Task.checkCancellation()
             guard let channel = buffer.floatChannelData?[0] else { continue }
             samples.append(contentsOf: UnsafeBufferPointer(start: channel, count: Int(buffer.frameLength)))
         }

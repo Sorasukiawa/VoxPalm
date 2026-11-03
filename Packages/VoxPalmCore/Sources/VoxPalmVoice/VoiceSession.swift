@@ -89,6 +89,8 @@ public final class VoiceSession: VoiceActionHandler {
         /// 录到了声音但没听出字
         case noText
         case failed(String)
+        /// 到限后已经停止收音，预算内的声音仍会转写。
+        case recordingLimitReached(String)
     }
 
     public var onStateChange: ((State) -> Void)?
@@ -118,8 +120,14 @@ public final class VoiceSession: VoiceActionHandler {
     private let logger = Logger(subsystem: "com.sorasukiawa.VoxPalm", category: "voice")
     private let lock = NSLock()
     private var collecting = false
-    private var sessionBuffers: [AVAudioPCMBuffer] = []
-    /// 实时预览（确认开始说话后才开，按得太短的不开）；和 sessionBuffers 一起由 lock 保护
+    private var recording: RecordingBuffer
+    private var recordingID = UUID()
+    private var recordingTimer: Task<Void, Never>?
+    private var recordingDeadline: ContinuousClock.Instant?
+    /// 到限暂停预热后，晚到回调不得重新填入 ring；下一次主动说话或改设置才恢复。
+    private var warmSuspended = false
+    private var transcriptionTimer: Task<Void, Never>?
+    /// 实时预览（确认开始说话后才开，按得太短的不开）；和 recording 一起由 lock 保护
     private var preview: LivePreview?
     private var ring: [AVAudioPCMBuffer] = []
     private var debugQueue: ArraySlice<AVAudioPCMBuffer> = []
@@ -140,6 +148,7 @@ public final class VoiceSession: VoiceActionHandler {
 
     /// 将系统操作集中在这里，回归测试可以完全使用假件，不开麦、不向前台发键。
     struct Dependencies {
+        var limits = VoiceLimits()
         var currentTarget: @MainActor () -> TextTarget? = { TextTarget.current() }
         var makeTranscriber: (TranscriberChoice, WhisperSettings) throws -> Transcriber = { try TranscriberFactory.make($0, whisper: $1) }
         var makePreview: (TranscriberChoice, Locale, @escaping (String) -> Void) -> LivePreview? = { TranscriberFactory.makePreview($0, locale: $1, onPartial: $2) }
@@ -164,6 +173,7 @@ public final class VoiceSession: VoiceActionHandler {
     init(settings: Settings, dependencies: Dependencies, externalInputs: @escaping () -> [ExternalAudioInput] = { [] }) {
         self.settings = settings
         self.dependencies = dependencies
+        self.recording = RecordingBuffer(limits: dependencies.limits)
         self.externalInputs = externalInputs
         capture.onBuffer = { [weak self] in self?.received($0) }
         if let path = ProcessInfo.processInfo.environment["VOXPALM_DEBUG_AUDIO_FILE"], !path.isEmpty {
@@ -208,13 +218,18 @@ public final class VoiceSession: VoiceActionHandler {
         switch settings.mode {
         case .builtIn:
             lock.lock()
-            sessionBuffers = settings.keepMicWarm && !usesExternalInput ? ring : []
+            recording = RecordingBuffer(limits: dependencies.limits)
+            recordingID = generation
+            warmSuspended = false
+            if settings.keepMicWarm && !usesExternalInput {
+                for buffer in ring { _ = recording.append(buffer) }
+            }
             collecting = true
             lock.unlock()
             guard startCaptureIfNeeded() else {
                 lock.lock()
                 collecting = false
-                sessionBuffers.removeAll()
+                recording = RecordingBuffer(limits: dependencies.limits)
                 ring.removeAll()
                 lock.unlock()
                 onOutcome?(.failed("没有打开选定的收音设备，请检查连接和麦克风权限"))
@@ -230,6 +245,7 @@ public final class VoiceSession: VoiceActionHandler {
             }
         }
         state = .armed
+        startRecordingTimer()
     }
 
     public func voiceDisarm(tooShortFor threshold: Double?) {
@@ -241,7 +257,7 @@ public final class VoiceSession: VoiceActionHandler {
             stopDebugFeed()
             lock.lock()
             collecting = false
-            sessionBuffers.removeAll()
+            recording = RecordingBuffer(limits: dependencies.limits)
             let preview = preview
             self.preview = nil
             lock.unlock()
@@ -283,8 +299,15 @@ public final class VoiceSession: VoiceActionHandler {
         }
     }
 
-    public func voiceEnd() {
+    public func voiceEnd() { endRecording(atLimit: false) }
+
+    private func endRecording(atLimit: Bool) {
         guard state == .listening || state == .armed else { return }
+        recordingTimer?.cancel()
+        recordingTimer = nil
+        var limited = atLimit || recordingDeadline.map { ContinuousClock.now >= $0 } == true
+        recordingDeadline = nil
+        if limited { request.sendReturn = false }
         switch settings.mode {
         case .inputMethod:
             if state == .listening { dependencies.endInputMethod(settings.inputMethodKey) }
@@ -299,13 +322,20 @@ public final class VoiceSession: VoiceActionHandler {
             flushDebugFeed()
             lock.lock()
             collecting = false
-            let buffers = sessionBuffers
-            sessionBuffers.removeAll()
+            let buffers = recording.buffers
+            let reachedLimit = recording.limitReached
+            limited = limited || reachedLimit
+            if limited {
+                warmSuspended = true
+                ring.removeAll()
+            }
+            recording = RecordingBuffer(limits: dependencies.limits)
             let preview = preview
             self.preview = nil
             lock.unlock()
             preview?.stop()
-            if !settings.keepMicWarm { capture.stop() }
+            if limited { request.sendReturn = false }
+            if limited || !settings.keepMicWarm { capture.stop() }
             if externalCapture != nil {
                 let token = generation
                 state = .transcribing
@@ -321,6 +351,11 @@ public final class VoiceSession: VoiceActionHandler {
             } else {
                 finishRecording(buffers)
             }
+        }
+        if limited {
+            let message = "已达到单次录音上限，正在收尾；本次不会自动发送"
+            onMessage?(message)
+            onOutcome?(.recordingLimitReached(message))
         }
     }
 
@@ -365,6 +400,11 @@ public final class VoiceSession: VoiceActionHandler {
 
     private func invalidatePendingWork() {
         generation = UUID()
+        recordingDeadline = nil
+        recordingTimer?.cancel()
+        recordingTimer = nil
+        transcriptionTimer?.cancel()
+        transcriptionTimer = nil
         transcriptionTask?.cancel()
         transcriptionTask = nil
         returnTask?.cancel()
@@ -378,7 +418,7 @@ public final class VoiceSession: VoiceActionHandler {
         stopDebugFeed()
         lock.lock()
         collecting = false
-        sessionBuffers.removeAll()
+        recording = RecordingBuffer(limits: dependencies.limits)
         let preview = preview
         self.preview = nil
         lock.unlock()
@@ -388,6 +428,23 @@ public final class VoiceSession: VoiceActionHandler {
         state = .idle
         stopExternalCapture()
         if !activeSettings.keepMicWarm || activeSettings.mode != .builtIn { capture.stop() }
+    }
+
+    private func startRecordingTimer() {
+        let id = generation
+        let deadline = ContinuousClock.now + .seconds(dependencies.limits.recordingSeconds)
+        recordingDeadline = deadline
+        recordingTimer = Task { @MainActor [weak self] in
+            do { try await Task.sleep(until: deadline, clock: .continuous) }
+            catch { return }
+            self?.finishAtRecordingLimit(id: id)
+        }
+    }
+
+    private func finishAtRecordingLimit(id: UUID) {
+        guard generation == id, isVoiceActive else { return }
+        // 音频回调停了也必须结束；旧计时器不能结束新一轮。
+        endRecording(atLimit: true)
     }
 
     private func finishRecording(_ buffers: [AVAudioPCMBuffer]) {
@@ -462,7 +519,7 @@ public final class VoiceSession: VoiceActionHandler {
         }
         guard let new else { return }
         lock.lock()
-        for buffer in sessionBuffers { new.append(buffer) }
+        for buffer in recording.buffers { new.append(buffer) }
         let old = preview
         preview = new
         lock.unlock()
@@ -474,6 +531,15 @@ public final class VoiceSession: VoiceActionHandler {
         let generation = generation
         let makeTranscriber = dependencies.makeTranscriber
         let started = Date()
+        transcriptionTimer = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(self?.dependencies.limits.transcriptionSeconds ?? 120)) }
+            catch { return }
+            guard let self, self.generation == generation, self.state == .transcribing else { return }
+            self.voiceCancel()
+            let message = "转写等待超时，已取消，请缩短这一段后重试"
+            self.onMessage?(message)
+            self.onOutcome?(.failed(message))
+        }
         // 主线程上的任务；转写本身是非隔离的异步函数，在后台执行，不卡界面。
         transcriptionTask = Task { @MainActor [weak self] in
             let result: Result<String, Error>
@@ -485,6 +551,9 @@ public final class VoiceSession: VoiceActionHandler {
                 result = .failure(error)
             }
             guard let self, self.generation == generation, !Task.isCancelled else { return }
+            // 已拿到结果，后面的输入框检查不计入模型转写超时。
+            self.transcriptionTimer?.cancel()
+            self.transcriptionTimer = nil
             defer { if self.generation == generation { self.transcriptionTask = nil } }
             switch result {
             case let .success(text):
@@ -540,7 +609,8 @@ public final class VoiceSession: VoiceActionHandler {
             catch { return }
             guard let self, self.generation == generation, self.state == .idle else { return }
             self.returnTask = nil
-            self.onMessage?(self.dependencies.sendReturn(target))
+            let message = self.dependencies.sendReturn(target)
+            self.onMessage?(message)
         }
     }
 
@@ -583,9 +653,15 @@ public final class VoiceSession: VoiceActionHandler {
             DispatchQueue.main.async { [weak self] in self?.onLevel?(level) }
         }
         if collecting {
-            sessionBuffers.append(buffer)
-            preview?.append(buffer)
-        } else if let warmDuration {
+            if let kept = recording.append(buffer) { preview?.append(kept) }
+            if recording.limitReached {
+                collecting = false
+                warmSuspended = true
+                ring.removeAll()
+                let id = recordingID
+                DispatchQueue.main.async { [weak self] in self?.finishAtRecordingLimit(id: id) }
+            }
+        } else if !warmSuspended, let warmDuration {
             ring.append(buffer)
             var total = AudioConversion.duration(ring)
             while total > warmDuration, let first = ring.first {
@@ -704,6 +780,7 @@ public final class VoiceSession: VoiceActionHandler {
 
     private func applyWarm() {
         lock.lock()
+        warmSuspended = false
         let seconds = settings.warmSeconds.isFinite ? min(3, max(0, settings.warmSeconds)) : 1
         warmDuration = settings.keepMicWarm && settings.mode == .builtIn && !usesExternalInput ? seconds : nil
         lock.unlock()

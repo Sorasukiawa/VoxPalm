@@ -203,6 +203,8 @@ final class SpeechHUDController {
             show(.message(title: "没听到声音", subtitle: "看看麦克风开了没有，或者在面板里换一个", tone: .muted), hideAfter: 4)
         case .noText:
             show(.message(title: "没听出字", subtitle: "再说一次，离麦克风近一点", tone: .muted), hideAfter: 4)
+        case let .recordingLimitReached(message):
+            show(.message(title: "录音已到上限", subtitle: message, tone: .warn), hideAfter: 4)
         case let .failed(message):
             show(.message(title: "这次没转成字", subtitle: String(message.prefix(40)), tone: .error), hideAfter: 4)
         }

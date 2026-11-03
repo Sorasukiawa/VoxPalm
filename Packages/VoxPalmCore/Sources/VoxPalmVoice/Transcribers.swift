@@ -5,6 +5,7 @@ import Speech
 /// 内置转写，整段说完再转（按住说话一般就几秒，整段转标点最全）。说话时的实时预览见 `LivePreview`。
 public protocol Transcriber {
     var name: String { get }
+    /// 响应调用 Task 的取消；返回前结束本轮底层运算及结果收集。
     func transcribe(_ buffers: [AVAudioPCMBuffer], locale: Locale) async throws -> String
 }
 
@@ -88,6 +89,7 @@ public struct SpeechAnalyzerTranscriber: Transcriber {
     public init() {}
 
     public func transcribe(_ buffers: [AVAudioPCMBuffer], locale: Locale) async throws -> String {
+        try Task.checkCancellation()
         guard !buffers.isEmpty else { return "" }
         if let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
             let transcriber = SpeechTranscriber(locale: supported, preset: .transcription)
@@ -119,10 +121,12 @@ public struct SpeechAnalyzerTranscriber: Transcriber {
     }
 
     static func ensureAssets(_ module: any SpeechModule) async throws {
+        try Task.checkCancellation()
         if await AssetInventory.status(forModules: [module]) >= .installed { return }
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [module]) {
             try await request.downloadAndInstall()
         }
+        try Task.checkCancellation()
     }
 
     private func run<Results: AsyncSequence>(
@@ -139,11 +143,33 @@ public struct SpeechAnalyzerTranscriber: Transcriber {
         let sequence = results()
         let collector = Task { try await collect(sequence) }
         let (stream, continuation) = AsyncStream<AnalyzerInput>.makeStream()
-        try await analyzer.start(inputSequence: stream)
-        for buffer in converted { continuation.yield(AnalyzerInput(buffer: buffer)) }
-        continuation.finish()
-        try await analyzer.finalizeAndFinishThroughEndOfInput()
-        return TranscriptCleaner.clean(try await collector.value)
+        let cleanup = TranscriptionCleanup { await analyzer.cancelAndFinishNow() }
+        return try await withTaskCancellationHandler {
+            do {
+                try Task.checkCancellation()
+                try await analyzer.start(inputSequence: stream)
+                try Task.checkCancellation()
+                for buffer in converted {
+                    try Task.checkCancellation()
+                    continuation.yield(AnalyzerInput(buffer: buffer))
+                }
+                continuation.finish()
+                try await analyzer.finalizeAndFinishThroughEndOfInput()
+                let text = try await collector.value
+                try Task.checkCancellation()
+                return TranscriptCleaner.clean(text)
+            } catch {
+                continuation.finish()
+                collector.cancel()
+                await cleanup.start().value
+                _ = await collector.result
+                throw error
+            }
+        } onCancel: {
+            continuation.finish()
+            collector.cancel()
+            cleanup.start()
+        }
     }
 }
 
@@ -178,6 +204,7 @@ final class SpeechAnalyzerPreview: LivePreview, @unchecked Sendable {
 
     func stop() {
         input.finish()
+        work.cancel()
     }
 
     /// 出错（模型装不上、格式转不了）就不显示预览，整段转那边会照常报错。
@@ -192,29 +219,40 @@ final class SpeechAnalyzerPreview: LivePreview, @unchecked Sendable {
         let collector = Task {
             var settled = ""
             for try await item in texts {
+                try Task.checkCancellation()
                 if item.isFinal { settled += item.text }
                 onPartial(TranscriptCleaner.clean(item.isFinal ? settled : settled + item.text))
             }
         }
         let (stream, feed) = AsyncStream<AnalyzerInput>.makeStream()
-        do {
-            try await SpeechAnalyzerTranscriber.ensureAssets(module)
-            try await analyzer.start(inputSequence: stream)
-            var converter: AudioConversion.StreamConverter?
-            for await buffer in raw {
-                if converter == nil {
-                    let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module], considering: buffer.format) ?? buffer.format
-                    converter = try AudioConversion.StreamConverter(from: buffer.format, to: format)
+        let cleanup = TranscriptionCleanup { await analyzer.cancelAndFinishNow() }
+        await withTaskCancellationHandler {
+            do {
+                try await SpeechAnalyzerTranscriber.ensureAssets(module)
+                try Task.checkCancellation()
+                try await analyzer.start(inputSequence: stream)
+                try Task.checkCancellation()
+                var converter: AudioConversion.StreamConverter?
+                for await buffer in raw {
+                    try Task.checkCancellation()
+                    if converter == nil {
+                        let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: [module], considering: buffer.format) ?? buffer.format
+                        converter = try AudioConversion.StreamConverter(from: buffer.format, to: format)
+                    }
+                    for piece in try converter?.convert(buffer) ?? [] { feed.yield(AnalyzerInput(buffer: piece)) }
                 }
-                for piece in try converter?.convert(buffer) ?? [] { feed.yield(AnalyzerInput(buffer: piece)) }
+            } catch {
+                // 预览失败只结束本轮预览；整段转写会独立报告错误。
             }
-        } catch {
-            // 预览出错不打扰用户，等着松手（raw 结束）再收拾
-            for await _ in raw {}
+            feed.finish()
+            collector.cancel()
+            await cleanup.start().value
+            _ = await collector.result
+        } onCancel: {
+            feed.finish()
+            collector.cancel()
+            cleanup.start()
         }
-        feed.finish()
-        await analyzer.cancelAndFinishNow()
-        collector.cancel()
     }
 }
 

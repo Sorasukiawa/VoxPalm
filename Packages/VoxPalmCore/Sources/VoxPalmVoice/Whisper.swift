@@ -122,6 +122,7 @@ public struct WhisperTranscriber: Transcriber {
     }
 
     public func transcribe(_ buffers: [AVAudioPCMBuffer], locale: Locale) async throws -> String {
+        try Task.checkCancellation()
         guard !buffers.isEmpty else { return "" }
         let samples = Self.padded(try AudioConversion.whisperSamples(buffers))
         let text = try await WhisperEngine.shared.transcribe(samples, model: model, locale: locale)
@@ -183,11 +184,9 @@ final class WhisperEngine: @unchecked Sendable {
     }
 
     func transcribe(_ samples: [Float], model: URL, locale: Locale) async throws -> String {
-        try await withCheckedThrowingContinuation { continuation in
-            queue.async {
-                continuation.resume(with: Result { try self.run(samples, model: model, locale: locale) })
-                self.scheduleRelease()
-            }
+        try await TranscriptionCancellation.run(on: queue) { cancellation in
+            defer { self.scheduleRelease() }
+            return try self.run(samples, model: model, locale: locale, cancellation: cancellation)
         }
     }
 
@@ -228,8 +227,11 @@ final class WhisperEngine: @unchecked Sendable {
         _ = done.wait(timeout: .now() + 2)
     }
 
-    private func run(_ samples: [Float], model: URL, locale: Locale) throws -> String {
+    private func run(_ samples: [Float], model: URL, locale: Locale, cancellation: TranscriptionCancellation) throws -> String {
+        try cancellation.check()
         let context = try load(model)
+        // 官方加载接口不能中途取消；加载返回后不再启动已取消的推理。
+        try cancellation.check()
         // 词表比 large-v2 及以前的多一个（51866 个）的是 large-v3 系列，认得粤语
         let (language, prompt) = WhisperTranscriber.decoding(for: locale, knowsCantonese: whisper_model_n_vocab(context) >= 51866)
         // 和 whisper-cli 的默认一样用束搜索（5 条），比贪心解码准
@@ -242,6 +244,12 @@ final class WhisperEngine: @unchecked Sendable {
         params.print_realtime = false
         params.print_timestamps = false
         params.print_special = false
+        // cancellation 由队列闭包持有到 whisper_full 返回；C 回调只借用指针。
+        params.abort_callback_user_data = Unmanaged.passUnretained(cancellation).toOpaque()
+        params.abort_callback = { pointer in
+            guard let pointer else { return false }
+            return Unmanaged<TranscriptionCancellation>.fromOpaque(pointer).takeUnretainedValue().isCancelled
+        }
         let status = language.withCString { languagePointer in
             (prompt ?? "").withCString { promptPointer in
                 params.language = languagePointer
@@ -249,6 +257,7 @@ final class WhisperEngine: @unchecked Sendable {
                 return samples.withUnsafeBufferPointer { whisper_full(context, params, $0.baseAddress, Int32($0.count)) }
             }
         }
+        try cancellation.check()
         guard status == 0 else { throw TranscriberError.whisperFailed("whisper_full 返回 \(status)") }
         var text = ""
         for index in 0..<whisper_full_n_segments(context) {
