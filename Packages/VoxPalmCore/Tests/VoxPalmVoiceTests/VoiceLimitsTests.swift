@@ -160,6 +160,51 @@ private final class LimitInput: ExternalAudioInput {
     #expect(f.session.state == .idle)
 }
 
+// 同步模拟主线程繁忙：越过截止时间，仍让松手先于排队的计时器 continuation 执行。
+@MainActor private func occupyMainThread() { Thread.sleep(forTimeInterval: 0.08) }
+
+@Test @MainActor func 时间到限但计时器尚未执行时松手仍不发送() async {
+    var limits = VoiceLimits(); limits.recordingSeconds = 0.04
+    let f = LimitFixture(limits)
+    f.session.voiceBegin(VoiceRequest(sendReturn: true)); f.input.feeds[0](audio(0.01))
+    occupyMainThread()
+    f.session.voiceEnd(); f.input.stops[0](.success(()))
+    await eventually { f.session.state == .idle }
+    try? await Task.sleep(for: .milliseconds(400))
+    #expect(f.insertions == 1 && f.returns == 0)
+    #expect(f.outcomes.contains { if case .recordingLimitReached = $0 { return true }; return false })
+    let normal = LimitFixture(VoiceLimits())
+    normal.session.voiceBegin(VoiceRequest(sendReturn: true)); normal.input.feeds[0](audio(0.01))
+    normal.session.voiceEnd(); normal.input.stops[0](.success(()))
+    await eventually { normal.returns == 1 }
+}
+
+@Test @MainActor func 预热录音到限后丢弃旧预录和晚到回调() async throws {
+    let empty = FileManager.default.temporaryDirectory.appendingPathComponent("voxpalm-limit-warm-\(UUID().uuidString).wav")
+    defer { try? FileManager.default.removeItem(at: empty) }
+    do { _ = try AVAudioFile(forWriting: empty, settings: audio(0.01).format.settings) }
+    let transcriber = LimitTranscriber()
+    var dependencies = VoiceSession.Dependencies()
+    dependencies.limits.recordingBytes = 6_400
+    dependencies.currentTarget = { nil }; dependencies.makePreview = { _, _, _ in nil }
+    dependencies.makeTranscriber = { _, _ in transcriber }; dependencies.prepareDelivery = { _ in }
+    dependencies.insertText = { _, _, _ in (.inserted(appName: "假窗口"), nil) }
+    var settings = VoiceSession.Settings(); settings.transcriber = .appleSpeech; settings.minimumSeconds = 0
+    let session = VoiceSession(settings: settings, dependencies: dependencies)
+    session.debugAudioFile = empty; session.debugTranscriptFile = nil
+    session.settings.keepMicWarm = true
+    session.received(audio(0.025)) // 真实地进入闲置预录，而不是本轮录音缓冲。
+    session.voiceBegin(VoiceRequest()); session.received(audio(0.2))
+    await eventually { session.state == .idle }
+    #expect(transcriber.durations == [0.1])
+    session.received(audio(0.04)) // 停采后的晚到系统回调也不得填回旧预录。
+    session.voiceBegin(VoiceRequest()); session.received(audio(0.025)); session.voiceEnd()
+    await eventually { session.state == .idle }
+    #expect(transcriber.durations.count == 2)
+    #expect(abs(transcriber.durations.last! - 0.025) < 0.0001)
+    session.settings.keepMicWarm = false
+}
+
 @Test @MainActor func 外部输入法到时只松键不回车() async {
     var dependencies = VoiceSession.Dependencies()
     dependencies.limits.recordingSeconds = 0.04

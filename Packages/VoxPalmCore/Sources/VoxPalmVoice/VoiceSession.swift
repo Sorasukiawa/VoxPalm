@@ -123,6 +123,9 @@ public final class VoiceSession: VoiceActionHandler {
     private var recording: RecordingBuffer
     private var recordingID = UUID()
     private var recordingTimer: Task<Void, Never>?
+    private var recordingDeadline: ContinuousClock.Instant?
+    /// 到限暂停预热后，晚到回调不得重新填入 ring；下一次主动说话或改设置才恢复。
+    private var warmSuspended = false
     private var transcriptionTimer: Task<Void, Never>?
     /// 实时预览（确认开始说话后才开，按得太短的不开）；和 recording 一起由 lock 保护
     private var preview: LivePreview?
@@ -217,6 +220,7 @@ public final class VoiceSession: VoiceActionHandler {
             lock.lock()
             recording = RecordingBuffer(limits: dependencies.limits)
             recordingID = generation
+            warmSuspended = false
             if settings.keepMicWarm && !usesExternalInput {
                 for buffer in ring { _ = recording.append(buffer) }
             }
@@ -301,7 +305,8 @@ public final class VoiceSession: VoiceActionHandler {
         guard state == .listening || state == .armed else { return }
         recordingTimer?.cancel()
         recordingTimer = nil
-        var limited = atLimit
+        var limited = atLimit || recordingDeadline.map { ContinuousClock.now >= $0 } == true
+        recordingDeadline = nil
         if limited { request.sendReturn = false }
         switch settings.mode {
         case .inputMethod:
@@ -319,12 +324,16 @@ public final class VoiceSession: VoiceActionHandler {
             collecting = false
             let buffers = recording.buffers
             let reachedLimit = recording.limitReached
+            limited = limited || reachedLimit
+            if limited {
+                warmSuspended = true
+                ring.removeAll()
+            }
             recording = RecordingBuffer(limits: dependencies.limits)
             let preview = preview
             self.preview = nil
             lock.unlock()
             preview?.stop()
-            limited = limited || reachedLimit
             if limited { request.sendReturn = false }
             if limited || !settings.keepMicWarm { capture.stop() }
             if externalCapture != nil {
@@ -391,6 +400,7 @@ public final class VoiceSession: VoiceActionHandler {
 
     private func invalidatePendingWork() {
         generation = UUID()
+        recordingDeadline = nil
         recordingTimer?.cancel()
         recordingTimer = nil
         transcriptionTimer?.cancel()
@@ -422,8 +432,10 @@ public final class VoiceSession: VoiceActionHandler {
 
     private func startRecordingTimer() {
         let id = generation
+        let deadline = ContinuousClock.now + .seconds(dependencies.limits.recordingSeconds)
+        recordingDeadline = deadline
         recordingTimer = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .seconds(self?.dependencies.limits.recordingSeconds ?? 300)) }
+            do { try await Task.sleep(until: deadline, clock: .continuous) }
             catch { return }
             self?.finishAtRecordingLimit(id: id)
         }
@@ -597,7 +609,8 @@ public final class VoiceSession: VoiceActionHandler {
             catch { return }
             guard let self, self.generation == generation, self.state == .idle else { return }
             self.returnTask = nil
-            self.onMessage?(self.dependencies.sendReturn(target))
+            let message = self.dependencies.sendReturn(target)
+            self.onMessage?(message)
         }
     }
 
@@ -643,10 +656,12 @@ public final class VoiceSession: VoiceActionHandler {
             if let kept = recording.append(buffer) { preview?.append(kept) }
             if recording.limitReached {
                 collecting = false
+                warmSuspended = true
+                ring.removeAll()
                 let id = recordingID
                 DispatchQueue.main.async { [weak self] in self?.finishAtRecordingLimit(id: id) }
             }
-        } else if let warmDuration {
+        } else if !warmSuspended, let warmDuration {
             ring.append(buffer)
             var total = AudioConversion.duration(ring)
             while total > warmDuration, let first = ring.first {
@@ -765,6 +780,7 @@ public final class VoiceSession: VoiceActionHandler {
 
     private func applyWarm() {
         lock.lock()
+        warmSuspended = false
         let seconds = settings.warmSeconds.isFinite ? min(3, max(0, settings.warmSeconds)) : 1
         warmDuration = settings.keepMicWarm && settings.mode == .builtIn && !usesExternalInput ? seconds : nil
         lock.unlock()
