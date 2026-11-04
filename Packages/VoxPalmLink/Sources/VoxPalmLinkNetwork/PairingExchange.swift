@@ -9,6 +9,9 @@ import Foundation
     private var channel: TLSChannel?
     private var timer: Task<Void, Never>?
     private var consumed = false
+    private var acknowledged = false
+    var confirmationSender: ((Data, @escaping @MainActor @Sendable (Bool) -> Void) -> Void)?
+    public private(set) var cleanupRequired: UUID?
     private var saved: UUID?
     private var input = Data()
     private var finished = false
@@ -45,20 +48,25 @@ import Foundation
         }
         do {
             let credential = try LinkCredential(hostID: invitation.credential.hostID, clientID: invitation.credential.clientID)
-            try store.save(credential); saved = credential.id
             channel.onClose = { [weak self] _ in self?.fail(.connection) }
             channel.onData = { [weak self, weak channel] bytes in
                 guard let self, let channel, !self.finished else { return }
+                guard !self.acknowledged else { self.fail(.protocolViolation); return }
                 self.input.append(bytes)
                 guard self.input.count <= 3 else { self.fail(.protocolViolation); return }
                 guard self.input.count == 3 else { return }
                 guard self.input == Data("ACK".utf8) else { self.fail(.protocolViolation); return }
-                self.finished = true; self.timer?.cancel(); self.timer = nil; self.saved = nil
-                channel.send(Data("DONE".utf8)) { [weak self, weak channel] sent in
-                    if sent { self?.onPaired?(credential) }
-                    else { self?.onFailure?(.connection) }
-                    channel?.close()
+                self.acknowledged = true
+                do { try self.store.save(credential); self.saved = credential.id }
+                catch { self.fail(.storage); return }
+                let complete: @MainActor @Sendable (Bool) -> Void = { [weak self, weak channel] sent in
+                    guard let self, !self.finished else { return }
+                    guard sent else { self.fail(.connection); return }
+                    self.finished = true; self.timer?.cancel(); self.timer = nil; self.saved = nil
+                    self.onPaired?(credential); channel?.close()
                 }
+                if let sender = self.confirmationSender { sender(Data("DONE".utf8), complete) }
+                else { channel.send(Data("DONE".utf8), completion: complete) }
             }
             let body = try credential.encoded()
             var framed = Data([UInt8(body.count >> 8), UInt8(body.count & 255)])
@@ -68,8 +76,17 @@ import Foundation
     private func fail(_ error: SecureLinkError) {
         guard !finished else { return }; finished = true
         timer?.cancel(); timer = nil; listener.stop(); channel?.close(error); channel = nil
-        if let saved { try? store.remove(id: saved); self.saved = nil }
-        onFailure?(error)
+        var reported = error
+        if let saved {
+            do { try store.remove(id: saved) }
+            catch { cleanupRequired = saved; reported = .storage }
+            self.saved = nil
+        }
+        onFailure?(reported)
+    }
+    public func retryCleanup() throws {
+        guard let id = cleanupRequired else { return }
+        try store.remove(id: id); cleanupRequired = nil
     }
     public func cancel() { fail(.connection) }
 }
@@ -82,6 +99,7 @@ import Foundation
     private var input = Data()
     private var pending: LinkCredential?
     private var finished = false
+    public private(set) var cleanupRequired: UUID?
     public var onPaired: ((LinkCredential) -> Void)?
     public var onFailure: ((SecureLinkError) -> Void)?
     public init(invitation: PairingInvitation, endpoint: NWEndpoint, store: any LinkCredentialStore) throws {
@@ -128,8 +146,17 @@ import Foundation
     private func fail(_ error: SecureLinkError) {
         guard !finished else { return }; finished = true
         timer?.cancel(); timer = nil; channel.close(error)
-        if let pending { try? store.remove(id: pending.id); self.pending = nil }
-        onFailure?(error)
+        var reported = error
+        if let pending {
+            do { try store.remove(id: pending.id) }
+            catch { cleanupRequired = pending.id; reported = .storage }
+            self.pending = nil
+        }
+        onFailure?(reported)
+    }
+    public func retryCleanup() throws {
+        guard let id = cleanupRequired else { return }
+        try store.remove(id: id); cleanupRequired = nil
     }
     public func cancel() { fail(.connection) }
 }

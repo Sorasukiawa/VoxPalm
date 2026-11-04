@@ -11,11 +11,14 @@ import VoxPalmLink
 @MainActor final class MemoryCredentials: LinkCredentialStore {
     var values: [UUID: LinkCredential] = [:]
     var failSave = false
+    var failRemove = false
     func save(_ credential: LinkCredential) throws {
         if failSave { throw SecureLinkError.storage }
         values[credential.id] = credential
     }
-    func remove(id: UUID) { values.removeValue(forKey: id) }
+    func remove(id: UUID) throws {
+        if failRemove { throw SecureLinkError.storage }; values.removeValue(forKey: id)
+    }
     func load(id: UUID) -> LinkCredential? { values[id] }
 }
 
@@ -57,13 +60,13 @@ import VoxPalmLink
     let hostStore = MemoryCredentials(); hostStore.failSave = true
     let clientStore = MemoryCredentials(), invitation = try PairingInvitation(hostID: UUID())
     let host = try PairingHost(invitation: invitation, store: hostStore, loopbackOnly: true)
-    var port: NWEndpoint.Port?, failed = false, paired = false
+    var port: NWEndpoint.Port?, failed = false, paired = false, clientFailed = false
     host.onReady = { port = $0 }; host.onFailure = { _ in failed = true }; host.onPaired = { _ in paired = true }
     host.start(); defer { host.cancel() }
     try await waitFor { port != nil }
     let client = try PairingClient(invitation: invitation, endpoint: .hostPort(host: "127.0.0.1", port: port!), store: clientStore)
-    client.start(); defer { client.cancel() }
-    try await waitFor { failed }
+    client.onFailure = { _ in clientFailed = true }; client.start(); defer { client.cancel() }
+    try await waitFor { failed && clientFailed }
     #expect(!paired && hostStore.values.isEmpty && clientStore.values.isEmpty)
     host.start()
     #expect(!paired)
@@ -140,4 +143,58 @@ import VoxPalmLink
     #expect(throws: SecureLinkError.invalidCredential) { try LinkCredential(hostID: id, clientID: id) }
     let old = try PairingInvitation(hostID: id, now: Date().addingTimeInterval(-301))
     #expect(throws: SecureLinkError.expired) { try PairingHost(invitation: old, store: store, loopbackOnly: true) }
+}
+
+@Test(arguments: [false, true]) @MainActor func 输出回调内撤销不会复活旧批次的按住(_ downFirst: Bool) {
+    let down = LinkMessage.button(RemoteButton(id: "talk", phase: .down))
+    let up = LinkMessage.button(RemoteButton(id: "talk", phase: .up))
+    let move = LinkMessage.pointer(.move(x: 1, y: 1))
+    var delivered: [LinkMessage] = [], output: LinkOutput!
+    output = LinkOutput(onMessage: { message in
+        delivered.append(message); output.cancel()
+    }, onClose: {})
+    output.apply(downFirst ? [.deliver(down), .deliver(up)] : [.deliver(move), .deliver(down)])
+    #expect(delivered == (downFirst ? [down, .button(RemoteButton(id: "talk", phase: .cancel))] : [move]))
+    output.apply([.deliver(down)]); output.cancel()
+    #expect(delivered.count == (downFirst ? 2 : 1))
+    output = nil
+}
+
+@Test(.timeLimit(.minutes(1)), arguments: ["cancel", "sendFailure", "deleteFailure"])
+@MainActor func 配对完成窗口可取消且删除失败可重试(_ mode: String) async throws {
+    let hs = MemoryCredentials(), cs = MemoryCredentials()
+    hs.failRemove = mode == "deleteFailure"
+    let host = try PairingHost(invitation: PairingInvitation(hostID: UUID()), store: hs, loopbackOnly: true)
+    var port: NWEndpoint.Port?, paired = false, failure: SecureLinkError?, completion: (@MainActor @Sendable (Bool) -> Void)?
+    host.onReady = { port = $0 }; host.onPaired = { _ in paired = true }; host.onFailure = { failure = $0 }
+    host.confirmationSender = { _, done in completion = done }
+    host.start(); defer { host.cancel() }; try await waitFor { port != nil }
+    let client = try PairingClient(invitation: host.invitation, endpoint: .hostPort(host: "127.0.0.1", port: port!), store: cs)
+    var clientFailed = false
+    client.onFailure = { _ in clientFailed = true }; client.start(); defer { client.cancel() }
+    try await waitFor { completion != nil }
+    #expect(hs.values.count == 1)
+    if mode == "cancel" { host.cancel(); completion?(true) }
+    else { completion?(false) }
+    try await waitFor { clientFailed && failure != nil }
+    #expect(!paired && cs.values.isEmpty)
+    if mode == "deleteFailure" {
+        #expect(failure == .storage && host.cleanupRequired != nil && hs.values.count == 1)
+        hs.failRemove = false; try host.retryCleanup()
+        #expect(host.cleanupRequired == nil && hs.values.isEmpty)
+    } else { #expect(hs.values.isEmpty && host.cleanupRequired == nil) }
+}
+
+@Test(.timeLimit(.minutes(1))) @MainActor func 客户端回滚失败返回可清理凭据编号() async throws {
+    let hs = MemoryCredentials(), cs = MemoryCredentials(); hs.failSave = true; cs.failRemove = true
+    let host = try PairingHost(invitation: PairingInvitation(hostID: UUID()), store: hs, loopbackOnly: true)
+    var port: NWEndpoint.Port?, failure: SecureLinkError?
+    host.onReady = { port = $0 }; host.start(); defer { host.cancel() }
+    try await waitFor { port != nil }
+    let client = try PairingClient(invitation: host.invitation, endpoint: .hostPort(host: "127.0.0.1", port: port!), store: cs)
+    client.onFailure = { failure = $0 }; client.start(); defer { client.cancel() }
+    try await waitFor { failure != nil }
+    #expect(failure == .storage && client.cleanupRequired != nil && cs.values.count == 1)
+    cs.failRemove = false; try client.retryCleanup()
+    #expect(cs.values.isEmpty && client.cleanupRequired == nil)
 }

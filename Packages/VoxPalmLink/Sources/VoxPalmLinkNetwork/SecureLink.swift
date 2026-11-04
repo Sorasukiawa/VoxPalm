@@ -7,6 +7,7 @@ import VoxPalmLink
     private let store: any LinkCredentialStore
     private let listener: CredentialListener
     private var channel: TLSChannel?
+    private var output: LinkOutput?
     private var session = LinkSession()
     private var binding: LinkConnection?
     private var timer: Task<Void, Never>?
@@ -29,7 +30,7 @@ import VoxPalmLink
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(1)) } catch { return }
                 guard let self else { return }
-                self.handle(self.session.checkTimeout())
+                self.output?.apply(self.session.checkTimeout())
             }
         }
     }
@@ -43,36 +44,32 @@ import VoxPalmLink
             }
             let binding = try session.connectAuthenticated(peer: credential.clientID)
             self.binding = binding; channel = incoming
+            output = LinkOutput(onMessage: { [weak self] in self?.onMessage?($0) },
+                                onClose: { [weak incoming] in incoming?.close(.protocolViolation) })
             incoming.onData = { [weak self] bytes in
                 guard let self, self.binding == binding else { return }
-                self.handle(self.session.receive(bytes, from: binding.transportID))
+                self.output?.apply(self.session.receive(bytes, from: binding.transportID))
             }
             incoming.onClose = { [weak self] _ in
                 guard let self, self.binding == binding else { return }
-                let effects = self.session.disconnected(binding.transportID)
+                _ = self.session.disconnected(binding.transportID)
                 self.binding = nil; self.channel = nil
-                self.handle(effects); self.onDisconnected?()
+                let oldOutput = self.output; self.output = nil
+                oldOutput?.cancel(); self.onDisconnected?()
             }
             incoming.send(Data(("VPL1" + binding.sessionID.uuidString).utf8))
         } catch { incoming.close(.invalidCredential) }
     }
-    private func handle(_ effects: [LinkEffect]) {
-        for effect in effects {
-            switch effect {
-            case let .deliver(message): onMessage?(message)
-            case .closeTransport: channel?.close(.protocolViolation)
-            }
-        }
-    }
     public func stop() {
         guard !stopped else { return }; stopped = true
         timer?.cancel(); timer = nil; listener.stop()
-        if let binding { handle(session.disconnected(binding.transportID)) }
-        binding = nil; let old = channel; channel = nil; old?.close()
+        if let binding { _ = session.disconnected(binding.transportID) }
+        binding = nil; let old = channel; channel = nil
+        let oldOutput = output; output = nil; oldOutput?.cancel(); old?.close()
     }
     /// 先停止当前连接，即使钥匙串暂时不可写也不能继续控制；删除失败明确返回给 UI。
     public func revoke() throws {
-        handle(session.revoke()); stop()
+        stop(); _ = session.revoke()
         try store.remove(id: credential.id)
     }
 }
