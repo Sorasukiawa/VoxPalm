@@ -5,9 +5,12 @@ import PackageDescription
 let package = Package(
     name: "VoxPalmLink",
     platforms: [.macOS(.v14), .iOS(.v16), .watchOS(.v9)],
-    products: [.library(name: "VoxPalmLink", targets: ["VoxPalmLink"])],
+    products: [.library(name: "VoxPalmLink", targets: ["VoxPalmLink"]),
+               .library(name: "VoxPalmLinkNetwork", targets: ["VoxPalmLinkNetwork"])],
     targets: [
         .target(name: "VoxPalmLink"),
+        .target(name: "VoxPalmLinkNetwork", dependencies: ["VoxPalmLink"]),
         .testTarget(name: "VoxPalmLinkTests", dependencies: ["VoxPalmLink"]),
+        .testTarget(name: "VoxPalmLinkNetworkTests", dependencies: ["VoxPalmLinkNetwork"]),
     ]
 )
