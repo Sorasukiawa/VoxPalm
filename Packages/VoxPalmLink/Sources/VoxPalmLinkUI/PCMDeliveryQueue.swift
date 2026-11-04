@@ -1,5 +1,16 @@
 import Foundation
 
+/// 关闭时先等正在执行的入队返回。调用方随后在锁外 Stop/Dispose，音频回调不会再使用旧快照入队。
+final class AudioEnqueueGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var open = true
+    func enqueue(_ operation: () -> Bool) -> Bool? {
+        lock.lock(); defer { lock.unlock() }
+        guard open else { return nil }; return operation()
+    }
+    func close() { lock.lock(); open = false; lock.unlock() }
+}
+
 /// 音频线程到主线程只保留有限数据、最多一个待执行通知，不为每块声音排无限个任务。
 final class PCMDeliveryQueue: @unchecked Sendable {
     private let lock = NSLock()

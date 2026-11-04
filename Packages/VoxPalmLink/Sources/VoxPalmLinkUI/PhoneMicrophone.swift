@@ -97,7 +97,7 @@ import Foundation
         private var queue: AudioQueueRef?
         private let lock = NSLock()
         private var accepts = true
-        private var reenqueue = true
+        private let enqueueGate = AudioEnqueueGate()
         init(notify: @escaping @Sendable () -> Void) { mailbox = PCMDeliveryQueue(notify: notify) }
         func start() throws {
             var format = AudioStreamBasicDescription(mSampleRate: 16_000, mFormatID: kAudioFormatLinearPCM,
@@ -107,13 +107,14 @@ import Foundation
             let status = AudioQueueNewInput(&format, { context, queue, buffer, _, _, _ in
                 guard let context else { return }
                 let input = Unmanaged<Input>.fromOpaque(context).takeUnretainedValue()
-                input.lock.lock(); let accepts = input.accepts; let reenqueue = input.reenqueue; input.lock.unlock()
+                input.lock.lock(); let accepts = input.accepts; input.lock.unlock()
                 guard accepts else { return }
                 let size = Int(buffer.pointee.mAudioDataByteSize)
                 if size > 0, size <= 1280, size.isMultiple(of: 2) {
                     input.mailbox.append(Data(bytes: buffer.pointee.mAudioData, count: size))
                 } else if size != 0 { input.mailbox.fail() }
-                if reenqueue, AudioQueueEnqueueBuffer(queue, buffer, 0, nil) != noErr { input.mailbox.fail() }
+                let result = input.enqueueGate.enqueue { AudioQueueEnqueueBuffer(queue, buffer, 0, nil) == noErr }
+                if result == false { input.mailbox.fail() }
             }, context, nil, nil, 0, &queue)
             guard status == noErr, let queue else { throw Failure.unavailable }
             for _ in 0..<3 {
@@ -124,7 +125,7 @@ import Foundation
             guard AudioQueueStart(queue, nil) == noErr else { throw Failure.unavailable }
         }
         func beginFinish() -> Bool {
-            lock.lock(); reenqueue = false; lock.unlock()
+            enqueueGate.close()
             guard let queue else { return false }
             return AudioQueueStop(queue, false) == noErr
         }
@@ -134,7 +135,8 @@ import Foundation
             return AudioQueueGetProperty(queue, kAudioQueueProperty_IsRunning, &running, &size) != noErr || running != 0
         }
         func dispose() {
-            lock.lock(); accepts = false; reenqueue = false; lock.unlock()
+            enqueueGate.close()
+            lock.lock(); accepts = false; lock.unlock()
             guard let old = queue else { return }; queue = nil
             AudioQueueStop(old, true); AudioQueueDispose(old, true)
         }

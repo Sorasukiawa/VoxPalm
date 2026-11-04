@@ -104,3 +104,35 @@ private final class Counter: @unchecked Sendable { var value = 0 }
     queue.close(); queue.append(Data(count: 4))
     #expect(queue.drain().buffers.isEmpty && calls.value == 1)
 }
+
+private final class GateProbe: @unchecked Sendable {
+    let lock = NSLock()
+    private var values: [String] = []
+    func append(_ value: String) { lock.lock(); values.append(value); lock.unlock() }
+    var snapshot: [String] { lock.lock(); defer { lock.unlock() }; return values }
+}
+
+@Test(.timeLimit(.minutes(1))) func 松手先等正在入队完成再停止且旧回调不再入队() async throws {
+    let gate = AudioEnqueueGate(), probe = GateProbe(), release = DispatchSemaphore(value: 0)
+    defer { release.signal() }
+    let callback = Task.detached {
+        gate.enqueue {
+            probe.append("入队开始")
+            let unblocked = release.wait(timeout: .now() + 20) == .success
+            probe.append("入队完成"); return unblocked
+        }
+    }
+    while !probe.snapshot.contains("入队开始") { try await Task.sleep(for: .milliseconds(5)) }
+    let stopping = Task.detached {
+        probe.append("请求停止")
+        gate.close()
+        probe.append("调用Stop")
+    }
+    while !probe.snapshot.contains("请求停止") { try await Task.sleep(for: .milliseconds(5)) }
+    release.signal()
+    #expect(await callback.value == true); await stopping.value
+    #expect(probe.snapshot == ["入队开始", "请求停止", "入队完成", "调用Stop"])
+    var lateEnqueued = false
+    #expect(gate.enqueue { lateEnqueued = true; return true } == nil)
+    #expect(!lateEnqueued)
+}
