@@ -84,7 +84,11 @@ private final class ScannerController: UIViewController, AVCaptureMetadataOutput
     }
     override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); preview?.frame = view.bounds }
     override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); visible = true; authorize() }
-    override func viewWillDisappear(_ animated: Bool) { super.viewWillDisappear(animated); close() }
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        // 下滑手势可能取消：先停止接收，真正离场或显式取消时才永久结束。
+        visible = false; worker.stop()
+    }
     override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); close() }
     @objc private func resigned() { worker.stop() }
     @objc private func resumed() {
