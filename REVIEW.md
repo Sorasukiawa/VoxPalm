@@ -10,6 +10,7 @@
 ## 高风险路径
 
 改到下面任何一处，合入 main 前都要独立评审：
+- `Packages/VoxPalmLink/Sources/VoxPalmLinkNetwork/`：配对凭据、TLS 身份绑定、Keychain、网络输入与撤销；发现地址不得替代认证，失败不能进入控制链路。
 - `scripts/build-app.sh`、`scripts/lib/local-paths.sh`、`scripts/tests/build-app.sh`、`scripts/check.sh`、`App/VoxPalm.entitlements`、`App/Info.plist`、`Packages/VoxPalmCore/Package.swift`：打包、release 去调试符号表和签名后的整包本机路径自检、签名、权限说明和 Bundle ID；whisper 预编译框架的版本和校验和（会被打进安装包并签名）；合入前检查和 CI 跑的就是 `check.sh`。
 - `App/Package.swift`、`App/Sources/VoxPalm/PrivateModules.swift`、`App/Sources/VoxPalm/UIPreview.swift`：私有模块只在 `VOXPALM_PRIVATE` 下链接；调试预览里有 `#filePath`，只能编进调试版。
 - `Packages/VoxPalmCore/Sources/VoxPalmEngine/` 中的 `KeyPoster.swift`、`TextInserter.swift`、`TextTarget.swift`、`AppCommands.swift`、`Action.swift`、`ButtonEngine.swift`，以及 `Packages/VoxPalmCore/Sources/VoxPalmVoice/InputMethodBridge.swift`、`Packages/VoxPalmCore/Sources/VoxPalmDevices/SystemEventMonitor.swift`：模拟按键、按住修饰键、贴字、切对话和回车发送；系统级键盘监听能看到所有按键，过滤时会吞键。
