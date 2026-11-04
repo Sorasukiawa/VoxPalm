@@ -7,6 +7,7 @@ import VoxPalmLinkNetwork
     let host: HostPairingModel?
     let problem: String?
     let preview: Bool
+    private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     init(preview: Bool) {
         self.preview = preview
         if preview { host = nil; problem = nil; return }
@@ -14,8 +15,16 @@ import VoxPalmLinkNetwork
             let url = AppConfig.fileURL.deletingLastPathComponent().appendingPathComponent("phone-devices.json")
             host = HostPairingModel(store: try LinkDeviceStore(url: url, credentials: MacLoginCredentialStore()))
             problem = nil
+            for name in [NSWorkspace.willSleepNotification, NSWorkspace.sessionDidResignActiveNotification] {
+                let center = NSWorkspace.shared.notificationCenter
+                let token = center.addObserver(forName: name, object: nil, queue: .main) { [weak host] _ in
+                    MainActor.assumeIsolated { host?.setEnabled(false) }
+                }
+                observers.append((center, token))
+            }
         } catch { host = nil; problem = "手机设备记录无法读取，原文件未改动。请先备份记录并排查文件访问权限。" }
     }
+    deinit { for (center, token) in observers { center.removeObserver(token) } }
 }
 
 struct PhonePairingPane: View {
@@ -29,7 +38,7 @@ struct PhonePairingPane: View {
                     VStack(alignment: .leading, spacing: 16) {
                         Label("连接你的手机", systemImage: "iphone.and.arrow.forward").font(.headline)
                         Text("在手机上打开掌声，扫描这里生成的二维码。也可以使用一次性长配对码。")
-                        Toggle("接收手机连接", isOn: .constant(false)).disabled(true)
+                        Toggle("允许手机连接和语音输入", isOn: .constant(false)).disabled(true)
                     }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Hint("界面预览不会生成真实配对码或开启连接。")
@@ -45,7 +54,7 @@ private struct PhonePairingContent: View {
         VStack(alignment: .leading, spacing: 18) {
             GroupBox {
                 VStack(alignment: .leading, spacing: 12) {
-                    Toggle("接收手机连接", isOn: Binding(get: { model.enabled }, set: { model.setEnabled($0) }))
+                    Toggle("允许手机连接和语音输入", isOn: Binding(get: { model.enabled }, set: { model.setEnabled($0) }))
                     Text(model.message).font(.callout).foregroundStyle(.secondary)
                     if model.code == nil {
                         Button("配对新手机", systemImage: "qrcode") { showCode = false; model.beginPairing() }
@@ -90,7 +99,7 @@ private struct PhonePairingContent: View {
                 }.padding(12).frame(maxWidth: .infinity, alignment: .leading)
             }
             Text("收到连接测试：\(model.testCount) 次").font(.callout).monospacedDigit()
-            Hint("当前可验证配对与消息连接。手机收音、触控板与系统按键尚未接入。每次打开掌声，手机连接默认关闭。")
+            Hint("手机按住说话会使用手机麦克风，送到这台 Mac 内置转写并按输入目标检查贴字，不自动按回车。触控板尚未接入。每次打开掌声，手机连接默认关闭。")
         }
         .onDisappear { model.cancelPairing() }
         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in model.cancelPairing() }

@@ -107,7 +107,10 @@ public final class VoiceSession: VoiceActionHandler {
     public var debugTranscriptFile: URL?
 
     public private(set) var state: State = .idle {
-        didSet { if state != oldValue { onStateChange?(state) } }
+        didSet {
+            if state == .idle { lock.lock(); remoteAudioID = nil; lock.unlock() }
+            if state != oldValue { onStateChange?(state) }
+        }
     }
 
     private let capture = AudioCapture()
@@ -116,6 +119,9 @@ public final class VoiceSession: VoiceActionHandler {
     private var externalStopping: UUID?
     /// 和缓冲写入使用同一把锁，取消后的旧 PCM 不能进入下一轮。
     private var externalBufferID: UUID?
+    /// 手机流从独立入口交付；本机音频回调必须忽略这段会话。
+    private var remoteAudioID: UUID?
+    private var remoteSampleRate: Double = 0
     /// 诊断日志：录音用的哪个设备、每半秒的音量（只记数字，不记内容），查「声音录不进来」用
     private let logger = Logger(subsystem: "com.sorasukiawa.VoxPalm", category: "voice")
     private let lock = NSLock()
@@ -299,7 +305,63 @@ public final class VoiceSession: VoiceActionHandler {
         }
     }
 
-    public func voiceEnd() { endRecording(atLimit: false) }
+    public func voiceEnd() {
+        guard activeRemoteAudioID == nil else { return }
+        endRecording(atLimit: false)
+    }
+
+    public var activeRemoteAudioID: UUID? {
+        lock.lock(); defer { lock.unlock() }; return remoteAudioID
+    }
+
+    /// 调用方必须已验证设备、流 ID、序号和结束包。这里不访问本机麦克风或外部输入法。
+    @MainActor @discardableResult public func beginRemoteAudio(id: UUID, sampleRate: UInt32) -> Bool {
+        guard settings.mode == .builtIn, canStartVoice, [16_000, 48_000].contains(sampleRate) else { return false }
+        invalidatePendingWork(); capture.stop()
+        request = VoiceRequest(sendReturn: false)
+        target = dependencies.currentTarget()
+        lock.lock()
+        remoteAudioID = id; remoteSampleRate = Double(sampleRate)
+        recording = RecordingBuffer(limits: dependencies.limits); recordingID = generation
+        ring.removeAll(); warmSuspended = true; collecting = true
+        lock.unlock()
+        let token = generation
+        state = .listening
+        guard generation == token, activeRemoteAudioID == id, state == .listening else { return false }
+        startRecordingTimer()
+        return true
+    }
+
+    @MainActor @discardableResult public func appendRemoteAudio(id: UUID, pcm: Data) -> Bool {
+        guard activeRemoteAudioID == id, state == .listening,
+              !pcm.isEmpty, pcm.count.isMultiple(of: 2), pcm.count <= Int(remoteSampleRate * 0.04) * 2,
+              let format = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: remoteSampleRate, channels: 1, interleaved: false),
+              let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(pcm.count / 2)),
+              let output = buffer.floatChannelData?[0] else { return false }
+        buffer.frameLength = AVAudioFrameCount(pcm.count / 2)
+        pcm.withUnsafeBytes { bytes in
+            let input = bytes.bindMemory(to: UInt8.self)
+            for index in 0..<Int(buffer.frameLength) {
+                let sample = UInt16(input[index * 2]) | UInt16(input[index * 2 + 1]) << 8
+                output[index] = Float(Int16(bitPattern: sample)) / 32768
+            }
+        }
+        lock.lock()
+        _ = recording.append(buffer)
+        let exceeded = recording.limitReached
+        lock.unlock()
+        if exceeded { voiceCancel(); return false }
+        onLevel?(Self.level(of: buffer)); return true
+    }
+
+    @MainActor public func endRemoteAudio(id: UUID) {
+        guard activeRemoteAudioID == id, state == .listening else { return }
+        endRecording(atLimit: false)
+    }
+
+    @MainActor public func cancelRemoteAudio(id: UUID) {
+        guard activeRemoteAudioID == id else { return }; voiceCancel()
+    }
 
     private func endRecording(atLimit: Bool) {
         guard state == .listening || state == .armed else { return }
@@ -365,6 +427,7 @@ public final class VoiceSession: VoiceActionHandler {
 
     /// 音频清单变化时结束丢失手柄麦的录音；松手后已开始的转写继续保留。
     public func inputDevicesChanged() {
+        guard activeRemoteAudioID == nil else { return }
         guard debugAudioFile == nil else { return }
         if usesExternalInput {
             let missing = selectedExternalInput == nil || selectedExternalInput?.device.problem != nil
@@ -443,6 +506,7 @@ public final class VoiceSession: VoiceActionHandler {
 
     private func finishAtRecordingLimit(id: UUID) {
         guard generation == id, isVoiceActive else { return }
+        if activeRemoteAudioID != nil { voiceCancel(); return }
         // 音频回调停了也必须结束；旧计时器不能结束新一轮。
         endRecording(atLimit: true)
     }
@@ -456,7 +520,10 @@ public final class VoiceSession: VoiceActionHandler {
             state = .idle
             return
         }
+        let token = generation
         state = .transcribing
+        // 状态回调可能因反馈通道断开而同步取消；不可把旧缓冲挂到新的代次。
+        guard generation == token, state == .transcribing else { return }
         transcribe(buffers, sendReturn: request.sendReturn, target: target)
     }
 
@@ -645,6 +712,7 @@ public final class VoiceSession: VoiceActionHandler {
     private func received(_ buffer: AVAudioPCMBuffer, externalID: UUID?) {
         lock.lock()
         defer { lock.unlock() }
+        guard remoteAudioID == nil else { return }
         guard externalID == externalBufferID else { return }
         let now = CFAbsoluteTimeGetCurrent()
         if onLevel != nil, now - lastLevelTime > 0.05 {

@@ -10,6 +10,7 @@ import PackageDescription
 var dependencies: [Package.Dependency] = [.package(path: "../Packages/VoxPalmCore"), .package(path: "../Packages/VoxPalmLink")]
 var swiftSettings: [SwiftSetting] = []
 var appDependencies: [Target.Dependency] = [
+    .product(name: "VoxPalmLink", package: "VoxPalmLink"),
     .product(name: "VoxPalmLinkNetwork", package: "VoxPalmLink"),
     .product(name: "VoxPalmDevices", package: "VoxPalmCore"),
     .product(name: "VoxPalmEngine", package: "VoxPalmCore"),

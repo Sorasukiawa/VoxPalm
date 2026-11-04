@@ -11,7 +11,7 @@ let package = Package(
     targets: [
         .target(name: "VoxPalmLink"),
         .target(name: "VoxPalmLinkNetwork", dependencies: ["VoxPalmLink"]),
-        .target(name: "VoxPalmLinkUI", dependencies: ["VoxPalmLinkNetwork"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(name: "VoxPalmLinkUI", dependencies: ["VoxPalmLink", "VoxPalmLinkNetwork"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "VoxPalmLinkTests", dependencies: ["VoxPalmLink"]),
         .testTarget(name: "VoxPalmLinkNetworkTests", dependencies: ["VoxPalmLinkNetwork"]),
         .testTarget(name: "VoxPalmLinkUITests", dependencies: ["VoxPalmLinkUI"]),
