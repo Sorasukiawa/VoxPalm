@@ -20,6 +20,7 @@ public struct LinkDeviceRecord: Codable, Identifiable, Equatable, Sendable {
     private let credentials: any LinkCredentialStore
     private var directory: Directory
     private var lastData: Data?
+    private var locallyRevoked: Set<UUID> = []
     public var identity: UUID { directory.identity }
     public var devices: [LinkDeviceRecord] { directory.devices }
 
@@ -89,6 +90,7 @@ public struct LinkDeviceRecord: Codable, Identifiable, Equatable, Sendable {
     }
 
     public func load(id: UUID) throws -> LinkCredential? {
+        guard !locallyRevoked.contains(id) else { return nil }
         // 其他实例已撤销/更改目录时，旧对象不能继续用缓存授予新连接。
         guard try Self.read(url) == lastData else { throw SecureLinkError.storage }
         guard let record = directory.devices.first(where: { $0.id == id && $0.state == .paired }) else { return nil }
@@ -99,6 +101,8 @@ public struct LinkDeviceRecord: Codable, Identifiable, Equatable, Sendable {
 
     public func remove(id: UUID) throws {
         guard let index = directory.devices.firstIndex(where: { $0.id == id }) else { throw SecureLinkError.storage }
+        // 即使磁盘写入失败，本次运行也不能通过重新打开开关恢复刚撤销的凭据。
+        locallyRevoked.insert(id)
         var next = directory; next.devices[index].state = .removing; try write(next)
         try credentials.remove(id: id)
         next.devices.removeAll { $0.id == id }; try write(next)

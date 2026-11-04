@@ -6,10 +6,11 @@ import UIKit
 struct ScannerSheet: View {
     let completion: (String?) -> Void
     @State private var problem: String?
+    @StateObject private var lifetime = ScanLifetime()
     var body: some View {
         NavigationStack {
             ZStack {
-                QRScanner(onCode: { completion($0) }, onProblem: { problem = $0 })
+                QRScanner(lifetime: lifetime, onCode: { code in lifetime.finish { completion(code) } }, onProblem: { problem = $0 })
                 VStack {
                     Text(problem ?? "对准 Mac 上掌声显示的二维码")
                         .padding().background(.regularMaterial).clipShape(RoundedRectangle(cornerRadius: 12))
@@ -17,18 +18,22 @@ struct ScannerSheet: View {
                 }.padding()
             }
             .navigationTitle("扫码配对").navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { completion(nil) } } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { lifetime.finish { completion(nil) } } } }
         }
+        .onDisappear { lifetime.cancel() }
     }
 }
 
 private struct QRScanner: UIViewControllerRepresentable {
+    let lifetime: ScanLifetime
     let onCode: (String) -> Void
     let onProblem: (String) -> Void
     func makeUIViewController(context: Context) -> ScannerController {
-        ScannerController(onCode: onCode, onProblem: onProblem)
+        let controller = ScannerController(onCode: onCode, onProblem: onProblem)
+        lifetime.stopCamera = { [weak controller] in controller?.close() }
+        return controller
     }
-    func updateUIViewController(_ controller: ScannerController, context: Context) {}
+    func updateUIViewController(_ controller: ScannerController, context: Context) { if !lifetime.active { controller.close() } }
     static func dismantleUIViewController(_ controller: ScannerController, coordinator: ()) { controller.close() }
 }
 
@@ -79,6 +84,7 @@ private final class ScannerController: UIViewController, AVCaptureMetadataOutput
     }
     override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); preview?.frame = view.bounds }
     override func viewDidAppear(_ animated: Bool) { super.viewDidAppear(animated); visible = true; authorize() }
+    override func viewWillDisappear(_ animated: Bool) { super.viewWillDisappear(animated); close() }
     override func viewDidDisappear(_ animated: Bool) { super.viewDidDisappear(animated); close() }
     @objc private func resigned() { worker.stop() }
     @objc private func resumed() {

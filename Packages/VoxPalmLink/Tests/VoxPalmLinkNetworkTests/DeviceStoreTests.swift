@@ -80,6 +80,22 @@ private func temporaryDirectory() throws -> URL {
     #expect(throws: SecureLinkError.storage) { _ = try first.load(id: key.id) }
 }
 
+@Test @MainActor func 撤销目录写入失败时本次运行仍禁止重新连接() throws {
+    let dir = try temporaryDirectory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let url = dir.appendingPathComponent("devices.json"), raw = FaultCredentials()
+    let store = try LinkDeviceStore(url: url, credentials: raw)
+    let key = try LinkCredential(hostID: store.identity, clientID: UUID())
+    try store.save(key); try store.activate(id: key.id)
+    let original = try Data(contentsOf: url)
+    try Data("changed".utf8).write(to: url)
+    #expect(throws: SecureLinkError.storage) { try store.remove(id: key.id) }
+    try original.write(to: url)
+    #expect(try store.load(id: key.id) == nil)
+    #expect(raw.values[key.id] != nil)
+    try store.remove(id: key.id)
+    #expect(store.devices.isEmpty); #expect(raw.values.isEmpty)
+}
+
 @MainActor private func eventually(_ condition: () -> Bool) async throws {
     let until = ContinuousClock.now + .seconds(8)
     while !condition() {

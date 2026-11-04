@@ -50,6 +50,7 @@ import VoxPalmLinkNetwork
             .navigationTitle("掌声")
             .sheet(isPresented: $scanning) {
                 ScannerSheet { result in
+                    guard scanning, scenePhase == .active else { return }
                     scanning = false
                     if let result { model.pair(code: result) }
                 }

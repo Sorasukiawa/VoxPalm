@@ -12,7 +12,7 @@ import VoxPalmLinkNetwork
         if preview { host = nil; problem = nil; return }
         do {
             let url = AppConfig.fileURL.deletingLastPathComponent().appendingPathComponent("phone-devices.json")
-            host = HostPairingModel(store: try LinkDeviceStore(url: url, credentials: KeychainLinkCredentialStore()))
+            host = HostPairingModel(store: try LinkDeviceStore(url: url, credentials: MacLoginCredentialStore()))
             problem = nil
         } catch { host = nil; problem = "手机设备记录无法读取，原文件未改动。请先备份记录并排查文件访问权限。" }
     }
@@ -100,13 +100,7 @@ private struct PhonePairingContent: View {
 
 private struct PairingQRCode: View {
     let code: String
-    private var image: CGImage? {
-        let filter = CIFilter.qrCodeGenerator()
-        filter.message = Data(code.utf8); filter.correctionLevel = "M"
-        guard let output = filter.outputImage else { return nil }
-        let scaled = output.transformed(by: CGAffineTransform(scaleX: 5, y: 5))
-        return CIContext().createCGImage(scaled, from: scaled.extent)
-    }
+    private var image: CGImage? { PairingCodeImage.make(code) }
     var body: some View {
         Group {
             if let image { Image(decorative: image, scale: 1).interpolation(.none).resizable().scaledToFit() }
@@ -114,5 +108,15 @@ private struct PairingQRCode: View {
         }
         .frame(width: 232, height: 232).padding(16).background(.white).clipShape(RoundedRectangle(cornerRadius: 12))
         .accessibilityLabel("一次性配对二维码").privacySensitive()
+    }
+}
+
+enum PairingCodeImage {
+    static func make(_ code: String) -> CGImage? {
+        let filter = CIFilter.qrCodeGenerator()
+        filter.message = Data(code.utf8); filter.correctionLevel = "M"
+        guard let output = filter.outputImage else { return nil }
+        let scaled = output.transformed(by: CGAffineTransform(scaleX: 5, y: 5))
+        return CIContext().createCGImage(scaled, from: scaled.extent)
     }
 }
