@@ -87,7 +87,19 @@ final class AppModel {
     @ObservationIgnored private let configStore: AppConfigStore
     /// 截图也会实例化 AppModel，但只能读设备清单，不能接管真实按键或开麦。
     @ObservationIgnored private let isPreview = UIPreview.isRendering
-    @ObservationIgnored lazy var phoneLink = PhoneLinkStore(preview: isPreview)
+    @ObservationIgnored private var phoneVoice: PhoneVoiceCoordinator?
+    @ObservationIgnored lazy var phoneLink: PhoneLinkStore = {
+        let store = PhoneLinkStore(preview: isPreview)
+        if let host = store.host {
+            let coordinator = PhoneVoiceCoordinator(voice: voice, allowed: { [weak self] in
+                guard let self else { return false }; return !self.isPaused && !self.isPreview && !self.firmwareUpdates.isInstalling
+            }, feedback: { [weak host] peer, value in host?.sendVoiceFeedback(value, to: peer) })
+            phoneVoice = coordinator
+            host.onAudioMessage = { [weak coordinator] peer, value in coordinator?.receive(value, from: peer) }
+            host.onPeerDisconnected = { [weak coordinator] peer in coordinator?.cancel(peer: peer) }
+        }
+        return store
+    }()
     @ObservationIgnored private var permissionTimer: Timer?
     @ObservationIgnored private var inputSourceObserver: NSObjectProtocol?
 
@@ -183,6 +195,7 @@ final class AppModel {
         }
         voice.onStateChange = { [weak self] state in
             guard let self else { return }
+            self.phoneVoice?.stateChanged(state)
             self.voiceState = state
             switch state {
             case .armed: self.talkStartedAt = Date(); self.liveTranscript = ""
@@ -195,6 +208,7 @@ final class AppModel {
         }
         voice.onOutcome = { [weak self] outcome in
             guard let self else { return }
+            self.phoneVoice?.receivedOutcome(outcome)
             switch outcome {
             case let .inserted(_, app):
                 self.pendingApp = app ?? "光标处"
@@ -558,6 +572,7 @@ final class AppModel {
     func setPaused(_ paused: Bool) {
         guard paused || !firmwareUpdates.isInstalling else { return }
         isPaused = paused
+        if paused { phoneVoice?.cancel() }
         activateEngine(paused ? [] : config.controlDeviceIDs)
     }
 

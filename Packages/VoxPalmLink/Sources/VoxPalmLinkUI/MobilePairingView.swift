@@ -8,10 +8,30 @@ import VoxPalmLinkNetwork
     @State private var scanning = false
     @State private var manual = false
     @State private var code = ""
-    public init(model: ClientPairingModel) { self.model = model }
+    @StateObject private var voice: MobileVoiceModel
+    public init(model: ClientPairingModel) {
+        self.model = model
+        _voice = StateObject(wrappedValue: MobileVoiceModel(link: model, microphone: PhoneMicrophone()))
+    }
     public var body: some View {
         NavigationStack {
             List {
+                Section("手机收音") {
+                    if !voice.microphoneAllowed {
+                        Button("启用手机麦克风") { voice.requestPermission() }.disabled(voice.requestingPermission)
+                        Text("只在你按住说话并且 Mac 接受后录音，声音经加密连接送到 Mac 本地转写。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    if model.connectedID != nil {
+                        HoldToTalkButton(title: voice.phase == .recording ? "松开后转写" : "按住说话",
+                            enabled: voice.microphoneAllowed && ![.finishing, .transcribing].contains(voice.phase),
+                            active: voice.active,
+                            begin: voice.begin, release: voice.release, cancel: { voice.cancel() })
+                            .frame(height: 116).listRowSeparator(.hidden)
+                    }
+                    Text(voice.message).foregroundStyle(.secondary)
+                    if voice.active { Button("取消本次语音", role: .destructive) { voice.cancel() } }
+                }
                 Section {
                     VStack(alignment: .leading, spacing: 12) {
                         Image(systemName: "laptopcomputer.and.iphone").font(.system(size: 40)).foregroundStyle(.tint)
@@ -32,7 +52,7 @@ import VoxPalmLinkNetwork
                             if device.state == .paired {
                                 if model.connectedID == device.id {
                                     Text("已连接").foregroundStyle(.green)
-                                    Button("发送连接测试") { model.sendTest() }.buttonStyle(.borderedProminent)
+                                    Button("发送连接测试") { model.sendTest() }.buttonStyle(.borderedProminent).disabled(voice.active)
                                     Text("在 Mac「手机」页查看次数。此按钮不会录音或操作其他 App。")
                                         .font(.caption).foregroundStyle(.secondary)
                                     Button("断开连接") { model.stop() }
@@ -44,7 +64,7 @@ import VoxPalmLinkNetwork
                 }
                 Section {
                     Text("两端需要在同一网络。若连接失败，请在系统设置中允许掌声访问本地网络；Mac 也要打开「接收手机连接」。")
-                    Text("本版先提供配对和连接测试；按住说话与触控板正在开发。离开前台会断开连接，回来后请手动连接。")
+                    Text("Mac 需选择内置转写。松开后按 Mac 的输入目标检查贴字，不自动按回车。移出按钮、点击取消或离开前台会取消；最长五分钟。触控板尚未接入。")
                 }.font(.footnote).foregroundStyle(.secondary)
             }
             .navigationTitle("掌声")
@@ -76,9 +96,11 @@ import VoxPalmLinkNetwork
         }
         .tint(Color(red: 0.9, green: 0.31, blue: 0.28))
         .onChange(of: scenePhase) { phase in
+            if phase != .active { voice.cancel() } else { voice.refreshPermission() }
             if phase != .active { model.stop() }
             if phase == .background { scanning = false; manual = false; code = "" }
         }
+        .onDisappear { voice.cancel(); model.stop() }
     }
 }
 

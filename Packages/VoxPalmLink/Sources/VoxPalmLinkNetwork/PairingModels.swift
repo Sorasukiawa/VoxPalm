@@ -29,6 +29,8 @@ public extension SecureLinkError {
     private var pairing: PairingHost?
     private var hosts: [UUID: SecureLinkHost] = [:]
     private var generation = UUID()
+    public var onAudioMessage: ((UUID, LinkMessage) -> Void)?
+    public var onPeerDisconnected: ((UUID) -> Void)?
     // 仅供回环测试选择动态端口，不经过 UI 或日志。
     var pairingPort: NWEndpoint.Port?
     var ports: [UUID: NWEndpoint.Port] = [:]
@@ -44,6 +46,7 @@ public extension SecureLinkError {
             for device in devices where device.state == .paired { startHost(device.id) }
         } else {
             generation = UUID(); cancelPairing()
+            for id in Array(hosts.keys) { onPeerDisconnected?(id) }
             let old = Array(hosts.values); hosts.removeAll(); states.removeAll(); ports.removeAll()
             old.forEach { $0.stop() }; message = "手机连接已关闭。"
         }
@@ -99,10 +102,12 @@ public extension SecureLinkError {
                 guard let self, let host, self.hosts[id] === host else { return }; self.states[id] = "已连接"
             }
             host.onDisconnected = { [weak self, weak host] in
-                guard let self, let host, self.hosts[id] === host else { return }; self.states[id] = "等待连接"
+                guard let self, let host, self.hosts[id] === host else { return }
+                self.onPeerDisconnected?(id); self.states[id] = "等待连接"
             }
             host.onUnavailable = { [weak self, weak host] in
                 guard let self, let host, self.hosts[id] === host else { return }
+                self.onPeerDisconnected?(id)
                 self.hosts.removeValue(forKey: id); self.ports.removeValue(forKey: id)
                 self.states[id] = "连接不可用"; self.message = SecureLinkError.connection.userMessage
             }
@@ -111,16 +116,22 @@ public extension SecureLinkError {
                 if case let .button(button) = value, button.id == "connection-test", button.phase == .up {
                     self.testCount += 1
                 }
+                switch value {
+                case .audioStart, .audioChunk, .audioEnd, .audioCancel: self.onAudioMessage?(id, value)
+                default: break
+                }
             }
             host.start()
         } catch { states[id] = "凭据不可用，请撤销后重新配对"; message = SecureLinkError.storage.userMessage }
     }
     public func revoke(_ id: UUID) {
+        onPeerDisconnected?(id)
         let host = hosts.removeValue(forKey: id); host?.stop(); ports.removeValue(forKey: id); states.removeValue(forKey: id)
         do { try store.remove(id: id); message = "已撤销。再次使用需要重新配对。" }
         catch { message = SecureLinkError.storage.userMessage }
         devices = store.devices
     }
+    public func sendVoiceFeedback(_ feedback: VoiceFeedback, to peer: UUID) { hosts[peer]?.sendVoiceFeedback(feedback) }
 }
 
 @MainActor public final class ClientPairingModel: ObservableObject {
@@ -134,6 +145,8 @@ public extension SecureLinkError {
     private var client: SecureLinkClient?
     private var deadline: Task<Void, Never>?
     private var generation = UUID()
+    public var onConnectionEnded: (() -> Void)?
+    public var onVoiceFeedback: ((VoiceFeedback) -> Void)?
     public init(store: LinkDeviceStore) { self.store = store; devices = store.devices }
 
     public func pair(code: String) { pair(code: code, endpoint: nil) }
@@ -177,10 +190,13 @@ public extension SecureLinkError {
             find(id, pairing: false, endpoint: endpoint) { [weak self] endpoint in
                 guard let self, self.generation == token else { return }
                 let client = SecureLinkClient(credential: credential, endpoint: endpoint); self.client = client
+                client.onVoiceFeedback = { [weak self] value in
+                    guard let self, self.generation == token else { return }; self.onVoiceFeedback?(value)
+                }
                 client.onReady = { [weak self] in
                     guard let self, self.generation == token else { return }
                     self.finishSearch(); self.busy = false; self.connectedID = id
-                    self.message = "已连接。点击测试按钮后，在 Mac 上查看收到的次数。"
+                    self.message = "已连接。可以使用手机麦克风，在 Mac 上转写。"
                 }
                 client.onDisconnected = { [weak self] _ in
                     guard let self, self.generation == token else { return }; self.fail(.connection)
@@ -209,10 +225,12 @@ public extension SecureLinkError {
     }
     private func finishSearch() { discovery?.stop(); discovery = nil; deadline?.cancel(); deadline = nil }
     public func stop() {
+        // 先清除旧通道再回调，收音取消不能向下一条连接补发旧音频。
         generation = UUID(); finishSearch()
         let exchange = pairing; pairing = nil; exchange?.cancel()
         let old = client; client = nil; old?.stop()
         busy = false; connectedID = nil; devices = store.devices; message = "连接已停止，可点击连接重试。"
+        onConnectionEnded?()
     }
     private func fail(_ error: SecureLinkError) { stop(); message = error.userMessage }
     public func sendTest() {
@@ -221,6 +239,13 @@ public extension SecureLinkError {
             try client.send(.button(RemoteButton(id: "connection-test", phase: .down)))
             try client.send(.button(RemoteButton(id: "connection-test", phase: .up)))
         } catch { fail(.connection) }
+    }
+    public func sendAudio(_ value: LinkMessage) throws {
+        guard connectedID != nil, let client else { throw SecureLinkError.connection }
+        switch value {
+        case .audioStart, .audioChunk, .audioEnd, .audioCancel: try client.send(value)
+        default: throw SecureLinkError.protocolViolation
+        }
     }
     public func revoke(_ id: UUID) {
         // 撤销任一设备前结束当前操作，避免旧配对完成回调重新加入记录。

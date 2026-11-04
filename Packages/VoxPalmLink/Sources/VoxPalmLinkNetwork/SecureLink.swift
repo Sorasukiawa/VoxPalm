@@ -70,6 +70,10 @@ import VoxPalmLink
         binding = nil; let old = channel; channel = nil
         let oldOutput = output; output = nil; oldOutput?.cancel(); old?.close()
     }
+    public func sendVoiceFeedback(_ value: VoiceFeedback) {
+        guard !stopped, let binding, let channel else { return }
+        channel.send(VoiceFeedbackCodec.frame(value, session: binding.sessionID))
+    }
     /// 先停止当前连接，即使钥匙串暂时不可写也不能继续控制；删除失败明确返回给 UI。
     public func revoke() throws {
         stop(); _ = session.revoke()
@@ -83,11 +87,13 @@ import VoxPalmLink
     private var sessionID: UUID?
     private var sequence: UInt64 = 0
     private var greeting = Data()
+    private var feedbackFramer = LinkFramer()
     private var timer: Task<Void, Never>?
     private var started = false
     private var closed = false
     public var onReady: (() -> Void)?
     public var onDisconnected: ((SecureLinkError?) -> Void)?
+    public var onVoiceFeedback: ((VoiceFeedback) -> Void)?
     public init(credential: LinkCredential, endpoint: NWEndpoint) {
         self.credential = credential
         channel = TLSChannel(endpoint: endpoint, credential: credential, pairing: false)
@@ -99,12 +105,20 @@ import VoxPalmLink
             self.timer?.cancel(); self.timer = nil; self.sessionID = nil
             self.onDisconnected?(error)
         }
-        channel.onData = { [weak self] data in
-            guard let self, self.sessionID == nil, self.greeting.count + data.count <= 40 else {
-                self?.channel.close(.protocolViolation); return
-            }
-            self.greeting.append(data)
-            guard self.greeting.count == 40 else { return }
+        channel.onData = { [weak self] data in self?.receive(data) }
+        timer = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(10)) } catch { return }
+            self?.channel.close(.timeout)
+        }
+        channel.start()
+    }
+    private func receive(_ data: Data) {
+        guard !closed else { return }
+        var remainder = data
+        if sessionID == nil {
+            let prefixCount = min(40 - greeting.count, remainder.count)
+            greeting.append(remainder.prefix(prefixCount)); remainder = Data(remainder.dropFirst(prefixCount))
+            guard greeting.count == 40 else { return }
             guard self.greeting.prefix(4) == Data("VPL1".utf8),
                   let text = String(data: self.greeting.dropFirst(4), encoding: .utf8), let id = UUID(uuidString: text) else {
                 self.channel.close(.protocolViolation); return
@@ -119,11 +133,13 @@ import VoxPalmLink
             }
             self.onReady?()
         }
-        timer = Task { @MainActor [weak self] in
-            do { try await Task.sleep(for: .seconds(10)) } catch { return }
-            self?.channel.close(.timeout)
-        }
-        channel.start()
+        guard !closed, let sessionID, !remainder.isEmpty else { return }
+        do {
+            for body in try feedbackFramer.append(remainder) {
+                guard !closed else { return }
+                onVoiceFeedback?(try VoiceFeedbackCodec.decode(body, session: sessionID))
+            }
+        } catch { channel.close(.protocolViolation) }
     }
     public func send(_ message: LinkMessage) throws {
         guard !closed, let sessionID, sequence < UInt64.max else { throw SecureLinkError.connection }
