@@ -13,6 +13,8 @@ import VoxPalmLink
     private var timer: Task<Void, Never>?
     private var stopped = false
     public var onReady: ((NWEndpoint.Port) -> Void)?
+    public var onConnected: (() -> Void)?
+    public var onUnavailable: (() -> Void)?
     public var onMessage: ((LinkMessage) -> Void)?
     public var onDisconnected: (() -> Void)?
     public init(credential: LinkCredential, store: any LinkCredentialStore, loopbackOnly: Bool = false) throws {
@@ -24,7 +26,7 @@ import VoxPalmLink
         guard !stopped, timer == nil else { return }
         listener.onReady = { [weak self] in self?.onReady?($0) }
         listener.onAuthenticated = { [weak self] in self?.accept($0) }
-        listener.onFailure = { [weak self] in self?.stop() }
+        listener.onFailure = { [weak self] in self?.stop(); self?.onUnavailable?() }
         listener.start()
         timer = Task { @MainActor [weak self] in
             while !Task.isCancelled {
@@ -58,6 +60,7 @@ import VoxPalmLink
                 oldOutput?.cancel(); self.onDisconnected?()
             }
             incoming.send(Data(("VPL1" + binding.sessionID.uuidString).utf8))
+            onConnected?()
         } catch { incoming.close(.invalidCredential) }
     }
     public func stop() {
