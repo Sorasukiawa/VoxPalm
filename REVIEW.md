@@ -10,6 +10,7 @@
 ## 高风险路径
 
 改到下面任何一处，合入 main 前都要独立评审：
+- `Mobile/`、`Packages/VoxPalmLink/Sources/VoxPalmLinkUI/`、`App/Sources/VoxPalm/PhonePairingPane.swift`：手机工程、相机与本地网络权限、配对码展示和界面生命周期；退出扫描或取消配对后不能偷偷继续，也不能把测试消息当作系统输入。
 - `Packages/VoxPalmLink/Sources/VoxPalmLinkNetwork/`：配对凭据、TLS 身份绑定、Keychain、网络输入与撤销；发现地址不得替代认证，失败不能进入控制链路。
 - `scripts/build-app.sh`、`scripts/lib/local-paths.sh`、`scripts/tests/build-app.sh`、`scripts/check.sh`、`App/VoxPalm.entitlements`、`App/Info.plist`、`Packages/VoxPalmCore/Package.swift`：打包、release 去调试符号表和签名后的整包本机路径自检、签名、权限说明和 Bundle ID；whisper 预编译框架的版本和校验和（会被打进安装包并签名）；合入前检查和 CI 跑的就是 `check.sh`。
 - `App/Package.swift`、`App/Sources/VoxPalm/PrivateModules.swift`、`App/Sources/VoxPalm/UIPreview.swift`：私有模块只在 `VOXPALM_PRIVATE` 下链接；调试预览里有 `#filePath`，只能编进调试版。

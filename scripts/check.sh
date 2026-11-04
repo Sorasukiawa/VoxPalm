@@ -9,12 +9,15 @@ JOBS="${SWIFT_JOBS:-2}"
 for script in scripts/build-app.sh scripts/lib/local-paths.sh scripts/tests/build-app.sh scripts/check.sh; do
   bash -n "$script"
 done
-plutil -lint App/Info.plist App/VoxPalm.entitlements
+plutil -lint App/Info.plist App/VoxPalm.entitlements Mobile/Info.plist Mobile/VoxPalmMobile.xcodeproj/project.pbxproj
 bash scripts/tests/build-app.sh
 swift test --package-path Packages/VoxPalmLink --jobs "$JOBS"
 swift test --package-path Packages/VoxPalmCore --jobs "$JOBS"
 swift test --package-path tools/probe --jobs "$JOBS"
 swift test --package-path App --jobs "$JOBS"
+# 编译手机实际 App 入口与相机 UI；不启动模拟器、不安装到设备、不读取钥匙串。
+xcodebuild -project Mobile/VoxPalmMobile.xcodeproj -scheme VoxPalmMobile \
+  -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build
 
 # 无效命令必须在开麦/开始监听之前返回失败，不能崩溃、卡住或当成默认时长。
 PROBE="$(swift build --package-path tools/probe --show-bin-path)/voxpalm-probe"

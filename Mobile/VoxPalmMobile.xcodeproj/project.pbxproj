@@ -1,0 +1,31 @@
+// !$*UTF8*$!
+{
+ archiveVersion = 1;
+ classes = {};
+ objectVersion = 56;
+ objects = {
+  A00000000000000000000001 = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = YES; LastUpgradeCheck = 1600;}; buildConfigurationList = A00000000000000000000002; compatibilityVersion = "Xcode 14.0"; developmentRegion = "zh-Hans"; knownRegions = ("zh-Hans", en, Base); mainGroup = A00000000000000000000003; productRefGroup = A00000000000000000000004; projectDirPath = ""; projectRoot = ""; targets = (A00000000000000000000005); packageReferences = (A00000000000000000000020);};
+  A00000000000000000000002 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000006, A00000000000000000000007); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+  A00000000000000000000003 = {isa = PBXGroup; children = (A00000000000000000000010, A00000000000000000000011, A00000000000000000000004); sourceTree = "<group>";};
+  A00000000000000000000004 = {isa = PBXGroup; children = (A00000000000000000000012); name = Products; sourceTree = "<group>";};
+  A00000000000000000000005 = {isa = PBXNativeTarget; buildConfigurationList = A00000000000000000000008; buildPhases = (A00000000000000000000013, A00000000000000000000014, A00000000000000000000015); buildRules = (); dependencies = (); name = VoxPalmMobile; packageProductDependencies = (A00000000000000000000021, A00000000000000000000022); productName = VoxPalmMobile; productReference = A00000000000000000000012; productType = "com.apple.product-type.application";};
+  A00000000000000000000006 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;};};
+  A00000000000000000000007 = {isa = XCBuildConfiguration; name = Release; buildSettings = {CLANG_ENABLE_MODULES = YES; SDKROOT = iphoneos; IPHONEOS_DEPLOYMENT_TARGET = 16.0; SWIFT_COMPILATION_MODE = wholemodule; SWIFT_OPTIMIZATION_LEVEL = "-O";};};
+  A00000000000000000000008 = {isa = XCConfigurationList; buildConfigurations = (A00000000000000000000009, A0000000000000000000000A); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release;};
+  A00000000000000000000009 = {isa = XCBuildConfiguration; name = Debug; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.sorasukiawa.VoxPalm.Mobile; PRODUCT_NAME = VoxPalmMobile; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; SUPPORTS_MACCATALYST = NO;};};
+  A0000000000000000000000A = {isa = XCBuildConfiguration; name = Release; buildSettings = {CODE_SIGN_STYLE = Automatic; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.sorasukiawa.VoxPalm.Mobile; PRODUCT_NAME = VoxPalmMobile; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = "1,2"; SUPPORTS_MACCATALYST = NO; STRIP_INSTALLED_PRODUCT = YES; COPY_PHASE_STRIP = YES;};};
+  A00000000000000000000010 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Sources/VoxPalmMobileApp.swift; sourceTree = "<group>";};
+  A00000000000000000000011 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>";};
+  A00000000000000000000012 = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VoxPalmMobile.app; sourceTree = BUILT_PRODUCTS_DIR;};
+  A00000000000000000000013 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000016); runOnlyForDeploymentPostprocessing = 0;};
+  A00000000000000000000014 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000017, A00000000000000000000018); runOnlyForDeploymentPostprocessing = 0;};
+  A00000000000000000000015 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0;};
+  A00000000000000000000016 = {isa = PBXBuildFile; fileRef = A00000000000000000000010;};
+  A00000000000000000000017 = {isa = PBXBuildFile; productRef = A00000000000000000000021;};
+  A00000000000000000000018 = {isa = PBXBuildFile; productRef = A00000000000000000000022;};
+  A00000000000000000000020 = {isa = XCLocalSwiftPackageReference; relativePath = ../Packages/VoxPalmLink;};
+  A00000000000000000000021 = {isa = XCSwiftPackageProductDependency; package = A00000000000000000000020; productName = VoxPalmLinkUI;};
+  A00000000000000000000022 = {isa = XCSwiftPackageProductDependency; package = A00000000000000000000020; productName = VoxPalmLinkNetwork;};
+ };
+ rootObject = A00000000000000000000001;
+}

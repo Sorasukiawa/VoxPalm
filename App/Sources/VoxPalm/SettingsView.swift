@@ -6,9 +6,9 @@ import VoxPalmDevices
 import VoxPalmEngine
 import VoxPalmVoice
 
-/// 设置窗口左边栏的六页。
+/// 设置窗口左边栏。
 enum SettingsPane: String, CaseIterable, Identifiable {
-    case devices, keys, voice, permissions, pro, about
+    case devices, keys, voice, phone, permissions, pro, about
 
     var id: String { rawValue }
 
@@ -17,6 +17,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .devices: return "设备"
         case .keys: return "按键"
         case .voice: return "语音"
+        case .phone: return "手机"
         case .permissions: return "权限"
         case .pro: return "Pro"
         case .about: return "关于"
@@ -28,6 +29,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .devices: return "av.remote.fill"
         case .keys: return "keyboard.fill"
         case .voice: return "waveform"
+        case .phone: return "iphone"
         case .permissions: return "hand.raised.fill"
         case .pro: return "star.fill"
         case .about: return "info"
@@ -39,6 +41,7 @@ enum SettingsPane: String, CaseIterable, Identifiable {
         case .devices: return .tileBlue
         case .keys: return .tileIndigo
         case .voice: return Brand.coralBottom
+        case .phone: return .tileBlue
         case .permissions: return .tileGreen
         case .pro: return .tileOrange
         case .about: return .tileGray
@@ -89,6 +92,7 @@ struct SettingsView: View {
                         case .devices: DevicesPane()
                         case .keys: KeysPane()
                         case .voice: VoicePane()
+                        case .phone: PhonePairingPane(store: model.phoneLink)
                         case .permissions: PermissionsPane()
                         case .pro: ProPane()
                         case .about: AboutPane()

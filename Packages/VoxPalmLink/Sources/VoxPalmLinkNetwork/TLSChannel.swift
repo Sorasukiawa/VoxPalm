@@ -129,9 +129,10 @@ enum TLSConfiguration {
         guard !stopped else { return }
         listener.stateUpdateHandler = { [weak self] state in
             MainActor.assumeIsolated {
-                guard let self else { return }
+                guard let self, !self.stopped else { return }
                 if case .ready = state, let port = self.listener.port { self.onReady?(port) }
                 if case .failed = state { self.onFailure?(); self.stop() }
+                if case .waiting = state { self.onFailure?(); self.stop() }
             }
         }
         listener.newConnectionHandler = { [weak self] connection in

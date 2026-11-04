@@ -6,10 +6,12 @@ let package = Package(
     name: "VoxPalmLink",
     platforms: [.macOS(.v14), .iOS(.v16), .watchOS(.v9)],
     products: [.library(name: "VoxPalmLink", targets: ["VoxPalmLink"]),
-               .library(name: "VoxPalmLinkNetwork", targets: ["VoxPalmLinkNetwork"])],
+               .library(name: "VoxPalmLinkNetwork", targets: ["VoxPalmLinkNetwork"]),
+               .library(name: "VoxPalmLinkUI", targets: ["VoxPalmLinkUI"])],
     targets: [
         .target(name: "VoxPalmLink"),
         .target(name: "VoxPalmLinkNetwork", dependencies: ["VoxPalmLink"]),
+        .target(name: "VoxPalmLinkUI", dependencies: ["VoxPalmLinkNetwork"], swiftSettings: [.swiftLanguageMode(.v5)]),
         .testTarget(name: "VoxPalmLinkTests", dependencies: ["VoxPalmLink"]),
         .testTarget(name: "VoxPalmLinkNetworkTests", dependencies: ["VoxPalmLinkNetwork"]),
     ]

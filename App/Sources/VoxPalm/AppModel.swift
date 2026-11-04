@@ -87,6 +87,7 @@ final class AppModel {
     @ObservationIgnored private let configStore: AppConfigStore
     /// 截图也会实例化 AppModel，但只能读设备清单，不能接管真实按键或开麦。
     @ObservationIgnored private let isPreview = UIPreview.isRendering
+    @ObservationIgnored lazy var phoneLink = PhoneLinkStore(preview: isPreview)
     @ObservationIgnored private var permissionTimer: Timer?
     @ObservationIgnored private var inputSourceObserver: NSObjectProtocol?
 
